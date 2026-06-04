@@ -1,59 +1,82 @@
 import { jsPDF } from "jspdf";
 
-export function downloadSessionReport({ patient, session }) {
+export function downloadSessionReport({ patient, session, t = {} }) {
   const doc = new jsPDF();
   const margin = 16;
+  const postureUnits = getPostureUnits(session);
   let y = 18;
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
-  doc.text("BalanceRehab Assessment Report", margin, y);
+  doc.text(t.assessmentReportTitle ?? "BalanceRehab Assessment Report", margin, y);
   y += 8;
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
-  doc.text("Educational rehabilitation-support prototype - Demo acquisition", margin, y);
+  doc.text(t.reportPrototypeLine ?? "Educational rehabilitation-support prototype - Demo acquisition", margin, y);
   y += 12;
 
-  section(doc, "Patient information", y);
+  section(doc, t.patientInformation ?? "Patient information", y);
   y += 8;
-  y = line(doc, `Patient: ${patient.fullName} (${patient.patientCode})`, y);
-  y = line(doc, `Age / Sex: ${patient.age ?? "-"} / ${patient.sex ?? "-"}`, y);
-  y = line(doc, `Pathology: ${patient.pathology ?? "-"}`, y);
+  y = line(doc, `${t.patient}: ${patient.fullName} (${patient.patientCode})`, y);
+  y = line(doc, `${t.age} / ${t.sex}: ${patient.age ?? "-"} / ${displaySex(patient.sex, t)}`, y);
+  y = line(doc, `${t.heightWeight ?? "Height / Weight"}: ${patient.heightCm ?? "-"} cm / ${patient.weightKg ?? "-"} kg`, y);
+  y = line(doc, `${t.dominantSide}: ${patient.dominantSide ?? "-"}`, y);
+  y = line(doc, `${t.medicalReason}: ${patient.pathology ?? "-"}`, y);
+  y = line(doc, `${t.clinicalGoal}: ${patient.clinicalGoal ?? "-"}`, y);
+  if (patient.clinicalNotes || patient.notes) {
+    y = paragraph(doc, `${t.clinicalNotes}: ${patient.clinicalNotes ?? patient.notes}`, y);
+  }
   y += 4;
 
-  section(doc, "Test conditions", y);
+  section(doc, t.testConditions ?? "Test conditions", y);
   y += 8;
-  y = line(doc, `Date: ${session.date}`, y);
-  y = line(doc, `Test type: ${session.testType}`, y);
-  y = line(doc, `Support ring: ${session.supportRing}`, y);
-  y = line(doc, `Vision condition: ${session.condition}`, y);
-  y = line(doc, `Duration: ${session.durationSeconds} seconds`, y);
+  y = line(doc, `${t.date}: ${session.date}`, y);
+  y = line(doc, `${t.test}: ${session.testType}`, y);
+  y = line(doc, `${t.supportRing ?? "Support ring"}: ${session.supportRing}`, y);
+  y = line(doc, `${t.visionCondition ?? "Vision condition"}: ${session.condition}`, y);
+  y = line(doc, `${t.duration}: ${session.durationSeconds} ${t.seconds ?? "seconds"}`, y);
+  y = line(doc, `${t.acquisitionMode ?? "Acquisition mode"}: ${session.acquisitionMode ?? "Demo"}`, y);
   y += 4;
 
-  section(doc, "Scores", y);
+  section(doc, t.scores ?? "Scores", y);
   y += 8;
-  y = line(doc, `Total balance score: ${session.totalScore}/100`, y);
-  y = line(doc, `Board stability score: ${session.boardScore}/100`, y);
-  y = line(doc, `Posture stability score: ${session.postureScore}/100`, y);
-  y = line(doc, `Status: ${session.results.status}`, y);
+  y = line(doc, `${t.totalBalanceScore}: ${session.totalScore}/100`, y);
+  y = line(
+    doc,
+    `${t.boardStability}: ${session.results.availableMetrics?.board ? `${session.boardScore}/100` : t.notAvailableWebcamOnly ?? "Not available in webcam-only mode"}`,
+    y,
+  );
+  y = line(doc, `${t.postureStability}: ${session.postureScore}/100`, y);
+  y = line(doc, `${t.status}: ${session.results.status}`, y);
   y += 4;
 
-  section(doc, "Metrics", y);
+  section(doc, t.postureMetrics ?? "Posture metrics", y);
   y += 8;
-  y = line(doc, `AP sway: ${session.results.meanSwayAp} mm mean / ${session.results.maxSwayAp} mm max`, y);
-  y = line(doc, `ML sway: ${session.results.meanSwayMl} mm mean / ${session.results.maxSwayMl} mm max`, y);
-  y = line(doc, `Sway velocity: ${session.results.swayVelocity} mm/s`, y);
-  y = line(doc, `Instability events: ${session.results.instabilityEvents}`, y);
-  y = line(doc, `Trunk deviation: ${session.results.trunkDeviation} deg`, y);
+  y = line(doc, `${t.trunkDeviation}: ${session.results.trunkDeviation} ${postureUnits.trunk}`, y);
+  y = line(doc, `${t.shoulderAsymmetry}: ${session.results.shoulderAsymmetry} ${postureUnits.asymmetry}`, y);
+  y = line(doc, `${t.hipAsymmetry}: ${session.results.hipAsymmetry} ${postureUnits.asymmetry}`, y);
+  y = line(doc, `${t.bodyCenterDeviation}: ${session.results.bodyCenterDeviation} ${postureUnits.center}`, y);
   y += 4;
 
-  section(doc, "Interpretation", y);
+  section(doc, t.swayMetrics ?? "Sway metrics", y);
+  y += 8;
+  if (session.results.availableMetrics?.board) {
+    y = line(doc, `${t.apSway}: ${session.results.meanSwayAp} mm ${t.mean ?? "mean"} / ${session.results.maxSwayAp} mm ${t.max ?? "max"}`, y);
+    y = line(doc, `${t.mlSway}: ${session.results.meanSwayMl} mm ${t.mean ?? "mean"} / ${session.results.maxSwayMl} mm ${t.max ?? "max"}`, y);
+    y = line(doc, `${t.swayVelocity}: ${session.results.swayVelocity} mm/s`, y);
+    y = line(doc, `${t.instabilityEvents}: ${session.results.instabilityEvents}`, y);
+  } else {
+    y = paragraph(doc, t.notAvailableWebcamOnly ?? "Not available in webcam-only mode", y);
+  }
+  y += 4;
+
+  section(doc, t.interpretation ?? "Interpretation", y);
   y += 8;
   y = paragraph(doc, session.results.interpretation, y);
   y += 4;
 
-  section(doc, "Recommendations", y);
+  section(doc, t.recommendations ?? "Recommendations", y);
   y += 8;
   session.results.recommendations.forEach((item) => {
     y = paragraph(doc, `- ${item}`, y);
@@ -63,7 +86,8 @@ export function downloadSessionReport({ patient, session }) {
   doc.setFontSize(8);
   doc.setTextColor(100);
   doc.text(
-    "This prototype is designed for educational and rehabilitation-support purposes only. It does not replace certified medical diagnosis or clinical decision-making.",
+    t.educationalDisclaimer ??
+      "This prototype is designed for educational and rehabilitation-support purposes only. It does not replace certified medical diagnosis or clinical decision-making.",
     margin,
     y,
     { maxWidth: 178 },
@@ -94,4 +118,19 @@ function paragraph(doc, text, y) {
   const lines = doc.splitTextToSize(text, 178);
   doc.text(lines, 16, y);
   return y + lines.length * 5 + 2;
+}
+
+function displaySex(sex, t = {}) {
+  if (sex === "F" || sex === "Female") return t.female ?? "Female";
+  if (sex === "M" || sex === "Male") return t.male ?? "Male";
+  return sex ?? "-";
+}
+
+function getPostureUnits(session) {
+  const isWebcamOnly = session.acquisitionModeKey === "webcam" || session.results?.acquisitionMode === "webcam";
+  return {
+    trunk: "deg",
+    asymmetry: isWebcamOnly ? "%" : "deg",
+    center: isWebcamOnly ? "%" : "mm",
+  };
 }

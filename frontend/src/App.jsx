@@ -32,18 +32,52 @@ export default function App() {
   const [reports, setReports] = useState(() => initialData.reports);
   const [preselectedPatientId, setPreselectedPatientId] = useState(null);
   const [patientAddRequest, setPatientAddRequest] = useState(0);
+  const [patientProfileRequest, setPatientProfileRequest] = useState(null);
+  const [assessmentFocus, setAssessmentFocus] = useState(false);
+  const [backendReady, setBackendReady] = useState(false);
 
   const t = translations[language];
 
   useEffect(() => {
-    Promise.allSettled([api.health(), api.status()]).then(([healthResult, statusResult]) => {
+    let cancelled = false;
+
+    async function loadBackendState() {
+      const [healthResult, statusResult] = await Promise.allSettled([api.health(), api.status()]);
+      if (cancelled) return;
+
       if (healthResult.status === "fulfilled") {
         setHealth(healthResult.value);
+        setBackendReady(true);
       }
       if (statusResult.status === "fulfilled") {
         setStatus(statusResult.value);
       }
-    });
+      if (healthResult.status !== "fulfilled") return;
+
+      try {
+        let backendPatients = await api.patients();
+        if (backendPatients.length === 0) {
+          await api.seedDemoData(false);
+          backendPatients = await api.patients();
+        }
+        const [backendSessions, backendReports] = await Promise.all([
+          api.sessions(backendPatients),
+          api.reports(),
+        ]);
+        if (!cancelled && backendPatients.length > 0) {
+          setPatients(backendPatients);
+          setSessions(backendSessions);
+          setReports(backendReports);
+        }
+      } catch (error) {
+        console.warn("Backend data loading failed, keeping local state.", error);
+      }
+    }
+
+    loadBackendState();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -82,7 +116,12 @@ export default function App() {
           patients={patients}
           sessions={sessions}
           reports={reports}
-          onAddPatient={(payload) => {
+          onAddPatient={async (payload) => {
+            if (backendReady) {
+              const backendPatient = await api.createPatient(payload);
+              setPatients((current) => [backendPatient, ...current]);
+              return backendPatient;
+            }
             const nextId = Math.max(0, ...patients.map((patient) => patient.id)) + 1;
             const nextPatientCode = getNextPatientCode(patients);
             const newPatient = {
@@ -98,14 +137,22 @@ export default function App() {
             setPatients([newPatient, ...patients]);
             return newPatient;
           }}
-          onUpdatePatient={(id, payload) => {
+          onUpdatePatient={async (id, payload) => {
+            if (backendReady) {
+              const updatedPatient = await api.updatePatient(id, payload);
+              setPatients((current) => current.map((patient) => (patient.id === id ? updatedPatient : patient)));
+              return;
+            }
             setPatients((current) =>
               current.map((patient) =>
                 patient.id === id ? { ...patient, ...payload, age: Number(payload.age) || patient.age } : patient,
               ),
             );
           }}
-          onDeletePatient={(id) => {
+          onDeletePatient={async (id) => {
+            if (backendReady) {
+              await api.deletePatient(id);
+            }
             setPatients((current) => current.filter((patient) => patient.id !== id));
             setSessions((current) => current.filter((session) => session.patientId !== id));
             setReports((current) => current.filter((report) => report.patientId !== id));
@@ -115,6 +162,8 @@ export default function App() {
             setActivePage("balanceAssessment");
           }}
           addRequest={patientAddRequest}
+          profileRequest={patientProfileRequest}
+          onProfileRequestHandled={() => setPatientProfileRequest(null)}
         />
       );
     }
@@ -127,22 +176,33 @@ export default function App() {
           preselectedPatientId={preselectedPatientId}
           t={t}
           onClearPreselectedPatient={() => setPreselectedPatientId(null)}
-          onSaveSession={(session) => {
-            setSessions((current) => [session, ...current]);
+          onWorkflowFocusChange={setAssessmentFocus}
+          onSaveSession={async (session) => {
+            const saved = backendReady ? await api.createSession(session, patients) : session;
+            setSessions((current) => [saved, ...current]);
             setPatients((current) =>
               current.map((patient) =>
-                patient.id === session.patientId
+                patient.id === saved.patientId
                   ? {
                       ...patient,
-                      latestScore: session.totalScore,
-                      lastAssessmentDate: session.date,
-                      status: session.status,
+                      latestScore: saved.totalScore,
+                      lastAssessmentDate: saved.date,
+                      status: saved.status,
                     }
                   : patient,
               ),
             );
+            return saved;
           }}
-          onSaveReport={(report) => setReports((current) => [report, ...current])}
+          onSaveReport={async (report) => {
+            const saved = backendReady ? await api.createReport(report) : report;
+            setReports((current) => [saved, ...current]);
+            return saved;
+          }}
+          onReturnToPatientProfile={(patientId, tab = "overview") => {
+            setPatientProfileRequest({ patientId, tab, requestedAt: Date.now() });
+            setActivePage("patients");
+          }}
         />
       );
     }
@@ -184,6 +244,11 @@ export default function App() {
       onPageChange={setActivePage}
       t={t}
       status={status}
+      focused={activePage === "balanceAssessment" && assessmentFocus}
+      onExitFocus={() => {
+        setAssessmentFocus(false);
+        setActivePage("balanceAssessment");
+      }}
     >
       {renderPage()}
     </AppShell>

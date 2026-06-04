@@ -7,7 +7,7 @@ import { ClinicalTable } from "../components/clinical/ClinicalTable";
 import { EmptyState } from "../components/clinical/EmptyState";
 import { SectionHeader } from "../components/clinical/SectionHeader";
 import { StatusBadge } from "../components/clinical/StatusBadge";
-import { clinicalGoals, pathologyOptions } from "../data/demoPatients";
+import { clinicalGoals, pathologyOptions } from "../data/demoPatients.js";
 import { downloadSessionReport } from "../utils/report";
 
 const emptyForm = {
@@ -39,12 +39,15 @@ export function PatientsPage({
   onDeletePatient,
   onStartAssessment,
   addRequest,
+  profileRequest,
+  onProfileRequestHandled,
 }) {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editingPatient, setEditingPatient] = useState(null);
   const [createdPatient, setCreatedPatient] = useState(null);
+  const [requestedProfileTab, setRequestedProfileTab] = useState("overview");
 
   useEffect(() => {
     if (addRequest) {
@@ -52,6 +55,17 @@ export function PatientsPage({
       setFormOpen(true);
     }
   }, [addRequest]);
+
+  useEffect(() => {
+    if (profileRequest?.patientId) {
+      setSelectedId(profileRequest.patientId);
+      setRequestedProfileTab(profileRequest.tab ?? "overview");
+      setFormOpen(false);
+      setEditingPatient(null);
+      setCreatedPatient(null);
+      onProfileRequestHandled();
+    }
+  }, [profileRequest, onProfileRequestHandled]);
 
   const selectedPatient = patients.find((patient) => patient.id === selectedId);
   const filteredPatients = useMemo(() => {
@@ -67,6 +81,7 @@ export function PatientsPage({
       <PatientDetail
         t={t}
         patient={selectedPatient}
+        requestedTab={requestedProfileTab}
         sessions={sessions.filter((session) => session.patientId === selectedPatient.id)}
         reports={reports.filter((report) => report.patientId === selectedPatient.id)}
         onBack={() => setSelectedId(null)}
@@ -153,13 +168,13 @@ export function PatientsPage({
             setEditingPatient(null);
             setCreatedPatient(null);
           }}
-          onSubmit={(payload) => {
+          onSubmit={async (payload) => {
             if (editingPatient) {
-              onUpdatePatient(editingPatient.id, payload);
+              await onUpdatePatient(editingPatient.id, payload);
               setFormOpen(false);
               setEditingPatient(null);
             } else {
-              const newPatient = onAddPatient(payload);
+              const newPatient = await onAddPatient(payload);
               setCreatedPatient(newPatient);
             }
           }}
@@ -187,10 +202,16 @@ export function PatientsPage({
   );
 }
 
-function PatientDetail({ t, patient, sessions, reports, onBack, onEdit, onDelete, onStartAssessment }) {
+function PatientDetail({ t, patient, requestedTab, sessions, reports, onBack, onEdit, onDelete, onStartAssessment }) {
   const [tab, setTab] = useState("overview");
   const latestSession = sessions[0];
   const tabs = ["overview", "sessions", "progress", "reports"];
+
+  useEffect(() => {
+    if (tabs.includes(requestedTab)) {
+      setTab(requestedTab);
+    }
+  }, [requestedTab]);
 
   return (
     <div className="space-y-5">
@@ -237,6 +258,10 @@ function PatientDetail({ t, patient, sessions, reports, onBack, onEdit, onDelete
       {tab === "overview" ? (
         <ClinicalCard className="p-5">
           <SectionHeader title={t.overview} description={t.currentPatientStatus} />
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <PatientInfoPanel t={t} patient={patient} />
+            <ClinicalInfoPanel t={t} patient={patient} />
+          </div>
           {sessions.length === 0 ? (
             <div className="mt-5">
               <EmptyState
@@ -329,7 +354,7 @@ function PatientDetail({ t, patient, sessions, reports, onBack, onEdit, onDelete
                       <p className="text-sm text-rehab-muted">{report.generatedAt}</p>
                     </div>
                   </div>
-                  <Button variant="secondary" onClick={() => session && downloadSessionReport({ patient, session })}>
+                  <Button variant="secondary" onClick={() => session && downloadSessionReport({ patient, session, t })}>
                     {t.downloadPdf}
                   </Button>
                 </div>
@@ -380,7 +405,7 @@ function SessionsPanel({ t, patient, sessions }) {
                     <p className="font-semibold">{t.results} - {selectedSession.id}</p>
                     <p className="mt-1 text-sm text-rehab-muted">{selectedSession.results.interpretation}</p>
                   </div>
-                  <Button variant="secondary" onClick={() => downloadSessionReport({ patient, session: selectedSession })}>
+                  <Button variant="secondary" onClick={() => downloadSessionReport({ patient, session: selectedSession, t })}>
                     {t.downloadPdf}
                   </Button>
                 </div>
@@ -395,6 +420,44 @@ function SessionsPanel({ t, patient, sessions }) {
         )}
       </div>
     </ClinicalCard>
+  );
+}
+
+function PatientInfoPanel({ t, patient }) {
+  return (
+    <div className="rounded-lg border border-rehab-line p-4">
+      <p className="font-semibold text-rehab-ink">{t.patientInformation}</p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <InfoItem label={t.patientDetails} value={patient.patientCode} />
+        <InfoItem label={t.age} value={patient.age ? `${patient.age} ${t.years}` : "-"} />
+        <InfoItem label={t.sex} value={displaySex(patient.sex)} />
+        <InfoItem label={t.dominantSide} value={patient.dominantSide ?? "-"} />
+        <InfoItem label={t.heightCm} value={patient.heightCm ? `${patient.heightCm} cm` : "-"} />
+        <InfoItem label={t.weightKg} value={patient.weightKg ? `${patient.weightKg} kg` : "-"} />
+      </div>
+    </div>
+  );
+}
+
+function ClinicalInfoPanel({ t, patient }) {
+  return (
+    <div className="rounded-lg border border-rehab-line p-4">
+      <p className="font-semibold text-rehab-ink">{t.clinicalProfile}</p>
+      <div className="mt-4 grid gap-3">
+        <InfoItem label={t.medicalReason} value={patient.pathology || "-"} />
+        <InfoItem label={t.clinicalGoal} value={patient.clinicalGoal || "-"} />
+        <InfoItem label={t.clinicalNotes} value={patient.clinicalNotes || patient.notes || "-"} />
+      </div>
+    </div>
+  );
+}
+
+function InfoItem({ label, value }) {
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-rehab-ink">{value}</p>
+    </div>
   );
 }
 

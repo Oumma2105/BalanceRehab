@@ -4,10 +4,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 
-AcquisitionMode = Literal["demo", "real"]
+AcquisitionMode = Literal["webcam", "demo", "combined", "board"]
 TestType = Literal["static", "dynamic"]
 SupportRing = Literal["installed", "removed"]
 VisualCondition = Literal["eyes_open", "eyes_closed"]
+SessionStatus = Literal["Stable", "Improving", "Follow-up", "Declining"]
+RecommendationPriority = Literal["low", "medium", "high"]
 
 
 class HealthResponse(BaseModel):
@@ -26,13 +28,15 @@ class SystemStatus(BaseModel):
 
 
 class PatientBase(BaseModel):
-    patient_code: str
+    patient_code: str | None = None
     full_name: str
     age: int | None = None
     sex: str | None = None
     height_cm: float | None = None
     weight_kg: float | None = None
+    dominant_side: str | None = None
     pathology: str | None = None
+    clinical_goal: str | None = None
     clinical_notes: str | None = None
 
 
@@ -40,9 +44,138 @@ class PatientCreate(PatientBase):
     pass
 
 
+class PatientUpdate(BaseModel):
+    full_name: str | None = None
+    age: int | None = None
+    sex: str | None = None
+    height_cm: float | None = None
+    weight_kg: float | None = None
+    dominant_side: str | None = None
+    pathology: str | None = None
+    clinical_goal: str | None = None
+    clinical_notes: str | None = None
+
+
 class PatientRead(PatientBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    patient_code: str
+    latest_score: float | None = None
+    last_assessment_date: datetime | None = None
+    status: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SensorSampleBase(BaseModel):
+    timestamp_ms: int
+    front_left: float | None = None
+    front_right: float | None = None
+    rear_left: float | None = None
+    rear_right: float | None = None
+    anterior_posterior_sway: float | None = None
+    medial_lateral_sway: float | None = None
+    stability_score: float | None = None
+
+
+class SensorSampleRead(SensorSampleBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    session_id: int
+
+
+class PostureSampleBase(BaseModel):
+    timestamp_ms: int
+    trunk_inclination: float | None = None
+    shoulder_asymmetry: float | None = None
+    hip_asymmetry: float | None = None
+    body_center_deviation: float | None = None
+    posture_score: float | None = None
+
+
+class PostureSampleRead(PostureSampleBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    session_id: int
+
+
+class RecommendationBase(BaseModel):
+    category: str
+    recommendation_en: str
+    recommendation_fr: str | None = None
+    priority: RecommendationPriority = "medium"
+
+
+class RecommendationRead(RecommendationBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    session_id: int
+
+
+class SessionBase(BaseModel):
+    patient_id: int
+    acquisition_mode: AcquisitionMode = "webcam"
+    is_demo: bool = False
+    test_type: TestType
+    support_ring: SupportRing
+    visual_condition: VisualCondition
+    duration_seconds: int = 30
+    notes: str | None = None
+    status: SessionStatus | None = None
+    total_balance_score: float | None = None
+    board_stability_score: float | None = None
+    posture_stability_score: float | None = None
+    mean_sway_ap: float | None = None
+    mean_sway_ml: float | None = None
+    max_sway_ap: float | None = None
+    max_sway_ml: float | None = None
+    sway_velocity: float | None = None
+    instability_events: int | None = None
+    trunk_deviation: float | None = None
+    shoulder_asymmetry: float | None = None
+    hip_asymmetry: float | None = None
+    body_center_deviation: float | None = None
+    interpretation: str | None = None
+
+
+class SessionCreate(SessionBase):
+    sensor_samples: list[SensorSampleBase] = []
+    posture_samples: list[PostureSampleBase] = []
+    recommendations: list[RecommendationBase] = []
+
+
+class SessionRead(SessionBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     created_at: datetime
     updated_at: datetime
+    sensor_samples: list[SensorSampleRead] = []
+    posture_samples: list[PostureSampleRead] = []
+    recommendations: list[RecommendationRead] = []
+
+
+class ReportBase(BaseModel):
+    session_id: int
+    report_file_path: str | None = None
+    language: Literal["en", "fr"] = "en"
+    acquisition_mode: AcquisitionMode = "webcam"
+    summary: str | None = None
+
+
+class ReportCreate(ReportBase):
+    pass
+
+
+class ReportRead(ReportBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    report_id: str
+    patient_id: int
+    downloadable: bool
+    generated_at: datetime

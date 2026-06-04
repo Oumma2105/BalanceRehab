@@ -12,18 +12,3 @@ def dashboard_summary():
         "last_assessment": None,
         "mode": "demo",
     }
-
-
-@router.get("/sessions")
-def sessions_placeholder():
-    return {
-        "message": "Session workflow placeholder. Demo and real acquisition modes are planned.",
-        "supported_modes": ["demo", "real"],
-    }
-
-
-@router.get("/reports")
-def reports_placeholder():
-    return {
-        "message": "Report generation placeholder. Reports will display session acquisition mode.",
-    }

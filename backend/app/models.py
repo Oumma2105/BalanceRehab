@@ -16,7 +16,9 @@ class Patient(Base):
     sex: Mapped[str | None] = mapped_column(String(32), nullable=True)
     height_cm: Mapped[float | None] = mapped_column(Float, nullable=True)
     weight_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    dominant_side: Mapped[str | None] = mapped_column(String(32), nullable=True)
     pathology: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    clinical_goal: Mapped[str | None] = mapped_column(String(240), nullable=True)
     clinical_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -25,7 +27,7 @@ class Patient(Base):
         onupdate=datetime.utcnow,
     )
 
-    sessions: Mapped[list["Session"]] = relationship(back_populates="patient")
+    sessions: Mapped[list["Session"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
 
 
 class Session(Base):
@@ -40,6 +42,7 @@ class Session(Base):
     visual_condition: Mapped[str] = mapped_column(String(32))
     duration_seconds: Mapped[int] = mapped_column(Integer, default=30)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     total_balance_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     board_stability_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     posture_stability_score: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -52,6 +55,7 @@ class Session(Base):
     trunk_deviation: Mapped[float | None] = mapped_column(Float, nullable=True)
     shoulder_asymmetry: Mapped[float | None] = mapped_column(Float, nullable=True)
     hip_asymmetry: Mapped[float | None] = mapped_column(Float, nullable=True)
+    body_center_deviation: Mapped[float | None] = mapped_column(Float, nullable=True)
     interpretation: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -61,10 +65,10 @@ class Session(Base):
     )
 
     patient: Mapped["Patient"] = relationship(back_populates="sessions")
-    sensor_samples: Mapped[list["SensorSample"]] = relationship(back_populates="session")
-    posture_samples: Mapped[list["PostureSample"]] = relationship(back_populates="session")
-    reports: Mapped[list["Report"]] = relationship(back_populates="session")
-    recommendations: Mapped[list["Recommendation"]] = relationship(back_populates="session")
+    sensor_samples: Mapped[list["SensorSample"]] = relationship(back_populates="session", cascade="all, delete-orphan")
+    posture_samples: Mapped[list["PostureSample"]] = relationship(back_populates="session", cascade="all, delete-orphan")
+    reports: Mapped[list["Report"]] = relationship(back_populates="session", cascade="all, delete-orphan")
+    recommendations: Mapped[list["Recommendation"]] = relationship(back_populates="session", cascade="all, delete-orphan")
 
 
 class SensorSample(Base):
@@ -73,13 +77,13 @@ class SensorSample(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), index=True)
     timestamp_ms: Mapped[int] = mapped_column(Integer)
-    front_left: Mapped[float] = mapped_column(Float)
-    front_right: Mapped[float] = mapped_column(Float)
-    rear_left: Mapped[float] = mapped_column(Float)
-    rear_right: Mapped[float] = mapped_column(Float)
-    anterior_posterior_sway: Mapped[float] = mapped_column(Float)
-    medial_lateral_sway: Mapped[float] = mapped_column(Float)
-    stability_score: Mapped[float] = mapped_column(Float)
+    front_left: Mapped[float | None] = mapped_column(Float, nullable=True)
+    front_right: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rear_left: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rear_right: Mapped[float | None] = mapped_column(Float, nullable=True)
+    anterior_posterior_sway: Mapped[float | None] = mapped_column(Float, nullable=True)
+    medial_lateral_sway: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stability_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     session: Mapped["Session"] = relationship(back_populates="sensor_samples")
 
@@ -90,11 +94,11 @@ class PostureSample(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), index=True)
     timestamp_ms: Mapped[int] = mapped_column(Integer)
-    trunk_inclination: Mapped[float] = mapped_column(Float)
-    shoulder_asymmetry: Mapped[float] = mapped_column(Float)
-    hip_asymmetry: Mapped[float] = mapped_column(Float)
-    body_center_deviation: Mapped[float] = mapped_column(Float)
-    posture_score: Mapped[float] = mapped_column(Float)
+    trunk_inclination: Mapped[float | None] = mapped_column(Float, nullable=True)
+    shoulder_asymmetry: Mapped[float | None] = mapped_column(Float, nullable=True)
+    hip_asymmetry: Mapped[float | None] = mapped_column(Float, nullable=True)
+    body_center_deviation: Mapped[float | None] = mapped_column(Float, nullable=True)
+    posture_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     session: Mapped["Session"] = relationship(back_populates="posture_samples")
 
@@ -104,9 +108,13 @@ class Report(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), index=True)
-    report_file_path: Mapped[str] = mapped_column(String(500))
+    report_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    report_file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     language: Mapped[str] = mapped_column(String(8), default="en")
     acquisition_mode: Mapped[str] = mapped_column(String(16), default="demo")
+    downloadable: Mapped[bool] = mapped_column(Boolean, default=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     session: Mapped["Session"] = relationship(back_populates="reports")

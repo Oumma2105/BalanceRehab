@@ -15,9 +15,12 @@ export function AppShell({
   onPageChange,
   t,
   children,
+  focused = false,
+  onExitFocus,
 }) {
   return (
     <div className="min-h-screen bg-rehab-bg text-rehab-ink">
+      {!focused ? (
       <aside className="fixed inset-y-0 left-0 hidden w-72 border-r border-rehab-line bg-white px-5 py-6 lg:block">
         <div className="mb-8">
           <div className="flex items-center gap-3">
@@ -62,13 +65,26 @@ export function AppShell({
           </p>
         </div>
       </aside>
+      ) : null}
 
-      <main className="lg:pl-72">
+      <main className={focused ? "" : "lg:pl-72"}>
+        {!focused ? (
         <header className="sticky top-0 z-10 border-b border-rehab-line bg-white/90 px-5 py-4 backdrop-blur lg:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
+            <div className="flex flex-wrap items-center gap-4">
+              {focused ? (
+                <button
+                  type="button"
+                  onClick={onExitFocus}
+                  className="rounded-lg border border-rehab-line bg-white px-3 py-2 text-sm font-semibold text-rehab-ink transition hover:bg-slate-50"
+                >
+                  {t.backToWorkspace}
+                </button>
+              ) : null}
+              <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-rehab-teal">{t.clinicalRehabilitation}</p>
               <h1 className="text-2xl font-semibold">{t[activePage]}</h1>
+              </div>
             </div>
 
             <div className="flex items-center gap-3">
@@ -97,8 +113,9 @@ export function AppShell({
             </div>
           </div>
         </header>
+        ) : null}
 
-        <div className="px-5 py-6 lg:px-8">{children}</div>
+        <div className={focused ? "p-0" : "px-5 py-6 lg:px-8"}>{children}</div>
       </main>
     </div>
   );

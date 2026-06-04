@@ -11,7 +11,7 @@ def health_check() -> HealthResponse:
         status="ok",
         app="BalanceRehab API",
         database="active",
-        default_mode="demo",
+        default_mode="webcam",
     )
 
 
@@ -20,7 +20,7 @@ def system_status() -> SystemStatus:
     return SystemStatus(
         database="active",
         demo_mode=True,
-        webcam="demo_mode",
-        esp32="demo_mode",
-        acquisition_modes=["demo", "real"],
+        webcam="available",
+        esp32="optional",
+        acquisition_modes=["webcam", "demo", "combined", "board"],
     )

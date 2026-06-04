@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from sqlalchemy import create_engine
+from sqlalchemy import text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 
@@ -33,3 +34,34 @@ def init_db() -> None:
     from app import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    ensure_sqlite_columns()
+
+
+def ensure_sqlite_columns() -> None:
+    """Keep the MVP SQLite database usable as the schema grows."""
+    migrations = {
+        "patients": {
+            "dominant_side": "VARCHAR(32)",
+            "clinical_goal": "VARCHAR(240)",
+        },
+        "sessions": {
+            "status": "VARCHAR(32)",
+            "body_center_deviation": "FLOAT",
+        },
+        "reports": {
+            "report_id": "VARCHAR(64)",
+            "patient_id": "INTEGER",
+            "downloadable": "BOOLEAN DEFAULT 1",
+            "summary": "TEXT",
+        },
+    }
+
+    with engine.begin() as connection:
+        for table, columns in migrations.items():
+            existing = {
+                row[1]
+                for row in connection.execute(text(f"PRAGMA table_info({table})")).fetchall()
+            }
+            for column, definition in columns.items():
+                if column not in existing:
+                    connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}"))
