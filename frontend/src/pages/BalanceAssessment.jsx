@@ -1,5 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Save, Search } from "lucide-react";
+import {
+  CartesianGrid,
+  Label,
+  Line,
+  LineChart,
+  ReferenceArea,
+  ReferenceLine,
+  ResponsiveContainer,
+  Scatter,
+  ScatterChart,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import { Button } from "../components/clinical/Button";
 import { ClinicalCard } from "../components/clinical/ClinicalCard";
@@ -241,9 +254,10 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
           t={t}
           config={config}
           results={results}
+          patientSessions={sessions.filter((session) => session.patientId === selectedPatient.id)}
           savedSession={savedSession}
-          onSave={async () => {
-            const session = buildSession({ patient: selectedPatient, config, results });
+          onSave={async (clinicalImpression) => {
+            const session = buildSession({ patient: selectedPatient, config, results, clinician_impression: clinicalImpression });
             const saved = await onSaveSession(session);
             setSavedSession(saved ?? session);
           }}
@@ -515,9 +529,10 @@ function warningPanelClass(level) {
   return "bg-[#90BE6D]/10 text-[#47743C]";
 }
 
-function ResultsStep({ t, patient, config, results, savedSession, onSave, onReport, onReturnToProfile }) {
+function ResultsStep({ t, patient, config, results, patientSessions, savedSession, onSave, onReport, onReturnToProfile }) {
   const boardAvailable = Boolean(results.availableMetrics?.board);
   const postureUnits = getPostureUnits(config.acquisitionMode);
+  const [clinicalImpression, setClinicalImpression] = useState(results.interpretation ?? "");
 
   return (
     <ClinicalCard className="p-5">
@@ -531,7 +546,24 @@ function ResultsStep({ t, patient, config, results, savedSession, onSave, onRepo
         )}
         <Metric label={t.postureStability} value={`${results.postureStabilityScore}/100`} />
       </div>
-      <div className="mt-5 rounded-lg bg-slate-50 p-4 text-sm text-rehab-muted">{results.interpretation}</div>
+      <ResultsCharts samples={results.samples ?? []} boardAvailable={boardAvailable} />
+      {patientSessions.length >= 1 ? (
+        <SessionComparisonCard results={results} previousSession={patientSessions[0]} />
+      ) : null}
+      <div className="mt-5">
+        <label className="text-sm font-semibold text-rehab-ink" htmlFor="clinical-impression">
+          Clinical Impression (editable before saving)
+        </label>
+        <textarea
+          id="clinical-impression"
+          rows={4}
+          maxLength={500}
+          value={clinicalImpression}
+          onChange={(event) => setClinicalImpression(event.target.value)}
+          className="mt-2 w-full rounded-lg border border-rehab-line px-3 py-2 text-sm text-rehab-ink outline-none transition focus:border-rehab-teal focus:ring-2 focus:ring-rehab-teal/15"
+        />
+        <p className="mt-1 text-xs text-rehab-muted">{clinicalImpression.length} / 500 characters</p>
+      </div>
       <div className="mt-5 grid gap-4 md:grid-cols-2">
         {boardAvailable ? (
           <MetricsList title={t.swayMetrics} items={[`${t.apMean}: ${results.meanSwayAp} mm`, `${t.mlMean}: ${results.meanSwayMl} mm`, `${t.swayVelocity}: ${results.swayVelocity} mm/s`, `${t.instabilityEvents}: ${results.instabilityEvents}`]} />
@@ -555,12 +587,199 @@ function ResultsStep({ t, patient, config, results, savedSession, onSave, onRepo
             {t.viewPatientSessions}
           </Button>
         ) : null}
-        <Button variant="secondary" onClick={onSave} disabled={Boolean(savedSession)}>
+        <Button variant="secondary" onClick={() => onSave(clinicalImpression)} disabled={Boolean(savedSession)}>
           <Save size={16} /> {savedSession ? t.sessionSaved : t.saveSession}
         </Button>
         <Button onClick={onReport} disabled={!savedSession}>{t.generatePdfReport}</Button>
       </div>
     </ClinicalCard>
+  );
+}
+
+function SessionComparisonCard({ results, previousSession }) {
+  const rows = [
+    {
+      label: "Overall Score",
+      current: results.totalBalanceScore,
+      previous: getSessionMetric(previousSession, "totalScore", "totalBalanceScore"),
+      unit: "pts",
+      higherIsBetter: true,
+    },
+    {
+      label: "Posture Score",
+      current: results.postureStabilityScore,
+      previous: getSessionMetric(previousSession, "postureScore", "postureStabilityScore"),
+      unit: "pts",
+      higherIsBetter: true,
+    },
+    {
+      label: "Trunk Deviation",
+      current: results.trunkDeviation,
+      previous: getSessionMetric(previousSession, "trunkDeviation", "trunkInclination"),
+      unit: "deg",
+      higherIsBetter: false,
+    },
+    {
+      label: "Shoulder Asymmetry",
+      current: results.shoulderAsymmetry,
+      previous: getSessionMetric(previousSession, "shoulderAsymmetry"),
+      unit: "%",
+      higherIsBetter: false,
+    },
+    {
+      label: "Hip Asymmetry",
+      current: results.hipAsymmetry,
+      previous: getSessionMetric(previousSession, "hipAsymmetry"),
+      unit: "%",
+      higherIsBetter: false,
+    },
+    {
+      label: "Body Center Deviation",
+      current: results.bodyCenterDeviation,
+      previous: getSessionMetric(previousSession, "bodyCenterDeviation"),
+      unit: "%",
+      higherIsBetter: false,
+    },
+  ];
+  const overallDelta = roundDelta(results.totalBalanceScore - getSessionMetric(previousSession, "totalScore", "totalBalanceScore"));
+  const summary =
+    Math.abs(overallDelta) <= 2
+      ? "Overall: Stable (no significant change)"
+      : overallDelta > 0
+        ? `Overall: Improving (+${overallDelta} pts since last session)`
+        : `Overall: Declining (${overallDelta} pts since last session)`;
+
+  return (
+    <div className="mt-5 rounded-lg border border-rehab-line bg-white p-4">
+      <p className="font-semibold text-rehab-ink">Compared to Last Session</p>
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full min-w-[560px] text-left text-sm">
+          <thead>
+            <tr className="border-b border-rehab-line text-xs uppercase tracking-wide text-rehab-muted">
+              <th className="py-2 pr-3 font-semibold">Metric</th>
+              <th className="px-3 py-2 font-semibold">This Session</th>
+              <th className="px-3 py-2 font-semibold">Previous Session</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <ComparisonRow key={row.label} row={row} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className={`mt-4 rounded-lg px-3 py-2 text-sm font-semibold ${overallDelta > 2 ? "bg-emerald-50 text-emerald-700" : overallDelta < -2 ? "bg-rose-50 text-rose-700" : "bg-slate-50 text-rehab-muted"}`}>
+        {summary}
+      </p>
+    </div>
+  );
+}
+
+function ComparisonRow({ row }) {
+  const delta = roundDelta(row.current - row.previous);
+  const state = deltaState(delta, row.higherIsBetter);
+
+  return (
+    <tr className="border-b border-rehab-line last:border-0">
+      <td className="py-3 pr-3 font-semibold text-rehab-ink">{row.label}</td>
+      <td className="px-3 py-3">
+        <p className="font-semibold text-rehab-ink">{formatComparisonValue(row.current, row.unit)}</p>
+        <p className={`mt-1 text-xs font-semibold ${state.className}`}>{state.arrow} {formatDelta(delta, row.unit)}</p>
+      </td>
+      <td className="px-3 py-3 text-rehab-muted">{formatComparisonValue(row.previous, row.unit)}</td>
+    </tr>
+  );
+}
+
+function getSessionMetric(session, key, fallbackKey = key) {
+  return Number(session?.[key] ?? session?.results?.[key] ?? session?.results?.[fallbackKey] ?? 0);
+}
+
+function deltaState(delta, higherIsBetter) {
+  if (Math.abs(delta) <= 2) {
+    return { arrow: "→", className: "text-rehab-muted" };
+  }
+  const improved = higherIsBetter ? delta > 0 : delta < 0;
+  if (improved) {
+    return { arrow: higherIsBetter ? "↑" : "↓", className: "text-emerald-700" };
+  }
+  return { arrow: higherIsBetter ? "↓" : "↑", className: "text-rose-700" };
+}
+
+function formatComparisonValue(value, unit) {
+  if (value == null || Number.isNaN(Number(value))) return "-";
+  return `${roundDelta(Number(value))} ${unit}`;
+}
+
+function formatDelta(delta, unit) {
+  if (Math.abs(delta) <= 2) return `0 ${unit}`;
+  return `${delta > 0 ? "+" : ""}${delta} ${unit}`;
+}
+
+function roundDelta(value) {
+  return Math.round(Number(value) * 10) / 10;
+}
+
+function ResultsCharts({ samples, boardAvailable }) {
+  const postureData = samples.map((sample) => ({
+    t: sample.t,
+    posture: sample.posture,
+  }));
+  const swayData = samples
+    .filter((sample) => sample.ml != null && sample.ap != null)
+    .map((sample) => ({
+      ml: sample.ml,
+      ap: sample.ap,
+    }));
+
+  return (
+    <div className="mt-5 grid gap-4 lg:grid-cols-2">
+      <div className="rounded-lg border border-rehab-line bg-white p-4">
+        <p className="font-semibold text-rehab-ink">Posture Stability Over Assessment</p>
+        <div className="mt-4 h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={postureData} margin={{ top: 10, right: 16, bottom: 18, left: 0 }}>
+              <CartesianGrid stroke="#E2E8F0" strokeDasharray="3 3" />
+              <XAxis dataKey="t" tick={{ fontSize: 12 }} stroke="#577590">
+                <Label value="Time (s)" offset={-8} position="insideBottom" fill="#577590" />
+              </XAxis>
+              <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} stroke="#577590" />
+              <ReferenceArea y1={75} y2={100} fill="#90BE6D" fillOpacity={0.18} />
+              <ReferenceLine y={75} stroke="#90BE6D" strokeDasharray="4 4">
+                <Label value="Normal range" position="insideTopRight" fill="#47743C" fontSize={12} />
+              </ReferenceLine>
+              <Line type="monotone" dataKey="posture" stroke="#2563EB" strokeWidth={3} dot={false} isAnimationActive={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-rehab-line bg-white p-4">
+        <p className="font-semibold text-rehab-ink">Center of Pressure Path</p>
+        {boardAvailable ? (
+          <div className="mt-4 h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <ScatterChart margin={{ top: 10, right: 16, bottom: 22, left: 8 }}>
+                <CartesianGrid stroke="#E2E8F0" strokeDasharray="3 3" />
+                <XAxis type="number" dataKey="ml" name="Mediolateral" tick={{ fontSize: 12 }} stroke="#577590">
+                  <Label value="Mediolateral (mm)" offset={-12} position="insideBottom" fill="#577590" />
+                </XAxis>
+                <YAxis type="number" dataKey="ap" name="Anteroposterior" tick={{ fontSize: 12 }} stroke="#577590">
+                  <Label value="Anteroposterior (mm)" angle={-90} position="insideLeft" fill="#577590" />
+                </YAxis>
+                <ReferenceLine x={0} stroke="#577590" strokeDasharray="4 4" />
+                <ReferenceLine y={0} stroke="#577590" strokeDasharray="4 4" />
+                <Scatter data={swayData} fill="#43AA8B" line={false} isAnimationActive={false} />
+              </ScatterChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="mt-4 grid h-64 place-items-center rounded-lg border border-dashed border-rehab-line bg-slate-50 p-4 text-center">
+            <p className="text-sm font-semibold text-rehab-muted">Sway path available with ESP32 balance board</p>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

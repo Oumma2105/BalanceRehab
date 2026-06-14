@@ -113,7 +113,7 @@ export function generateRecommendations(metrics, config, t = {}) {
   return recommendations;
 }
 
-export function buildSession({ patient, config, results }) {
+export function buildSession({ patient, config, results, clinician_impression }) {
   const now = new Date();
   return {
     id: `S-${now.getTime().toString().slice(-6)}`,
@@ -132,6 +132,8 @@ export function buildSession({ patient, config, results }) {
     totalScore: results.totalBalanceScore,
     boardScore: results.boardStabilityScore,
     postureScore: results.postureStabilityScore,
+    clinician_impression,
+    interpretation: clinician_impression ?? results.interpretation,
     results,
   };
 }

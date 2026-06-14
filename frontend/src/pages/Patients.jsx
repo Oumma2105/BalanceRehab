@@ -205,7 +205,7 @@ export function PatientsPage({
 function PatientDetail({ t, patient, requestedTab, sessions, reports, onBack, onEdit, onDelete, onStartAssessment }) {
   const [tab, setTab] = useState("overview");
   const latestSession = sessions[0];
-  const tabs = ["overview", "sessions", "progress", "reports"];
+  const tabs = ["overview", "sessions", "reports"];
 
   useEffect(() => {
     if (tabs.includes(requestedTab)) {
@@ -297,41 +297,6 @@ function PatientDetail({ t, patient, requestedTab, sessions, reports, onBack, on
         <SessionsPanel t={t} patient={patient} sessions={sessions} />
       ) : null}
 
-      {tab === "progress" ? (
-        <ClinicalCard className="p-5">
-          <SectionHeader title={t.progressAnalytics} description={t.progressSubtitle} />
-          {sessions.length === 0 ? (
-            <div className="mt-5">
-              <EmptyState
-                title={t.progressEmptyTitle}
-                description={t.progressEmptyDesc}
-                actionLabel={t.startFirstAssessment}
-                onAction={onStartAssessment}
-              />
-            </div>
-          ) : (
-            <div className="mt-5">
-              <div className="mb-4 grid gap-3 md:grid-cols-3">
-                <Summary label={t.latestScore} value={`${latestSession.totalScore}/100`} />
-                <Summary label={t.sessionsSaved} value={sessions.length} />
-                <Summary
-                  label={t.scoreChange}
-                  value={`${sessions.length > 1 ? latestSession.totalScore - sessions[sessions.length - 1].totalScore : 0} pts`}
-                />
-              </div>
-              <div className="flex h-40 items-end gap-3 rounded-lg bg-slate-50 p-4">
-                {sessions.map((session) => (
-                  <div key={session.id} className="flex flex-1 flex-col items-center gap-2">
-                    <div className="w-full rounded bg-rehab-blue" style={{ height: `${session.totalScore}%` }} />
-                    <span className="text-xs text-rehab-muted">{session.totalScore}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </ClinicalCard>
-      ) : null}
-
       {tab === "reports" ? (
         <ClinicalCard className="p-5">
           <SectionHeader title={t.reports} description={t.generatedPdfReports} />
@@ -346,16 +311,18 @@ function PatientDetail({ t, patient, requestedTab, sessions, reports, onBack, on
             ) : reports.map((report) => {
               const session = sessions.find((item) => item.id === report.sessionId);
               return (
-                <div key={report.id} className="flex items-center justify-between rounded-lg border border-rehab-line p-4">
-                  <div className="flex items-center gap-3">
+                <div key={report.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rehab-line p-4">
+                  <div className="flex items-start gap-3">
                     <FileText size={18} className="text-rehab-blue" />
                     <div>
-                      <p className="font-semibold">{report.id}</p>
-                      <p className="text-sm text-rehab-muted">{report.generatedAt}</p>
+                      <p className="font-semibold">{report.reportId ?? report.id}</p>
+                      <p className="text-sm text-rehab-muted">{report.generatedAt ?? report.createdAt ?? "-"}</p>
+                      <p className="mt-1 text-sm text-rehab-muted">{report.acquisitionMode ?? session?.acquisitionMode ?? "-"}</p>
+                      <p className="mt-1 max-w-2xl text-sm text-rehab-ink">{report.summary ?? "-"}</p>
                     </div>
                   </div>
-                  <Button variant="secondary" onClick={() => session && downloadSessionReport({ patient, session, t })}>
-                    {t.downloadPdf}
+                  <Button variant="secondary" onClick={() => session && downloadSessionReport({ patient, session, t })} disabled={!session}>
+                    Download
                   </Button>
                 </div>
               );
@@ -368,8 +335,6 @@ function PatientDetail({ t, patient, requestedTab, sessions, reports, onBack, on
 }
 
 function SessionsPanel({ t, patient, sessions }) {
-  const [selectedSession, setSelectedSession] = useState(null);
-
   return (
     <ClinicalCard className="p-5">
       <SectionHeader title={t.sessions} description={t.previousAssessments} />
@@ -391,31 +356,13 @@ function SessionsPanel({ t, patient, sessions }) {
                     <StatusBadge tone={statusTone[session.status] ?? "neutral"}>{session.status}</StatusBadge>
                   </td>
                   <td className="px-4 py-3">
-                    <Button variant="secondary" className="px-3 py-1.5" onClick={() => setSelectedSession(session)}>
-                      {t.viewResults}
+                    <Button variant="secondary" className="px-3 py-1.5" onClick={() => downloadSessionReport({ patient, session, t })}>
+                      Download Report
                     </Button>
                   </td>
                 </tr>
               )}
             />
-            {selectedSession ? (
-              <div className="mt-4 rounded-lg border border-rehab-line bg-slate-50 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold">{t.results} - {selectedSession.id}</p>
-                    <p className="mt-1 text-sm text-rehab-muted">{selectedSession.results.interpretation}</p>
-                  </div>
-                  <Button variant="secondary" onClick={() => downloadSessionReport({ patient, session: selectedSession, t })}>
-                    {t.downloadPdf}
-                  </Button>
-                </div>
-                <div className="mt-4 grid gap-3 md:grid-cols-3">
-                  <Summary label={t.totalBalanceScore} value={`${selectedSession.totalScore}/100`} />
-                  <Summary label={t.boardStability} value={`${selectedSession.boardScore}/100`} />
-                  <Summary label={t.postureStability} value={`${selectedSession.postureScore}/100`} />
-                </div>
-              </div>
-            ) : null}
           </>
         )}
       </div>

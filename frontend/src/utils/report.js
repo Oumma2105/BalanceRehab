@@ -1,136 +1,437 @@
 import { jsPDF } from "jspdf";
 
+const PRIMARY = [37, 99, 235];
+const TEXT = [30, 41, 59];
+const MUTED = [100, 116, 139];
+const LINE = [203, 213, 225];
+const SOFT = [248, 250, 252];
+const GREEN = [22, 163, 74];
+const ORANGE = [249, 115, 22];
+const RED = [220, 38, 38];
+const MARGIN = 15;
+const PAGE_W = 210;
+const PAGE_H = 297;
+const CONTENT_W = PAGE_W - MARGIN * 2;
+
 export function downloadSessionReport({ patient, session, t = {} }) {
-  const doc = new jsPDF();
-  const margin = 16;
-  const postureUnits = getPostureUnits(session);
-  let y = 18;
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const generatedAt = new Date().toLocaleDateString();
+  const results = session.results ?? {};
+  const recommendations = results.recommendations ?? [];
+  const clinicianName = "Dr. Ahmed Benaissa";
+  const clinicianRole = t.clinicianRole ?? "Physiotherapist";
+  const severity = getSeverity(session.totalScore ?? results.totalBalanceScore);
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.text(t.assessmentReportTitle ?? "BalanceRehab Assessment Report", margin, y);
-  y += 8;
+  drawCoverPage(doc, { patient, session, generatedAt, clinicianName, severity });
+  drawResultsPage(doc, { patient, session, results });
+  drawInterpretationPage(doc, { patient, session, results, recommendations });
+  drawTrendAppendixPage(doc, { patient, session, results });
+  drawSignaturePage(doc, { patient, session, generatedAt, clinicianName, clinicianRole });
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.text(t.reportPrototypeLine ?? "Educational rehabilitation-support prototype - Demo acquisition", margin, y);
-  y += 12;
-
-  section(doc, t.patientInformation ?? "Patient information", y);
-  y += 8;
-  y = line(doc, `${t.patient}: ${patient.fullName} (${patient.patientCode})`, y);
-  y = line(doc, `${t.age} / ${t.sex}: ${patient.age ?? "-"} / ${displaySex(patient.sex, t)}`, y);
-  y = line(doc, `${t.heightWeight ?? "Height / Weight"}: ${patient.heightCm ?? "-"} cm / ${patient.weightKg ?? "-"} kg`, y);
-  y = line(doc, `${t.dominantSide}: ${patient.dominantSide ?? "-"}`, y);
-  y = line(doc, `${t.medicalReason}: ${patient.pathology ?? "-"}`, y);
-  y = line(doc, `${t.clinicalGoal}: ${patient.clinicalGoal ?? "-"}`, y);
-  if (patient.clinicalNotes || patient.notes) {
-    y = paragraph(doc, `${t.clinicalNotes}: ${patient.clinicalNotes ?? patient.notes}`, y);
-  }
-  y += 4;
-
-  section(doc, t.testConditions ?? "Test conditions", y);
-  y += 8;
-  y = line(doc, `${t.date}: ${session.date}`, y);
-  y = line(doc, `${t.test}: ${session.testType}`, y);
-  y = line(doc, `${t.supportRing ?? "Support ring"}: ${session.supportRing}`, y);
-  y = line(doc, `${t.visionCondition ?? "Vision condition"}: ${session.condition}`, y);
-  y = line(doc, `${t.duration}: ${session.durationSeconds} ${t.seconds ?? "seconds"}`, y);
-  y = line(doc, `${t.acquisitionMode ?? "Acquisition mode"}: ${session.acquisitionMode ?? "Demo"}`, y);
-  y += 4;
-
-  section(doc, t.scores ?? "Scores", y);
-  y += 8;
-  y = line(doc, `${t.totalBalanceScore}: ${session.totalScore}/100`, y);
-  y = line(
-    doc,
-    `${t.boardStability}: ${session.results.availableMetrics?.board ? `${session.boardScore}/100` : t.notAvailableWebcamOnly ?? "Not available in webcam-only mode"}`,
-    y,
-  );
-  y = line(doc, `${t.postureStability}: ${session.postureScore}/100`, y);
-  y = line(doc, `${t.status}: ${session.results.status}`, y);
-  y += 4;
-
-  section(doc, t.postureMetrics ?? "Posture metrics", y);
-  y += 8;
-  y = line(doc, `${t.trunkDeviation}: ${session.results.trunkDeviation} ${postureUnits.trunk}`, y);
-  y = line(doc, `${t.shoulderAsymmetry}: ${session.results.shoulderAsymmetry} ${postureUnits.asymmetry}`, y);
-  y = line(doc, `${t.hipAsymmetry}: ${session.results.hipAsymmetry} ${postureUnits.asymmetry}`, y);
-  y = line(doc, `${t.bodyCenterDeviation}: ${session.results.bodyCenterDeviation} ${postureUnits.center}`, y);
-  y += 4;
-
-  section(doc, t.swayMetrics ?? "Sway metrics", y);
-  y += 8;
-  if (session.results.availableMetrics?.board) {
-    y = line(doc, `${t.apSway}: ${session.results.meanSwayAp} mm ${t.mean ?? "mean"} / ${session.results.maxSwayAp} mm ${t.max ?? "max"}`, y);
-    y = line(doc, `${t.mlSway}: ${session.results.meanSwayMl} mm ${t.mean ?? "mean"} / ${session.results.maxSwayMl} mm ${t.max ?? "max"}`, y);
-    y = line(doc, `${t.swayVelocity}: ${session.results.swayVelocity} mm/s`, y);
-    y = line(doc, `${t.instabilityEvents}: ${session.results.instabilityEvents}`, y);
-  } else {
-    y = paragraph(doc, t.notAvailableWebcamOnly ?? "Not available in webcam-only mode", y);
-  }
-  y += 4;
-
-  section(doc, t.interpretation ?? "Interpretation", y);
-  y += 8;
-  y = paragraph(doc, session.results.interpretation, y);
-  y += 4;
-
-  section(doc, t.recommendations ?? "Recommendations", y);
-  y += 8;
-  session.results.recommendations.forEach((item) => {
-    y = paragraph(doc, `- ${item}`, y);
-  });
-
-  y = Math.max(y + 8, 270);
-  doc.setFontSize(8);
-  doc.setTextColor(100);
-  doc.text(
-    t.educationalDisclaimer ??
-      "This prototype is designed for educational and rehabilitation-support purposes only. It does not replace certified medical diagnosis or clinical decision-making.",
-    margin,
-    y,
-    { maxWidth: 178 },
-  );
-
+  addHeadersAndFooters(doc, patient, generatedAt);
   doc.save(`BalanceRehab_${patient.patientCode}_${session.id}.pdf`);
 }
 
-function section(doc, text, y) {
+function drawCoverPage(doc, { patient, session, generatedAt, clinicianName, severity }) {
+  doc.setFillColor(...SOFT);
+  doc.rect(0, 0, PAGE_W, PAGE_H, "F");
+
+  doc.setTextColor(...PRIMARY);
   doc.setFont("helvetica", "bold");
-  doc.setTextColor(20, 33, 61);
-  doc.setFontSize(12);
-  doc.text(text, 16, y);
-}
+  doc.setFontSize(30);
+  doc.text("BalanceRehab", MARGIN, 30);
 
-function line(doc, text, y) {
+  doc.setTextColor(...TEXT);
+  doc.setFontSize(16);
+  doc.text("Balance Assessment Report", MARGIN, 40);
+
+  doc.setDrawColor(...PRIMARY);
+  doc.setLineWidth(0.6);
+  doc.line(MARGIN, 48, PAGE_W - MARGIN, 48);
+
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(MARGIN, 60, CONTENT_W, 58, 3, 3, "F");
+  doc.setDrawColor(...LINE);
+  doc.roundedRect(MARGIN, 60, CONTENT_W, 58, 3, 3, "S");
+
+  const left = [
+    ["Patient name", patient.fullName],
+    ["ID code", patient.patientCode],
+    ["Age", valueOrDash(patient.age)],
+    ["Sex", displaySex(patient.sex)],
+    ["Height", patient.heightCm ? `${patient.heightCm} cm` : "-"],
+    ["Weight", patient.weightKg ? `${patient.weightKg} kg` : "-"],
+  ];
+  const right = [
+    ["Clinician", clinicianName],
+    ["Date", session.date ?? generatedAt],
+    ["Test type", session.testType],
+    ["Duration", `${session.durationSeconds ?? "-"} seconds`],
+    ["Mode", session.acquisitionMode ?? "Webcam-Based Assessment"],
+  ];
+
+  drawInfoList(doc, left, MARGIN + 8, 72, 76);
+  drawInfoList(doc, right, MARGIN + 100, 72, 76);
+
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(50, 142, 110, 58, 4, 4, "F");
+  doc.setDrawColor(...LINE);
+  doc.roundedRect(50, 142, 110, 58, 4, 4, "S");
+
+  doc.setTextColor(...TEXT);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(48);
+  doc.text(`${session.totalScore ?? resultsValue(session, "totalBalanceScore")}/100`, PAGE_W / 2, 166, { align: "center" });
+
+  doc.setTextColor(...severity.color);
+  doc.setFontSize(13);
+  doc.text(severity.label, PAGE_W / 2, 184, { align: "center" });
+
+  doc.setTextColor(...MUTED);
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(35);
-  doc.setFontSize(10);
-  doc.text(text, 16, y);
-  return y + 6;
+  doc.setFontSize(9);
+  doc.text(`Generated by BalanceRehab | ${generatedAt} | For clinical support use only`, PAGE_W / 2, 282, { align: "center" });
 }
 
-function paragraph(doc, text, y) {
+function drawResultsPage(doc, { patient, session, results }) {
+  doc.addPage();
+  let y = 32;
+  y = sectionTitle(doc, "Posture Assessment Results", y);
+
+  const rows = [
+    ["Trunk Deviation", `${valueOrDash(results.trunkDeviation)}°`, "<8°", statusSymbol(results.trunkDeviation, 8, false)],
+    ["Shoulder Asymmetry", `${valueOrDash(results.shoulderAsymmetry)}%`, "<5%", statusSymbol(results.shoulderAsymmetry, 5, false)],
+    ["Hip Asymmetry", `${valueOrDash(results.hipAsymmetry)}%`, "<5%", statusSymbol(results.hipAsymmetry, 5, false)],
+    ["Body Center Deviation", `${valueOrDash(results.bodyCenterDeviation)}%`, "<9%", statusSymbol(results.bodyCenterDeviation, 9, false)],
+    ["Posture Stability Score", `${valueOrDash(session.postureScore ?? results.postureStabilityScore)}/100`, ">75", statusSymbol(session.postureScore ?? results.postureStabilityScore, 75, true)],
+  ];
+  y = drawTable(doc, {
+    y,
+    columns: ["Metric", "Value", "Reference", "Status"],
+    widths: [72, 38, 38, 32],
+    rows,
+  });
+
+  if (results.availableMetrics?.board) {
+    y += 12;
+    y = sectionTitle(doc, "Sway Metrics", y);
+    drawTable(doc, {
+      y,
+      columns: ["AP Sway Mean", "ML Sway Mean", "AP Sway Max", "ML Sway Max", "Sway Velocity"],
+      widths: [36, 36, 36, 36, 36],
+      rows: [[
+        `${valueOrDash(results.meanSwayAp)} mm`,
+        `${valueOrDash(results.meanSwayMl)} mm`,
+        `${valueOrDash(results.maxSwayAp)} mm`,
+        `${valueOrDash(results.maxSwayMl)} mm`,
+        `${valueOrDash(results.swayVelocity)} mm/s`,
+      ]],
+    });
+  } else {
+    y += 12;
+    doc.setFillColor(255, 247, 237);
+    doc.roundedRect(MARGIN, y, CONTENT_W, 22, 3, 3, "F");
+    doc.setTextColor(...ORANGE);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("Board sway metrics are not available in webcam-only mode.", MARGIN + 5, y + 13);
+  }
+
+  drawScoreBand(doc, patient, session, 212);
+}
+
+function drawInterpretationPage(doc, { patient, session, results, recommendations }) {
+  doc.addPage();
+  let y = 32;
+  y = sectionTitle(doc, "Clinical Impression", y);
+  y = drawTextBlock(doc, session.clinician_impression ?? session.interpretation ?? results.interpretation ?? "-", y);
+
+  y += 8;
+  y = sectionTitle(doc, "Rehabilitation Recommendations", y);
+  recommendations.forEach((item, index) => {
+    y = drawWrappedLine(doc, `${index + 1}. • ${item}`, MARGIN + 4, y, CONTENT_W - 8);
+  });
+
+  y += 8;
+  y = sectionTitle(doc, "Assessment Conditions", y);
+  drawTable(doc, {
+    y,
+    columns: ["Condition", "Value"],
+    widths: [60, 120],
+    rows: [
+      ["Test type", session.testType ?? "-"],
+      ["Visual condition", session.condition ?? "-"],
+      ["Duration", `${session.durationSeconds ?? "-"} seconds`],
+      ["Acquisition mode", session.acquisitionMode ?? "-"],
+      ["Support ring", session.supportRing ?? "-"],
+    ],
+  });
+}
+
+function drawTrendAppendixPage(doc, { patient, session, results }) {
+  doc.addPage();
+  let y = 32;
+  y = sectionTitle(doc, "Assessment Trend Summary", y);
+
+  const samples = results.samples ?? [];
+  if (!samples.length) {
+    drawTextBlock(doc, "Time-series posture samples were not recorded for this session.", y);
+    return;
+  }
+
+  doc.setTextColor(...MUTED);
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(35);
   doc.setFontSize(10);
-  const lines = doc.splitTextToSize(text, 178);
-  doc.text(lines, 16, y);
-  return y + lines.length * 5 + 2;
+  doc.text("Posture stability samples captured during the assessment.", MARGIN, y);
+  y += 12;
+
+  drawMiniLineChart(doc, samples, {
+    x: MARGIN,
+    y,
+    width: CONTENT_W,
+    height: 72,
+    key: "posture",
+    min: 0,
+    max: 100,
+    color: PRIMARY,
+    label: "Posture Stability Over Time",
+  });
+
+  if (results.availableMetrics?.board) {
+    drawSwayScatter(doc, samples, MARGIN, y + 94, CONTENT_W, 72);
+  } else {
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(...LINE);
+    doc.roundedRect(MARGIN, y + 94, CONTENT_W, 34, 3, 3, "FD");
+    doc.setTextColor(...MUTED);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("Sway path available with ESP32 balance board.", MARGIN + 5, y + 114);
+  }
 }
 
-function displaySex(sex, t = {}) {
-  if (sex === "F" || sex === "Female") return t.female ?? "Female";
-  if (sex === "M" || sex === "Male") return t.male ?? "Male";
+function drawSignaturePage(doc, { patient, session, generatedAt, clinicianName, clinicianRole }) {
+  doc.addPage();
+  let y = 34;
+  y = sectionTitle(doc, "Disclaimer & Signature", y);
+
+  doc.setFillColor(...SOFT);
+  doc.roundedRect(MARGIN, y, CONTENT_W, 48, 3, 3, "F");
+  doc.setTextColor(...TEXT);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text(clinicianName, MARGIN + 6, y + 14);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(...MUTED);
+  doc.text(clinicianRole, MARGIN + 6, y + 22);
+  doc.text(`Report date: ${generatedAt}`, MARGIN + 6, y + 32);
+  y += 70;
+
+  doc.setDrawColor(...TEXT);
+  doc.line(MARGIN, y, MARGIN + 80, y);
+  doc.line(MARGIN + 110, y, PAGE_W - MARGIN, y);
+  doc.setTextColor(...MUTED);
+  doc.setFontSize(9);
+  doc.text("Signature", MARGIN, y + 7);
+  doc.text("Date", MARGIN + 110, y + 7);
+
+  y += 28;
+  y = sectionTitle(doc, "Clinical Support Notice", y);
+  drawTextBlock(
+    doc,
+    "This report is generated as a clinical support tool and does not replace professional medical judgment or certified diagnosis.",
+    y,
+  );
+}
+
+function addHeadersAndFooters(doc, patient, generatedAt) {
+  const pages = doc.getNumberOfPages();
+  for (let page = 1; page <= pages; page += 1) {
+    doc.setPage(page);
+    if (page > 1) {
+      doc.setFillColor(255, 255, 255);
+      doc.rect(0, 0, PAGE_W, 18, "F");
+      doc.setTextColor(...PRIMARY);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text("BalanceRehab", MARGIN, 12);
+      doc.setTextColor(...MUTED);
+      doc.setFont("helvetica", "normal");
+      doc.text(`${patient.fullName} | ${patient.patientCode}`, PAGE_W - MARGIN, 12, { align: "right" });
+      doc.setDrawColor(...LINE);
+      doc.line(MARGIN, 18, PAGE_W - MARGIN, 18);
+    }
+
+    doc.setDrawColor(...LINE);
+    doc.line(MARGIN, 278, PAGE_W - MARGIN, 278);
+    doc.setTextColor(...MUTED);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text(`Generated by BalanceRehab | ${generatedAt} | For clinical support use only`, MARGIN, 285);
+    doc.text(`Page ${page} of ${pages}`, PAGE_W - MARGIN, 285, { align: "right" });
+  }
+}
+
+function sectionTitle(doc, title, y) {
+  doc.setFillColor(...PRIMARY);
+  doc.rect(MARGIN, y - 7, 4, 9, "F");
+  doc.setTextColor(...TEXT);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text(title, MARGIN + 7, y);
+  return y + 12;
+}
+
+function drawInfoList(doc, rows, x, y, width) {
+  rows.forEach(([label, value], index) => {
+    const lineY = y + index * 7;
+    doc.setTextColor(...MUTED);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text(`${label}:`, x, lineY);
+    doc.setTextColor(...TEXT);
+    doc.setFont("helvetica", "bold");
+    doc.text(String(valueOrDash(value)), x + 32, lineY, { maxWidth: width - 32 });
+  });
+}
+
+function drawTable(doc, { y, columns, widths, rows }) {
+  const rowH = 10;
+  let currentY = y;
+  let x = MARGIN;
+
+  doc.setFillColor(226, 232, 240);
+  doc.rect(MARGIN, currentY, CONTENT_W, rowH, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(...TEXT);
+  columns.forEach((column, index) => {
+    doc.text(column, x + 3, currentY + 6.5, { maxWidth: widths[index] - 5 });
+    x += widths[index];
+  });
+  currentY += rowH;
+
+  rows.forEach((row, rowIndex) => {
+    x = MARGIN;
+    doc.setFillColor(rowIndex % 2 === 0 ? 255 : 248, rowIndex % 2 === 0 ? 255 : 250, rowIndex % 2 === 0 ? 255 : 252);
+    doc.rect(MARGIN, currentY, CONTENT_W, rowH, "F");
+    doc.setDrawColor(...LINE);
+    doc.line(MARGIN, currentY + rowH, PAGE_W - MARGIN, currentY + rowH);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(...TEXT);
+    row.forEach((cell, index) => {
+      const isStatusCell = index === row.length - 1 && (cell === "✓" || cell === "⚠");
+      if (isStatusCell) doc.setTextColor(cell === "✓" ? GREEN[0] : ORANGE[0], cell === "✓" ? GREEN[1] : ORANGE[1], cell === "✓" ? GREEN[2] : ORANGE[2]);
+      doc.text(String(valueOrDash(cell)), x + 3, currentY + 6.5, { maxWidth: widths[index] - 5 });
+      if (isStatusCell) doc.setTextColor(...TEXT);
+      x += widths[index];
+    });
+    currentY += rowH;
+  });
+
+  doc.setDrawColor(...LINE);
+  doc.rect(MARGIN, y, CONTENT_W, rowH * (rows.length + 1), "S");
+  return currentY;
+}
+
+function drawTextBlock(doc, text, y) {
+  doc.setFillColor(...SOFT);
+  doc.roundedRect(MARGIN, y, CONTENT_W, 46, 3, 3, "F");
+  return drawWrappedLine(doc, text, MARGIN + 5, y + 10, CONTENT_W - 10) + 8;
+}
+
+function drawWrappedLine(doc, text, x, y, maxWidth) {
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(...TEXT);
+  doc.setFontSize(10);
+  const lines = doc.splitTextToSize(String(text ?? "-"), maxWidth);
+  doc.text(lines, x, y);
+  return y + lines.length * 5.5 + 2;
+}
+
+function drawScoreBand(doc, patient, session, y) {
+  const severity = getSeverity(session.totalScore);
+  doc.setFillColor(...severity.bg);
+  doc.roundedRect(MARGIN, y, CONTENT_W, 34, 3, 3, "F");
+  doc.setTextColor(...severity.color);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.text(`${session.totalScore}/100`, MARGIN + 8, y + 19);
+  doc.setFontSize(11);
+  doc.text(severity.label, MARGIN + 46, y + 18);
+  doc.setTextColor(...MUTED);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(`${patient.fullName} | ${session.testType} | ${session.condition}`, MARGIN + 46, y + 27);
+}
+
+function drawMiniLineChart(doc, samples, { x, y, width, height, key, min, max, color, label }) {
+  doc.setTextColor(...TEXT);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text(label, x, y - 4);
+  doc.setDrawColor(...LINE);
+  doc.rect(x, y, width, height, "S");
+  doc.setDrawColor(226, 232, 240);
+  for (let i = 1; i < 4; i += 1) doc.line(x, y + (height / 4) * i, x + width, y + (height / 4) * i);
+
+  doc.setDrawColor(...color);
+  doc.setLineWidth(0.6);
+  samples.forEach((sample, index) => {
+    if (index === 0) return;
+    const prev = samples[index - 1];
+    const x1 = x + ((index - 1) / (samples.length - 1)) * width;
+    const x2 = x + (index / (samples.length - 1)) * width;
+    const y1 = y + height - ((Number(prev[key]) - min) / (max - min)) * height;
+    const y2 = y + height - ((Number(sample[key]) - min) / (max - min)) * height;
+    doc.line(x1, y1, x2, y2);
+  });
+  doc.setLineWidth(0.2);
+}
+
+function drawSwayScatter(doc, samples, x, y, width, height) {
+  doc.setTextColor(...TEXT);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("Center of Pressure Path", x, y - 4);
+  doc.setDrawColor(...LINE);
+  doc.rect(x, y, width, height, "S");
+  doc.setDrawColor(...ORANGE);
+  doc.line(x + width / 2, y, x + width / 2, y + height);
+  doc.line(x, y + height / 2, x + width, y + height / 2);
+  doc.setFillColor(...PRIMARY);
+  samples
+    .filter((sample) => sample.ap != null && sample.ml != null)
+    .forEach((sample) => {
+      const px = x + width / 2 + Number(sample.ml);
+      const py = y + height / 2 - Number(sample.ap);
+      doc.circle(Math.max(x + 2, Math.min(x + width - 2, px)), Math.max(y + 2, Math.min(y + height - 2, py)), 0.8, "F");
+    });
+}
+
+function getSeverity(score = 0) {
+  if (score >= 80) return { label: "STABLE", color: GREEN, bg: [240, 253, 244] };
+  if (score >= 65) return { label: "MODERATE INSTABILITY", color: ORANGE, bg: [255, 247, 237] };
+  return { label: "HIGH INSTABILITY", color: RED, bg: [254, 242, 242] };
+}
+
+function statusSymbol(value, threshold, higherIsBetter) {
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) return "⚠";
+  return higherIsBetter ? (numeric > threshold ? "✓" : "⚠") : (numeric < threshold ? "✓" : "⚠");
+}
+
+function displaySex(sex) {
+  if (sex === "F" || sex === "Female") return "Female";
+  if (sex === "M" || sex === "Male") return "Male";
   return sex ?? "-";
 }
 
-function getPostureUnits(session) {
-  const isWebcamOnly = session.acquisitionModeKey === "webcam" || session.results?.acquisitionMode === "webcam";
-  return {
-    trunk: "deg",
-    asymmetry: isWebcamOnly ? "%" : "deg",
-    center: isWebcamOnly ? "%" : "mm",
-  };
+function resultsValue(session, key) {
+  return session.results?.[key] ?? "-";
+}
+
+function valueOrDash(value) {
+  return value == null || value === "" ? "-" : value;
 }
