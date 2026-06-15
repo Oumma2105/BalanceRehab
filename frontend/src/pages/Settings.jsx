@@ -6,15 +6,15 @@ import { ClinicalCard } from "../components/clinical/ClinicalCard";
 import { SectionHeader } from "../components/clinical/SectionHeader";
 import { StatusBadge } from "../components/clinical/StatusBadge";
 
-function readableStatus(value) {
+function readableStatus(t, value) {
   const labels = {
-    ok: "Connected",
-    active: "Active",
-    demo_mode: "Demo Mode",
-    connected: "Connected",
+    ok: t.connected,
+    active: t.active,
+    demo_mode: t.demoMode,
+    connected: t.connected,
   };
 
-  return labels[value] ?? "Checking";
+  return labels[value] ?? t.checking;
 }
 
 function SettingRow({ icon: Icon, title, description, children }) {
@@ -66,11 +66,24 @@ function Toggle({ active = true }) {
 
 export function SettingsPage({ t, language, onLanguageChange, status, health, onResetDemoData }) {
   const [confirmReset, setConfirmReset] = useState(false);
+  const [resetState, setResetState] = useState("idle");
+
+  const handleReset = async () => {
+    setResetState("loading");
+    try {
+      await onResetDemoData();
+      setResetState("success");
+      setConfirmReset(false);
+    } catch (error) {
+      console.warn("Demo reset failed.", error);
+      setResetState("error");
+    }
+  };
 
   return (
     <div className="space-y-6">
       <section>
-        <h1 className="text-3xl font-semibold tracking-normal text-rehab-ink">Settings</h1>
+        <h1 className="text-3xl font-semibold tracking-normal text-rehab-ink">{t.settings}</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-rehab-muted">{t.settingsSubtitle}</p>
       </section>
 
@@ -109,25 +122,39 @@ export function SettingsPage({ t, language, onLanguageChange, status, health, on
           >
             {confirmReset ? (
               <div className="flex gap-2">
-                <Button variant="secondary" onClick={() => setConfirmReset(false)}>
+                <Button variant="secondary" onClick={() => setConfirmReset(false)} disabled={resetState === "loading"}>
                   {t.cancel}
                 </Button>
                 <Button
                   variant="danger"
-                  onClick={() => {
-                    onResetDemoData();
-                    setConfirmReset(false);
-                  }}
+                  onClick={handleReset}
+                  disabled={resetState === "loading"}
                 >
-                  {t.confirmReset}
+                  {resetState === "loading" ? t.resetInProgress : t.confirmReset}
                 </Button>
               </div>
             ) : (
-              <Button variant="secondary" onClick={() => setConfirmReset(true)}>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setResetState("idle");
+                  setConfirmReset(true);
+                }}
+              >
                 {t.resetData}
               </Button>
             )}
           </SettingRow>
+          {resetState === "success" ? (
+            <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+              {t.resetDemoDataSuccess}
+            </div>
+          ) : null}
+          {resetState === "error" ? (
+            <div className="rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+              {t.resetDemoDataError}
+            </div>
+          ) : null}
         </div>
       </ClinicalCard>
 
@@ -152,23 +179,23 @@ export function SettingsPage({ t, language, onLanguageChange, status, health, on
         <SectionHeader title={t.system} description={t.systemDesc} />
         <div className="mt-5">
           <SettingRow icon={Server} title={t.apiStatus} description={t.apiStatusDesc}>
-            <StatusBadge tone={health?.status === "ok" ? "connected" : "warning"}>{readableStatus(health?.status)}</StatusBadge>
+            <StatusBadge tone={health?.status === "ok" ? "connected" : "warning"}>{readableStatus(t, health?.status)}</StatusBadge>
           </SettingRow>
 
           <SettingRow icon={Database} title={t.databaseStatus} description={t.databaseStatusDesc}>
-            <StatusBadge tone={status?.database === "active" ? "active" : "warning"}>{readableStatus(status?.database)}</StatusBadge>
+            <StatusBadge tone={status?.database === "active" ? "active" : "warning"}>{readableStatus(t, status?.database)}</StatusBadge>
           </SettingRow>
 
           <SettingRow icon={Camera} title={t.webcamStatus} description={t.webcamStatusDesc}>
-            <StatusBadge tone={status?.webcam === "demo_mode" ? "demo" : "connected"}>{readableStatus(status?.webcam)}</StatusBadge>
+            <StatusBadge tone={status?.webcam === "demo_mode" ? "demo" : "connected"}>{readableStatus(t, status?.webcam)}</StatusBadge>
           </SettingRow>
 
           <SettingRow icon={MonitorCog} title={t.esp32Status} description={t.esp32StatusDesc}>
-            <StatusBadge tone={status?.esp32 === "demo_mode" ? "demo" : "connected"}>{readableStatus(status?.esp32)}</StatusBadge>
+            <StatusBadge tone={status?.esp32 === "demo_mode" ? "demo" : "connected"}>{readableStatus(t, status?.esp32)}</StatusBadge>
           </SettingRow>
 
           <SettingRow icon={Wifi} title={t.connectionMode} description={t.connectionModeDesc}>
-            <SegmentedControl options={["Demo", "USB Serial", "Wi-Fi later"]} active="Demo" />
+            <SegmentedControl options={[t.demoConnection, t.usbSerial, t.wifiLater]} active={t.demoConnection} />
           </SettingRow>
         </div>
 

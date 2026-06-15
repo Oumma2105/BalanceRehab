@@ -1,15 +1,15 @@
 export const acquisitionModes = {
   webcam: "webcam",
   demo: "demo",
-  combined: "combined",
-  board: "board",
+  combined: "combined_future",
+  board: "board_future",
 };
 
 export const acquisitionModeLabels = {
   [acquisitionModes.webcam]: "Webcam-Based Assessment",
   [acquisitionModes.demo]: "Demo Assessment",
-  [acquisitionModes.combined]: "Webcam + ESP32 Assessment",
-  [acquisitionModes.board]: "ESP32 Board Assessment",
+  [acquisitionModes.combined]: "Webcam + Board Sensors (future)",
+  [acquisitionModes.board]: "Board Sensors Only (future)",
 };
 
 export const metricAvailability = {

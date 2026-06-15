@@ -99,6 +99,11 @@ export function sessionFromApi(session, patientLookup = new Map()) {
         ap: null,
         ml: null,
         posture: sample.posture_score,
+        trunkInclination: sample.trunk_inclination,
+        trunkDeviation: sample.trunk_inclination,
+        shoulderAsymmetry: sample.shoulder_asymmetry,
+        hipAsymmetry: sample.hip_asymmetry,
+        bodyCenterDeviation: sample.body_center_deviation,
       })),
     },
   };
@@ -131,14 +136,14 @@ export function sessionToApi(session) {
     shoulder_asymmetry: results.shoulderAsymmetry ?? null,
     hip_asymmetry: results.hipAsymmetry ?? null,
     body_center_deviation: results.bodyCenterDeviation ?? null,
-    interpretation: results.interpretation ?? null,
+    interpretation: session.interpretation ?? session.clinician_impression ?? results.interpretation ?? null,
     posture_samples: (results.samples ?? []).map((sample, index) => ({
       timestamp_ms: Math.round((sample.t ?? index) * 1000),
-      trunk_inclination: results.trunkDeviation ?? results.trunkInclination ?? null,
-      shoulder_asymmetry: results.shoulderAsymmetry ?? null,
-      hip_asymmetry: results.hipAsymmetry ?? null,
-      body_center_deviation: results.bodyCenterDeviation ?? null,
-      posture_score: sample.posture ?? session.postureScore ?? null,
+      trunk_inclination: sample.trunkInclination ?? sample.trunkDeviation ?? results.trunkDeviation ?? results.trunkInclination ?? null,
+      shoulder_asymmetry: sample.shoulderAsymmetry ?? results.shoulderAsymmetry ?? null,
+      hip_asymmetry: sample.hipAsymmetry ?? results.hipAsymmetry ?? null,
+      body_center_deviation: sample.bodyCenterDeviation ?? results.bodyCenterDeviation ?? null,
+      posture_score: sample.posture ?? sample.postureScore ?? session.postureScore ?? null,
     })),
     recommendations: (results.recommendations ?? []).map((text) => ({
       category: "rehabilitation",
@@ -172,6 +177,20 @@ export function reportToApi(report) {
     language: String(report.language ?? "en").toLowerCase() === "fr" ? "fr" : "en",
     acquisition_mode: report.acquisitionModeKey ?? report.acquisitionMode ?? "webcam",
     summary: report.summary ?? null,
+  };
+}
+
+export function reportDataFromApi(reportData) {
+  const patient = patientFromApi(reportData.patient);
+  const session = sessionFromApi(reportData.session, new Map([[patient.id, patient]]));
+
+  return {
+    patient,
+    session,
+    boardMetricsAvailable: reportData.board_metrics_available,
+    acquisitionModeLabel: reportData.acquisition_mode_label,
+    clinicalImpression: reportData.clinical_impression,
+    recommendations: reportData.recommendations ?? [],
   };
 }
 

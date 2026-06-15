@@ -71,6 +71,11 @@ export class WebcamAssessmentSource {
         ap: null,
         ml: null,
         posture: sample.postureScore,
+        trunkInclination: sample.trunkInclination,
+        trunkDeviation: sample.trunkInclination,
+        shoulderAsymmetry: sample.shoulderAsymmetry,
+        hipAsymmetry: sample.hipAsymmetry,
+        bodyCenterDeviation: sample.bodyCenterDeviation,
       })),
     };
 

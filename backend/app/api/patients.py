@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.models import Patient, Session as AssessmentSession
-from app.schemas import PatientCreate, PatientRead, PatientUpdate
+from app.schemas import PatientCreate, PatientRead, PatientUpdate, ProgressAnalyticsRead, ProgressPoint, SessionRead
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 
@@ -36,6 +36,70 @@ def create_patient(payload: PatientCreate, db: Session = Depends(get_db)) -> Pat
 @router.get("/{patient_id}", response_model=PatientRead)
 def get_patient(patient_id: int, db: Session = Depends(get_db)) -> PatientRead:
     return patient_summary(find_patient(patient_id, db), db)
+
+
+@router.get("/{patient_id}/sessions", response_model=list[SessionRead])
+def get_patient_sessions(patient_id: int, db: Session = Depends(get_db)) -> list[AssessmentSession]:
+    find_patient(patient_id, db)
+    return list(
+        db.scalars(
+            select(AssessmentSession)
+            .where(AssessmentSession.patient_id == patient_id)
+            .options(
+                selectinload(AssessmentSession.sensor_samples),
+                selectinload(AssessmentSession.posture_samples),
+                selectinload(AssessmentSession.recommendations),
+            )
+            .order_by(AssessmentSession.created_at.desc())
+        )
+    )
+
+
+@router.get("/{patient_id}/progress", response_model=ProgressAnalyticsRead)
+def get_patient_progress(patient_id: int, db: Session = Depends(get_db)) -> ProgressAnalyticsRead:
+    patient = find_patient(patient_id, db)
+    sessions = list(
+        db.scalars(
+            select(AssessmentSession)
+            .where(AssessmentSession.patient_id == patient_id)
+            .order_by(AssessmentSession.created_at.asc())
+        )
+    )
+    latest = sessions[-1] if sessions else None
+    first = sessions[0] if sessions else None
+
+    return ProgressAnalyticsRead(
+        patient_id=patient.id,
+        patient_code=patient.patient_code,
+        patient_name=patient.full_name,
+        latest_score=latest.total_balance_score if latest else None,
+        session_count=len(sessions),
+        score_change=round((latest.total_balance_score or 0) - (first.total_balance_score or 0), 1) if latest and first else None,
+        static_average=average_score([session for session in sessions if session.test_type == "static"]),
+        dynamic_average=average_score([session for session in sessions if session.test_type == "dynamic"]),
+        eyes_open_average=average_score([session for session in sessions if session.visual_condition == "eyes_open"]),
+        eyes_closed_average=average_score([session for session in sessions if session.visual_condition == "eyes_closed"]),
+        follow_up_count=sum(1 for session in sessions if session.status == "Follow-up"),
+        declining_count=sum(1 for session in sessions if session.status == "Declining"),
+        trend=[
+            ProgressPoint(
+                session_id=session.id,
+                label=f"S{index + 1}",
+                date=session.created_at,
+                test_type=session.test_type,
+                visual_condition=session.visual_condition,
+                acquisition_mode=session.acquisition_mode,
+                status=session.status,
+                total_score=session.total_balance_score,
+                posture_score=session.posture_stability_score,
+                trunk_deviation=session.trunk_deviation,
+                shoulder_asymmetry=session.shoulder_asymmetry,
+                hip_asymmetry=session.hip_asymmetry,
+                body_center_deviation=session.body_center_deviation,
+            )
+            for index, session in enumerate(sessions)
+        ],
+    )
 
 
 @router.patch("/{patient_id}", response_model=PatientRead)
@@ -89,3 +153,10 @@ def patient_summary(patient: Patient, db: Session) -> PatientRead:
             "status": latest_session.status if latest_session else "No sessions",
         }
     )
+
+
+def average_score(sessions: list[AssessmentSession]) -> float | None:
+    scores = [session.total_balance_score for session in sessions if session.total_balance_score is not None]
+    if not scores:
+        return None
+    return round(sum(scores) / len(scores), 1)

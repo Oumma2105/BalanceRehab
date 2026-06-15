@@ -38,9 +38,9 @@ def create_report(payload: ReportCreate, db: Session = Depends(get_db)) -> Repor
         session_id=session.id,
         report_file_path=payload.report_file_path or "",
         language=payload.language,
-        acquisition_mode=payload.acquisition_mode,
-        downloadable=bool(payload.report_file_path),
-        summary=payload.summary,
+        acquisition_mode=session.acquisition_mode,
+        downloadable=True,
+        summary=payload.summary or build_report_summary(session),
     )
     db.add(report)
     db.commit()
@@ -67,3 +67,10 @@ def delete_report(report_id: int, db: Session = Depends(get_db)) -> None:
 
 def next_report_id() -> str:
     return f"R-{datetime.utcnow().strftime('%y%m%d%H%M%S%f')[-10:]}"
+
+
+def build_report_summary(session: AssessmentSession) -> str:
+    score = f"{session.total_balance_score}/100" if session.total_balance_score is not None else "score unavailable"
+    status = session.status or "status unavailable"
+    condition = "Eyes closed" if session.visual_condition == "eyes_closed" else "Eyes open"
+    return f"{session.test_type.title()} {condition} assessment: {score}. {status}."

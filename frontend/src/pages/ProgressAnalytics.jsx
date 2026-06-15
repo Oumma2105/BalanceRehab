@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -18,14 +18,33 @@ import { MiniLineChart } from "../components/clinical/MiniLineChart";
 import { SectionHeader } from "../components/clinical/SectionHeader";
 import { StatusBadge } from "../components/clinical/StatusBadge";
 
-export function ProgressAnalyticsPage({ t, patients, sessions }) {
+export function ProgressAnalyticsPage({ t, patients, sessions, onLoadPatientProgress }) {
   const [patientId, setPatientId] = useState(patients[0]?.id ?? null);
   const [scoreSort, setScoreSort] = useState("desc");
+  const [backendProgress, setBackendProgress] = useState(null);
   const selectedPatient = patients.find((patient) => patient.id === Number(patientId));
   const patientSessions = useMemo(
     () => sessions.filter((session) => session.patientId === Number(patientId)).slice().reverse(),
     [sessions, patientId],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    setBackendProgress(null);
+
+    async function loadProgress() {
+      if (!patientId || !onLoadPatientProgress) return;
+      const progress = await onLoadPatientProgress(Number(patientId));
+      if (!cancelled) {
+        setBackendProgress(progress);
+      }
+    }
+
+    loadProgress();
+    return () => {
+      cancelled = true;
+    };
+  }, [patientId, onLoadPatientProgress]);
 
   const lineData = patientSessions.map((session, index) => ({
     label: `S${index + 1}`,
@@ -33,14 +52,22 @@ export function ProgressAnalyticsPage({ t, patients, sessions }) {
   }));
   const latest = patientSessions[patientSessions.length - 1];
   const first = patientSessions[0];
-  const improvement = latest && first ? latest.totalScore - first.totalScore : 0;
-  const metricTrendData = patientSessions.map((session, index) => ({
-    label: `S${index + 1}`,
-    trunkDeviation: getMetric(session, "trunkDeviation"),
-    shoulderAsymmetry: getMetric(session, "shoulderAsymmetry"),
-    hipAsymmetry: getMetric(session, "hipAsymmetry"),
-    bodyCenterDeviation: getMetric(session, "bodyCenterDeviation"),
-  }));
+  const improvement = backendProgress?.score_change ?? (latest && first ? latest.totalScore - first.totalScore : 0);
+  const metricTrendData = backendProgress?.trend?.length
+    ? backendProgress.trend.map((point) => ({
+        label: point.label,
+        trunkDeviation: point.trunk_deviation ?? 0,
+        shoulderAsymmetry: point.shoulder_asymmetry ?? 0,
+        hipAsymmetry: point.hip_asymmetry ?? 0,
+        bodyCenterDeviation: point.body_center_deviation ?? 0,
+      }))
+    : patientSessions.map((session, index) => ({
+        label: `S${index + 1}`,
+        trunkDeviation: getMetric(session, "trunkDeviation"),
+        shoulderAsymmetry: getMetric(session, "shoulderAsymmetry"),
+        hipAsymmetry: getMetric(session, "hipAsymmetry"),
+        bodyCenterDeviation: getMetric(session, "bodyCenterDeviation"),
+      }));
   const bestSessionId = patientSessions.reduce((best, session) => (!best || session.totalScore > best.totalScore ? session : best), null)?.id;
   const worstSessionId = patientSessions.reduce((worst, session) => (!worst || session.totalScore < worst.totalScore ? session : worst), null)?.id;
   const sortedHistory = patientSessions
@@ -86,62 +113,70 @@ export function ProgressAnalyticsPage({ t, patients, sessions }) {
       ) : (
         <>
           <section className="grid gap-4 md:grid-cols-3">
-            <Summary label={t.latestScore} value={`${latest.totalScore}/100`} />
-            <Summary label={t.sessionsSaved} value={patientSessions.length} />
+            <Summary label={t.latestScore} value={`${backendProgress?.latest_score ?? latest.totalScore}/100`} />
+            <Summary label={t.sessionsSaved} value={backendProgress?.session_count ?? patientSessions.length} />
             <Summary label={t.scoreChange} value={`${improvement >= 0 ? "+" : ""}${improvement} pts`} />
           </section>
 
-          <section className="grid gap-5 xl:grid-cols-2">
+          {patientSessions.length < 2 ? (
             <ClinicalCard className="p-5">
-              <SectionHeader title={t.scoreEvolution} description={`${t.savedAssessmentsFor} ${selectedPatient?.fullName}.`} />
-              <div className="mt-5">
-                <MiniLineChart data={lineData.length > 1 ? lineData : [...lineData, { label: "Next", value: lineData[0]?.value ?? 0 }]} color="#577590" />
-              </div>
+              <EmptyState title={t.progressTrendsPendingTitle} description={t.progressTrendsPendingDesc} />
             </ClinicalCard>
+          ) : (
+            <>
+              <section className="grid gap-5 xl:grid-cols-2">
+                <ClinicalCard className="p-5">
+                  <SectionHeader title={t.scoreEvolution} description={`${t.savedAssessmentsFor} ${selectedPatient?.fullName}.`} />
+                  <div className="mt-5">
+                    <MiniLineChart data={lineData} color="#577590" />
+                  </div>
+                </ClinicalCard>
 
-            <ClinicalCard className="p-5">
-              <SectionHeader title={t.staticVsDynamic} description={t.averageScoreByTestType} />
-              <div className="mt-5">
-                <MiniBarChart
-                  data={[
-                    { label: "Static", value: average(patientSessions.filter((s) => s.testType === "Static")), color: "#90BE6D" },
-                    { label: "Dynamic", value: average(patientSessions.filter((s) => s.testType === "Dynamic")), color: "#577590" },
-                  ]}
-                />
-              </div>
-            </ClinicalCard>
-          </section>
+                <ClinicalCard className="p-5">
+                  <SectionHeader title={t.staticVsDynamic} description={t.averageScoreByTestType} />
+                  <div className="mt-5">
+                    <MiniBarChart
+                      data={[
+                        { label: t.staticTest, value: backendProgress?.static_average ?? average(patientSessions.filter((s) => s.testType === "Static")), color: "#90BE6D" },
+                        { label: t.dynamicTest, value: backendProgress?.dynamic_average ?? average(patientSessions.filter((s) => s.testType === "Dynamic")), color: "#577590" },
+                      ]}
+                    />
+                  </div>
+                </ClinicalCard>
+              </section>
 
-          <section className="grid gap-5 xl:grid-cols-2">
-            <MetricTrendChart title="Trunk Deviation" data={metricTrendData} dataKey="trunkDeviation" threshold={8} unit="deg" />
-            <MetricTrendChart title="Shoulder Asymmetry" data={metricTrendData} dataKey="shoulderAsymmetry" threshold={5} unit="%" />
-            <MetricTrendChart title="Hip Asymmetry" data={metricTrendData} dataKey="hipAsymmetry" threshold={5} unit="%" />
-            <MetricTrendChart title="Body Center Deviation" data={metricTrendData} dataKey="bodyCenterDeviation" threshold={9} unit="%" />
-          </section>
+              <section className="grid gap-5 xl:grid-cols-2">
+                <MetricTrendChart t={t} title={t.trunkDeviation} data={metricTrendData} dataKey="trunkDeviation" threshold={8} unit="deg" />
+                <MetricTrendChart t={t} title={t.shoulderAsymmetry} data={metricTrendData} dataKey="shoulderAsymmetry" threshold={5} unit="%" />
+                <MetricTrendChart t={t} title={t.hipAsymmetry} data={metricTrendData} dataKey="hipAsymmetry" threshold={5} unit="%" />
+                <MetricTrendChart t={t} title={t.bodyCenterDeviation} data={metricTrendData} dataKey="bodyCenterDeviation" threshold={9} unit="%" />
+              </section>
+            </>
+          )}
 
           <ClinicalCard className="p-5">
-            <SectionHeader title="Session History" description="Detailed saved assessment history for the selected patient." />
+            <SectionHeader title={t.sessionHistory} description={t.sessionHistoryDesc} />
             <div className="mt-5 overflow-x-auto">
               <table className="w-full min-w-[860px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-rehab-line text-xs uppercase tracking-wide text-rehab-muted">
                     <th className="px-3 py-3 font-semibold">#</th>
-                    <th className="px-3 py-3 font-semibold">Date</th>
-                    <th className="px-3 py-3 font-semibold">Test</th>
-                    <th className="px-3 py-3 font-semibold">Condition</th>
+                    <th className="px-3 py-3 font-semibold">{t.date}</th>
+                    <th className="px-3 py-3 font-semibold">{t.test}</th>
+                    <th className="px-3 py-3 font-semibold">{t.conditions}</th>
                     <th className="px-3 py-3 font-semibold">
                       <button
                         type="button"
                         onClick={() => setScoreSort((current) => (current === "desc" ? "asc" : "desc"))}
                         className="font-semibold text-rehab-ink"
                       >
-                        Score {scoreSort === "desc" ? "↓" : "↑"}
+                        {t.score} {scoreSort === "desc" ? "↓" : "↑"}
                       </button>
                     </th>
-                    <th className="px-3 py-3 font-semibold">Posture</th>
-                    <th className="px-3 py-3 font-semibold">Trunk Dev</th>
-                    <th className="px-3 py-3 font-semibold">Status</th>
-                    <th className="px-3 py-3 font-semibold">Actions</th>
+                    <th className="px-3 py-3 font-semibold">{t.posture}</th>
+                    <th className="px-3 py-3 font-semibold">{t.trunkDev}</th>
+                    <th className="px-3 py-3 font-semibold">{t.status}</th>
+                    <th className="px-3 py-3 font-semibold">{t.actions}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -149,14 +184,14 @@ export function ProgressAnalyticsPage({ t, patients, sessions }) {
                     <tr key={session.id} className={historyRowClass(session, index, bestSessionId, worstSessionId)}>
                       <td className="px-3 py-3 font-semibold">{index + 1}</td>
                       <td className="px-3 py-3 text-rehab-muted">{session.date}</td>
-                      <td className="px-3 py-3">{session.testType}</td>
-                      <td className="px-3 py-3">{session.condition}</td>
+                      <td className="px-3 py-3">{testTypeLabel(t, session.testType)}</td>
+                      <td className="px-3 py-3">{conditionLabel(t, session.condition)}</td>
                       <td className="px-3 py-3 font-semibold">{session.totalScore}/100</td>
                       <td className="px-3 py-3">{getMetric(session, "postureScore")}/100</td>
-                      <td className="px-3 py-3">{getMetric(session, "trunkDeviation")}°</td>
+                      <td className="px-3 py-3">{getMetric(session, "trunkDeviation")} deg</td>
                       <td className="px-3 py-3">
                         <StatusBadge tone={session.status === "Declining" ? "danger" : session.status === "Follow-up" ? "warning" : "connected"}>
-                          {session.status}
+                          {statusLabel(t, session.status)}
                         </StatusBadge>
                       </td>
                       <td className="px-3 py-3">
@@ -164,7 +199,7 @@ export function ProgressAnalyticsPage({ t, patients, sessions }) {
                           type="button"
                           className="rounded-lg border border-rehab-line bg-white px-3 py-1.5 text-xs font-semibold text-rehab-ink transition hover:bg-slate-50"
                         >
-                          View
+                          {t.view}
                         </button>
                       </td>
                     </tr>
@@ -175,10 +210,15 @@ export function ProgressAnalyticsPage({ t, patients, sessions }) {
           </ClinicalCard>
 
           <ClinicalCard className="p-5">
-            <SectionHeader title="Improvement Summary" description="Automatically generated from saved sessions." />
+            <SectionHeader title={t.improvementSummary} description={t.improvementSummaryDesc} />
             <p className="mt-4 rounded-lg bg-slate-50 p-4 text-sm leading-6 text-rehab-ink">
-              Over {patientSessions.length} sessions, {selectedPatient?.fullName} has shown {improvement >= 0 ? "+" : ""}
-              {improvement} points change in overall stability score. Trunk deviation has {trunkTrend}. {latest?.postureScore ?? getMetric(latest, "postureScore")} / 100 in most recent session.
+              {template(t.pointsChangeSummary, {
+                count: patientSessions.length,
+                patient: selectedPatient?.fullName,
+                change: `${improvement >= 0 ? "+" : ""}${improvement}`,
+                trend: trendLabel(t, trunkTrend),
+                postureScore: backendProgress?.trend?.at(-1)?.posture_score ?? latest?.postureScore ?? getMetric(latest, "postureScore"),
+              })}
             </p>
           </ClinicalCard>
 
@@ -191,9 +231,9 @@ export function ProgressAnalyticsPage({ t, patients, sessions }) {
                   <div key={session.id} className="flex items-center justify-between rounded-lg border border-rehab-line p-4">
                     <div>
                       <p className="font-semibold">{session.date}</p>
-                      <p className="text-sm text-rehab-muted">{session.testType} - {session.condition}</p>
+                      <p className="text-sm text-rehab-muted">{testTypeLabel(t, session.testType)} - {conditionLabel(t, session.condition)}</p>
                     </div>
-                    <StatusBadge tone={session.status === "Declining" ? "danger" : "warning"}>{session.status}</StatusBadge>
+                    <StatusBadge tone={session.status === "Declining" ? "danger" : "warning"}>{statusLabel(t, session.status)}</StatusBadge>
                   </div>
                 ))}
             </div>
@@ -218,7 +258,7 @@ function average(items) {
   return Math.round(items.reduce((sum, item) => sum + item.totalScore, 0) / items.length);
 }
 
-function MetricTrendChart({ title, data, dataKey, threshold, unit }) {
+function MetricTrendChart({ t, title, data, dataKey, threshold, unit }) {
   const maxValue = Math.max(threshold + 3, ...data.map((item) => Number(item[dataKey] ?? 0))) + 2;
 
   return (
@@ -245,7 +285,7 @@ function MetricTrendChart({ title, data, dataKey, threshold, unit }) {
           </AreaChart>
         </ResponsiveContainer>
       </div>
-      <p className="mt-2 text-xs text-rehab-muted">Lower is better. Attention threshold: {threshold}{unit}.</p>
+      <p className="mt-2 text-xs text-rehab-muted">{t.lowerIsBetter} {t.attentionThreshold}: {threshold}{unit}.</p>
     </ClinicalCard>
   );
 }
@@ -260,4 +300,42 @@ function getMetric(session, key) {
   if (!session) return 0;
   const value = session[key] ?? session.results?.[key] ?? 0;
   return Math.round(Number(value) * 10) / 10;
+}
+
+function statusLabel(t, status) {
+  const labels = {
+    Stable: t.statusStable,
+    Improving: t.statusImproving,
+    "Follow-up": t.statusFollowUp,
+    Declining: t.statusDeclining,
+    "No sessions": t.statusNoSessions,
+  };
+  return labels[status] ?? status ?? t.statusNoSessions ?? t.noSessions;
+}
+
+function testTypeLabel(t, testType) {
+  const normalized = String(testType ?? "").toLowerCase();
+  if (normalized === "static") return t.staticTest;
+  if (normalized === "dynamic") return t.dynamicTest;
+  return testType ?? "-";
+}
+
+function conditionLabel(t, condition) {
+  const normalized = String(condition ?? "").toLowerCase().replace("_", " ");
+  if (normalized === "eyes open") return t.eyesOpen;
+  if (normalized === "eyes closed") return t.eyesClosed;
+  return condition ?? "-";
+}
+
+function trendLabel(t, trend) {
+  const labels = {
+    "remained stable": t.remainedStable,
+    improved: t.improved,
+    worsened: t.worsened,
+  };
+  return labels[trend] ?? trend;
+}
+
+function template(text = "", values = {}) {
+  return Object.entries(values).reduce((current, [key, value]) => current.replaceAll(`{${key}}`, value ?? ""), text);
 }

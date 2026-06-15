@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Edit, FileText, Plus, Search, Trash2 } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, ClipboardList, Edit, FileText, Plus, Search, Target, Trash2, UsersRound } from "lucide-react";
 
 import { Button } from "../components/clinical/Button";
 import { ClinicalCard } from "../components/clinical/ClinicalCard";
@@ -8,7 +8,6 @@ import { EmptyState } from "../components/clinical/EmptyState";
 import { SectionHeader } from "../components/clinical/SectionHeader";
 import { StatusBadge } from "../components/clinical/StatusBadge";
 import { clinicalGoals, pathologyOptions } from "../data/demoPatients.js";
-import { downloadSessionReport } from "../utils/report";
 
 const emptyForm = {
   fullName: "",
@@ -38,6 +37,8 @@ export function PatientsPage({
   onUpdatePatient,
   onDeletePatient,
   onStartAssessment,
+  onLoadPatientSessions,
+  onDownloadSessionReport,
   addRequest,
   profileRequest,
   onProfileRequestHandled,
@@ -67,6 +68,12 @@ export function PatientsPage({
     }
   }, [profileRequest, onProfileRequestHandled]);
 
+  useEffect(() => {
+    if (selectedId && onLoadPatientSessions) {
+      onLoadPatientSessions(selectedId);
+    }
+  }, [selectedId, onLoadPatientSessions]);
+
   const selectedPatient = patients.find((patient) => patient.id === selectedId);
   const filteredPatients = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -75,6 +82,9 @@ export function PatientsPage({
       [patient.fullName, patient.patientCode].join(" ").toLowerCase().includes(normalized),
     );
   }, [patients, query]);
+  const activePatients = patients.filter((patient) => patient.status !== "No sessions").length;
+  const followUpPatients = patients.filter((patient) => patient.status === "Follow-up" || patient.status === "Declining" || Number(patient.latestScore) < 70).length;
+  const averageScore = averageScoreValue(patients.map((patient) => patient.latestScore));
 
   if (selectedPatient) {
     return (
@@ -94,6 +104,7 @@ export function PatientsPage({
           setSelectedId(null);
         }}
         onStartAssessment={() => onStartAssessment(selectedPatient.id)}
+        onDownloadSessionReport={onDownloadSessionReport}
       />
     );
   }
@@ -102,7 +113,7 @@ export function PatientsPage({
     <div className="space-y-5">
       <section className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-semibold text-rehab-ink">Patients</h1>
+          <h1 className="text-3xl font-semibold text-rehab-ink">{t.patients}</h1>
           <p className="mt-2 text-sm text-rehab-muted">{t.searchAddOpenPatients}</p>
         </div>
         <Button onClick={() => setFormOpen(true)}>
@@ -111,13 +122,20 @@ export function PatientsPage({
       </section>
 
       <ClinicalCard className="p-5">
-        <div className="relative">
+        <div className="mb-5 grid gap-3 md:grid-cols-4">
+          <PatientKpi icon={UsersRound} label={t.totalPatients} value={patients.length} color="#577590" bg="bg-blue-50" />
+          <PatientKpi icon={Activity} label={t.activePatients} value={activePatients} color="#43AA8B" bg="bg-teal-50" />
+          <PatientKpi icon={AlertTriangle} label={t.followUpQueue} value={followUpPatients} color="#F8961E" bg="bg-orange-50" />
+          <PatientKpi icon={Target} label={t.averageScore} value={averageScore ? `${averageScore}/100` : "-"} color="#90BE6D" bg="bg-emerald-50" />
+        </div>
+
+        <div className="relative rounded-xl border border-rehab-line bg-slate-50/70 p-1">
           <Search className="absolute left-3 top-3 text-rehab-muted" size={18} />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t.searchPatientNameId}
-            className="w-full rounded-lg border border-rehab-line bg-white py-2.5 pl-10 pr-3 text-sm outline-none focus:border-rehab-teal"
+            className="w-full rounded-lg border border-transparent bg-white py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-rehab-teal focus:ring-2 focus:ring-rehab-teal/10"
           />
         </div>
 
@@ -134,21 +152,28 @@ export function PatientsPage({
               columns={[t.patient, t.pathology, t.latestScore, t.lastAssessment, t.status, t.action]}
               rows={filteredPatients}
               renderRow={(patient) => (
-                <tr key={patient.id} className="hover:bg-slate-50">
+                <tr key={patient.id} className={`${patientRowClass(patient)} transition hover:bg-slate-50`}>
                   <td className="px-4 py-3">
-                    <button type="button" onClick={() => setSelectedId(patient.id)} className="text-left">
-                      <p className="font-semibold text-rehab-ink">{patient.fullName}</p>
-                      <p className="text-xs text-rehab-muted">{patient.patientCode}</p>
+                    <button type="button" onClick={() => setSelectedId(patient.id)} className="flex items-center gap-3 text-left">
+                      <span className="grid h-10 w-10 place-items-center rounded-xl bg-rehab-blue/10 text-xs font-semibold text-rehab-blue">
+                        {initials(patient.fullName)}
+                      </span>
+                      <span>
+                        <p className="font-semibold text-rehab-ink">{patient.fullName}</p>
+                        <p className="text-xs text-rehab-muted">{patient.patientCode}</p>
+                      </span>
                     </button>
                   </td>
                   <td className="px-4 py-3 text-rehab-muted">{patient.pathology || "-"}</td>
-                  <td className="px-4 py-3 font-semibold">{patient.latestScore ? `${patient.latestScore}/100` : "-"}</td>
+                  <td className="px-4 py-3">
+                    <ScoreIndicator score={patient.latestScore} />
+                  </td>
                   <td className="px-4 py-3 text-rehab-muted">{patient.lastAssessmentDate ?? "-"}</td>
                   <td className="px-4 py-3">
-                    <StatusBadge tone={statusTone[patient.status] ?? "neutral"}>{patient.status ?? t.noSessions}</StatusBadge>
+                    <StatusBadge tone={statusTone[patient.status] ?? "neutral"}>{statusLabel(t, patient.status)}</StatusBadge>
                   </td>
                   <td className="px-4 py-3">
-                    <Button variant="secondary" className="px-3 py-1.5" onClick={() => setSelectedId(patient.id)}>
+                    <Button variant="secondary" className="px-3 py-1.5 shadow-sm" onClick={() => setSelectedId(patient.id)}>
                       {t.viewProfile}
                     </Button>
                   </td>
@@ -202,10 +227,10 @@ export function PatientsPage({
   );
 }
 
-function PatientDetail({ t, patient, requestedTab, sessions, reports, onBack, onEdit, onDelete, onStartAssessment }) {
+function PatientDetail({ t, patient, requestedTab, sessions, reports, onBack, onEdit, onDelete, onStartAssessment, onDownloadSessionReport }) {
   const [tab, setTab] = useState("overview");
   const latestSession = sessions[0];
-  const tabs = ["overview", "sessions", "reports"];
+  const tabs = ["overview", "sessions", "progress", "reports"];
 
   useEffect(() => {
     if (tabs.includes(requestedTab)) {
@@ -225,7 +250,7 @@ function PatientDetail({ t, patient, requestedTab, sessions, reports, onBack, on
             <p className="text-sm font-semibold text-rehab-teal">{patient.patientCode}</p>
             <h1 className="mt-1 text-3xl font-semibold text-rehab-ink">{patient.fullName}</h1>
             <p className="mt-2 text-sm text-rehab-muted">
-              {patient.age} years - {displaySex(patient.sex)} - {patient.pathology || t.noSessions}
+              {patient.age} {t.years} - {displaySex(patient.sex)} - {patient.pathology || t.noSessions}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -274,7 +299,7 @@ function PatientDetail({ t, patient, requestedTab, sessions, reports, onBack, on
           ) : (
             <div className="mt-5 grid gap-4 md:grid-cols-3">
               <Summary label={t.currentBalanceScore} value={`${latestSession.totalScore}/100`} />
-              <Summary label={t.lastTest} value={`${latestSession.testType} - ${latestSession.condition}`} />
+              <Summary label={t.lastTest} value={`${testTypeLabel(t, latestSession.testType)} - ${conditionLabel(t, latestSession.condition)}`} />
               <Summary label={t.recommendationCount} value={latestSession.results.recommendations.length} />
               <div className="rounded-lg border border-rehab-line p-4 md:col-span-3">
                 <p className="font-semibold">{t.latestRecommendations}</p>
@@ -294,7 +319,11 @@ function PatientDetail({ t, patient, requestedTab, sessions, reports, onBack, on
       ) : null}
 
       {tab === "sessions" ? (
-        <SessionsPanel t={t} patient={patient} sessions={sessions} />
+        <SessionsPanel t={t} patient={patient} sessions={sessions} onDownloadSessionReport={onDownloadSessionReport} />
+      ) : null}
+
+      {tab === "progress" ? (
+        <ProgressPanel t={t} patient={patient} sessions={sessions} onStartAssessment={onStartAssessment} />
       ) : null}
 
       {tab === "reports" ? (
@@ -317,12 +346,12 @@ function PatientDetail({ t, patient, requestedTab, sessions, reports, onBack, on
                     <div>
                       <p className="font-semibold">{report.reportId ?? report.id}</p>
                       <p className="text-sm text-rehab-muted">{report.generatedAt ?? report.createdAt ?? "-"}</p>
-                      <p className="mt-1 text-sm text-rehab-muted">{report.acquisitionMode ?? session?.acquisitionMode ?? "-"}</p>
+                      <p className="mt-1 text-sm text-rehab-muted">{acquisitionModeLabel(t, report.acquisitionModeKey ?? session?.acquisitionModeKey, report.acquisitionMode ?? session?.acquisitionMode)}</p>
                       <p className="mt-1 max-w-2xl text-sm text-rehab-ink">{report.summary ?? "-"}</p>
                     </div>
                   </div>
-                  <Button variant="secondary" onClick={() => session && downloadSessionReport({ patient, session, t })} disabled={!session}>
-                    Download
+                  <Button variant="secondary" onClick={() => session && onDownloadSessionReport({ patient, session })} disabled={!session}>
+                    {t.download}
                   </Button>
                 </div>
               );
@@ -334,7 +363,86 @@ function PatientDetail({ t, patient, requestedTab, sessions, reports, onBack, on
   );
 }
 
-function SessionsPanel({ t, patient, sessions }) {
+function ProgressPanel({ t, patient, sessions, onStartAssessment }) {
+  const chronological = [...sessions].reverse();
+  const first = chronological[0];
+  const latest = chronological[chronological.length - 1];
+  const scoreChange = first && latest ? Number(latest.totalScore) - Number(first.totalScore) : 0;
+  const staticScores = sessions.filter((session) => session.testType === "Static").map((session) => session.totalScore);
+  const dynamicScores = sessions.filter((session) => session.testType === "Dynamic").map((session) => session.totalScore);
+  const bestSession = sessions.reduce((best, session) => (!best || Number(session.totalScore) > Number(best.totalScore) ? session : best), null);
+
+  return (
+    <ClinicalCard className="p-5">
+      <SectionHeader title={t.progress} description={t.scoreEvolutionDesc} />
+      {sessions.length < 2 ? (
+        <div className="mt-5">
+          <EmptyState
+            title={t.progressTrendsPendingTitle}
+            description={t.progressTrendsPendingDesc}
+            actionLabel={sessions.length === 0 ? t.startFirstAssessment : t.newAssessment}
+            onAction={onStartAssessment}
+          />
+        </div>
+      ) : (
+        <div className="mt-5 space-y-5">
+          <div className="grid gap-3 md:grid-cols-3">
+            <Summary label={t.sessionsSaved} value={sessions.length} />
+            <Summary label={t.scoreChange} value={`${scoreChange >= 0 ? "+" : ""}${scoreChange} pts`} />
+            <Summary label={t.latestScore} value={`${latest.totalScore}/100`} />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[1.4fr_0.8fr]">
+            <div className="rounded-xl border border-rehab-line bg-white p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-rehab-ink">{t.scoreEvolution}</p>
+                  <p className="mt-1 text-sm text-rehab-muted">{t.savedAssessmentsFor} {patient.fullName}</p>
+                </div>
+                <StatusBadge tone={scoreChange > 2 ? "connected" : scoreChange < -2 ? "danger" : "neutral"}>
+                  {scoreChange > 2 ? t.improved : scoreChange < -2 ? t.worsened : t.remainedStable}
+                </StatusBadge>
+              </div>
+              <div className="mt-5 flex h-32 items-end gap-2 rounded-lg bg-slate-50 p-3">
+                {chronological.map((session, index) => {
+                  const score = Math.max(0, Math.min(100, Number(session.totalScore) || 0));
+                  const color = score >= 80 ? "#43AA8B" : score >= 70 ? "#F9C74F" : score >= 60 ? "#F8961E" : "#F94144";
+                  return (
+                    <div key={session.id} className="flex min-w-8 flex-1 flex-col items-center gap-2">
+                      <div className="flex h-24 w-full items-end">
+                        <div className="w-full rounded-t-md transition" style={{ height: `${score}%`, backgroundColor: color }} />
+                      </div>
+                      <span className="text-xs font-semibold text-rehab-muted">S{index + 1}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-rehab-line bg-slate-50 p-4">
+              <p className="font-semibold text-rehab-ink">{t.staticVsDynamic}</p>
+              <p className="mt-1 text-sm text-rehab-muted">{t.averageScoreByTestType}</p>
+              <div className="mt-4 space-y-4">
+                <ProgressAverage label={t.staticTest} value={averageScoreValue(staticScores)} color="#43AA8B" />
+                <ProgressAverage label={t.dynamicTest} value={averageScoreValue(dynamicScores)} color="#F8961E" />
+              </div>
+              {bestSession ? (
+                <div className="mt-5 rounded-lg bg-white p-3 text-sm">
+                  <p className="font-semibold text-rehab-ink">{t.bestSession ?? "Best session"}</p>
+                  <p className="mt-1 text-rehab-muted">
+                    {bestSession.date} - {bestSession.totalScore}/100
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+    </ClinicalCard>
+  );
+}
+
+function SessionsPanel({ t, patient, sessions, onDownloadSessionReport }) {
   return (
     <ClinicalCard className="p-5">
       <SectionHeader title={t.sessions} description={t.previousAssessments} />
@@ -349,15 +457,15 @@ function SessionsPanel({ t, patient, sessions }) {
               renderRow={(session) => (
                 <tr key={session.id}>
                   <td className="px-4 py-3 text-rehab-muted">{session.date}</td>
-                  <td className="px-4 py-3">{session.testType}</td>
-                  <td className="px-4 py-3">{session.condition}</td>
+                  <td className="px-4 py-3">{testTypeLabel(t, session.testType)}</td>
+                  <td className="px-4 py-3">{conditionLabel(t, session.condition)}</td>
                   <td className="px-4 py-3 font-semibold">{session.totalScore}/100</td>
                   <td className="px-4 py-3">
-                    <StatusBadge tone={statusTone[session.status] ?? "neutral"}>{session.status}</StatusBadge>
+                    <StatusBadge tone={statusTone[session.status] ?? "neutral"}>{statusLabel(t, session.status)}</StatusBadge>
                   </td>
                   <td className="px-4 py-3">
-                    <Button variant="secondary" className="px-3 py-1.5" onClick={() => downloadSessionReport({ patient, session, t })}>
-                      Download Report
+                    <Button variant="secondary" className="px-3 py-1.5" onClick={() => onDownloadSessionReport({ patient, session })}>
+                      {t.downloadReport}
                     </Button>
                   </td>
                 </tr>
@@ -367,6 +475,22 @@ function SessionsPanel({ t, patient, sessions }) {
         )}
       </div>
     </ClinicalCard>
+  );
+}
+
+function ProgressAverage({ label, value, color }) {
+  const score = Math.max(0, Math.min(100, Number(value) || 0));
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <span className="font-semibold text-rehab-ink">{label}</span>
+        <span className="font-semibold text-rehab-muted">{value ? `${value}/100` : "-"}</span>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-white">
+        <div className="h-full rounded-full" style={{ width: `${score}%`, backgroundColor: color }} />
+      </div>
+    </div>
   );
 }
 
@@ -415,10 +539,20 @@ function PatientFormModal({ t, patient, onClose, onSubmit, createdPatient, onSta
   if (createdPatient) {
     return (
       <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/30 p-4">
-        <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl">
-          <p className="text-sm font-semibold text-rehab-teal">{createdPatient.patientCode}</p>
-          <h2 className="mt-2 text-xl font-semibold">{t.patientCreated}</h2>
-          <p className="mt-2 text-sm text-rehab-muted">{createdPatient.fullName}</p>
+        <div className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-xl">
+          <div className="bg-gradient-to-r from-teal-50 to-blue-50 p-5">
+            <div className="grid h-12 w-12 place-items-center rounded-xl bg-rehab-teal text-white">
+              <ClipboardList size={22} />
+            </div>
+            <p className="mt-4 text-sm font-semibold text-rehab-teal">{createdPatient.patientCode}</p>
+            <h2 className="mt-1 text-2xl font-semibold text-rehab-ink">{t.patientCreated}</h2>
+            <p className="mt-2 text-sm text-rehab-muted">{createdPatient.fullName}</p>
+          </div>
+          <div className="p-5">
+            <div className="rounded-lg border border-rehab-line bg-slate-50 p-3 text-sm text-rehab-muted">
+              <span className="font-semibold text-rehab-ink">{createdPatient.pathology}</span>
+              {createdPatient.clinicalGoal ? ` - ${createdPatient.clinicalGoal}` : ""}
+            </div>
           <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
             <Button variant="subtle" onClick={onReturnToList}>
               {t.returnPatientList}
@@ -430,6 +564,7 @@ function PatientFormModal({ t, patient, onClose, onSubmit, createdPatient, onSta
               {t.startFirstAssessmentAction}
             </Button>
           </div>
+          </div>
         </div>
       </div>
     );
@@ -437,74 +572,83 @@ function PatientFormModal({ t, patient, onClose, onSubmit, createdPatient, onSta
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/30 p-4">
-      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white p-5 shadow-xl">
-        <h2 className="text-xl font-semibold">{patient ? t.editPatient : t.addPatient}</h2>
-        {!patient ? <p className="mt-2 text-sm text-rehab-muted">{t.patientIdAuto}</p> : null}
-        <p className="mt-1 text-xs text-rehab-muted">{t.requiredFieldsHint}</p>
-
-        <FormGroup title={t.identity}>
-          <Input label={t.fullName} value={form.fullName} onChange={(fullName) => setForm({ ...form, fullName })} required />
-          <AgeInput value={form.age} onChange={(age) => setForm({ ...form, age })} label={t.age} required />
-          <SelectField
-            label={t.sex}
-            value={form.sex}
-            onChange={(sex) => setForm({ ...form, sex })}
-            options={["Female", "Male"]}
-            required
-          />
-        </FormGroup>
-
-        <FormGroup title={t.clinicalProfile}>
-          <ComboboxInput
-            label={t.medicalReason}
-            value={form.pathology}
-            options={pathologyOptions}
-            placeholder={t.pathologyPlaceholder}
-            onChange={(pathology) => setForm({ ...form, pathology })}
-            required
-            listId="pathology-options"
-          />
-          <ComboboxInput
-            label={t.clinicalGoal}
-            value={form.clinicalGoal}
-            options={clinicalGoals}
-            placeholder={t.clinicalGoalPlaceholder}
-            onChange={(clinicalGoal) => setForm({ ...form, clinicalGoal })}
-            listId="clinical-goal-options"
-          />
-          <SelectField
-            label={t.dominantSide}
-            value={form.dominantSide}
-            onChange={(dominantSide) => setForm({ ...form, dominantSide })}
-            options={["", "Left", "Right"]}
-            emptyLabel={t.notSpecified}
-          />
-        </FormGroup>
-
-        <FormGroup title={t.bodyMeasurements}>
-          <NumberInput label={t.heightCm} value={form.heightCm} min={50} max={240} onChange={(heightCm) => setForm({ ...form, heightCm })} />
-          <NumberInput label={t.weightKg} value={form.weightKg} min={2} max={250} onChange={(weightKg) => setForm({ ...form, weightKg })} />
-        </FormGroup>
-
-        <div className="mt-5">
-          <label className="text-sm font-semibold">
-            {t.clinicalNotes}
-            <textarea
-              value={form.clinicalNotes ?? ""}
-              placeholder={t.clinicalNotesPlaceholder}
-              onChange={(event) => setForm({ ...form, clinicalNotes: event.target.value })}
-              rows={2}
-              className="mt-1 w-full rounded-lg border border-rehab-line px-3 py-2 font-normal outline-none focus:border-rehab-teal"
-            />
-          </label>
+      <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-xl bg-white shadow-xl">
+        <div className="border-b border-rehab-line bg-slate-50 p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-rehab-teal">{t.clinicalProfile}</p>
+          <h2 className="mt-1 text-2xl font-semibold text-rehab-ink">{patient ? t.editPatient : t.addPatient}</h2>
+          {!patient ? <p className="mt-2 text-sm text-rehab-muted">{t.patientIdAuto}</p> : null}
+          <p className="mt-1 text-xs text-rehab-muted">{t.requiredFieldsHint}</p>
         </div>
-        <div className="mt-5 flex justify-end gap-2">
+
+        <div className="p-5">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <FormGroup title={t.identity} icon={UsersRound} accent="#577590">
+              <Input label={t.fullName} value={form.fullName} onChange={(fullName) => setForm({ ...form, fullName })} required />
+              <AgeInput value={form.age} onChange={(age) => setForm({ ...form, age })} label={t.age} required />
+              <SelectField
+                label={t.sex}
+                value={form.sex}
+                onChange={(sex) => setForm({ ...form, sex })}
+                options={["Female", "Male"]}
+                required
+              />
+            </FormGroup>
+
+            <FormGroup title={t.clinicalProfile} icon={Target} accent="#43AA8B">
+              <ComboboxInput
+                label={t.medicalReason}
+                value={form.pathology}
+                options={pathologyOptions}
+                placeholder={t.pathologyPlaceholder}
+                onChange={(pathology) => setForm({ ...form, pathology })}
+                required
+                listId="pathology-options"
+              />
+              <ComboboxInput
+                label={t.clinicalGoal}
+                value={form.clinicalGoal}
+                options={clinicalGoals}
+                placeholder={t.clinicalGoalPlaceholder}
+                onChange={(clinicalGoal) => setForm({ ...form, clinicalGoal })}
+                listId="clinical-goal-options"
+              />
+              <SelectField
+                label={t.dominantSide}
+                value={form.dominantSide}
+                onChange={(dominantSide) => setForm({ ...form, dominantSide })}
+                options={["", "Left", "Right"]}
+                emptyLabel={t.notSpecified}
+              />
+            </FormGroup>
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
+            <FormGroup title={t.bodyMeasurements} icon={Activity} accent="#F8961E" compact>
+              <NumberInput label={t.heightCm} value={form.heightCm} min={50} max={240} onChange={(heightCm) => setForm({ ...form, heightCm })} />
+              <NumberInput label={t.weightKg} value={form.weightKg} min={2} max={250} onChange={(weightKg) => setForm({ ...form, weightKg })} />
+            </FormGroup>
+
+            <div className="rounded-xl border border-rehab-line bg-slate-50 p-4">
+              <label className="text-sm font-semibold">
+                {t.clinicalNotes}
+                <textarea
+                  value={form.clinicalNotes ?? ""}
+                  placeholder={t.clinicalNotesPlaceholder}
+                  onChange={(event) => setForm({ ...form, clinicalNotes: event.target.value })}
+                  rows={3}
+                  className="mt-2 w-full rounded-lg border border-rehab-line bg-white px-3 py-2 font-normal outline-none focus:border-rehab-teal"
+                />
+              </label>
+            </div>
+          </div>
+        <div className="mt-5 flex justify-end gap-2 border-t border-rehab-line pt-4">
           <Button variant="secondary" onClick={onClose}>
             {t.cancel}
           </Button>
           <Button onClick={() => onSubmit(preparePatientPayload(form))} disabled={!isValid}>
             {t.savePatient}
           </Button>
+        </div>
         </div>
       </div>
     </div>
@@ -525,11 +669,18 @@ function Input({ label, value, placeholder, onChange }) {
   );
 }
 
-function FormGroup({ title, children }) {
+function FormGroup({ title, children, icon: Icon, accent = "#43AA8B", compact = false }) {
   return (
-    <section className="mt-5">
-      <p className="mb-3 text-sm font-semibold text-rehab-ink">{title}</p>
-      <div className="grid gap-3 md:grid-cols-3">{children}</div>
+    <section className="mt-5 rounded-xl border border-rehab-line bg-white p-4 first:mt-0">
+      <div className="mb-4 flex items-center gap-3">
+        {Icon ? (
+          <span className="grid h-9 w-9 place-items-center rounded-lg text-white" style={{ backgroundColor: accent }}>
+            <Icon size={17} />
+          </span>
+        ) : null}
+        <p className="text-sm font-semibold text-rehab-ink">{title}</p>
+      </div>
+      <div className={`grid gap-3 ${compact ? "sm:grid-cols-2" : "md:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3"}`}>{children}</div>
     </section>
   );
 }
@@ -686,6 +837,95 @@ function preparePatientPayload(form) {
     ...payload,
     notes: payload.clinicalNotes,
   };
+}
+
+function PatientKpi({ icon: Icon, label, value, color, bg }) {
+  return (
+    <div className={`rounded-xl border border-white p-4 ${bg}`}>
+      <div className="flex items-center justify-between gap-3">
+        <span className="grid h-9 w-9 place-items-center rounded-lg text-white" style={{ backgroundColor: color }}>
+          <Icon size={17} />
+        </span>
+        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+      </div>
+      <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-rehab-muted">{label}</p>
+      <p className="mt-1 text-2xl font-semibold text-rehab-ink">{value}</p>
+    </div>
+  );
+}
+
+function ScoreIndicator({ score }) {
+  if (score == null) {
+    return <span className="text-sm font-semibold text-rehab-muted">-</span>;
+  }
+
+  const tone = Number(score) >= 80 ? "#43AA8B" : Number(score) >= 70 ? "#F9C74F" : Number(score) >= 60 ? "#F8961E" : "#F94144";
+
+  return (
+    <div className="min-w-[116px]">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-semibold text-rehab-ink">{score}/100</span>
+        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: tone }} />
+      </div>
+      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100">
+        <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.max(0, Number(score)))}%`, backgroundColor: tone }} />
+      </div>
+    </div>
+  );
+}
+
+function patientRowClass(patient) {
+  if (patient.status === "Declining" || Number(patient.latestScore) < 65) return "bg-rose-50/45";
+  if (patient.status === "Follow-up" || Number(patient.latestScore) < 72) return "bg-amber-50/45";
+  return "bg-white";
+}
+
+function statusLabel(t, status) {
+  const labels = {
+    Stable: t.statusStable,
+    Improving: t.statusImproving,
+    "Follow-up": t.statusFollowUp,
+    Declining: t.statusDeclining,
+    "No sessions": t.statusNoSessions,
+  };
+  return labels[status] ?? status ?? t.statusNoSessions ?? t.noSessions;
+}
+
+function testTypeLabel(t, testType) {
+  const normalized = String(testType ?? "").toLowerCase();
+  if (normalized === "static") return t.staticTest;
+  if (normalized === "dynamic") return t.dynamicTest;
+  return testType ?? "-";
+}
+
+function conditionLabel(t, condition) {
+  const normalized = String(condition ?? "").toLowerCase().replace("_", " ");
+  if (normalized === "eyes open") return t.eyesOpen;
+  if (normalized === "eyes closed") return t.eyesClosed;
+  return condition ?? "-";
+}
+
+function acquisitionModeLabel(t, key, fallback) {
+  const normalized = String(key ?? fallback ?? "").toLowerCase();
+  if (normalized.includes("webcam")) return t.webcamBasedAssessment;
+  if (normalized.includes("demo")) return t.demoAssessmentMode;
+  if (normalized.includes("combined")) return t.combinedAssessmentMode;
+  if (normalized.includes("board")) return t.boardAssessmentMode;
+  return fallback ?? "-";
+}
+
+function initials(name = "") {
+  return name
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2);
+}
+
+function averageScoreValue(values) {
+  const usable = values.map(Number).filter(Number.isFinite);
+  if (!usable.length) return 0;
+  return Math.round(usable.reduce((sum, value) => sum + value, 0) / usable.length);
 }
 
 function Summary({ label, value }) {

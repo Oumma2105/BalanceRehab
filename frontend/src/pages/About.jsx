@@ -4,9 +4,9 @@ import { ClinicalCard } from "../components/clinical/ClinicalCard";
 import { SectionHeader } from "../components/clinical/SectionHeader";
 
 export function AboutPage({ t }) {
-  const hardware = ["ESP32", "Ultrasonic sensors", "Webcam", "Balance board", "Removable support ring"];
-  const software = ["React", "Tailwind CSS", "FastAPI", "SQLite", "Python", "OpenCV", "MediaPipe Pose"];
-  const metrics = ["Anterior-posterior sway", "Medial-lateral sway", "Sway velocity", "Instability events", "Trunk inclination", "Shoulder asymmetry", "Hip asymmetry"];
+  const hardware = t.hardwareItems ?? [];
+  const software = t.softwareItems ?? [];
+  const metrics = t.metricItems ?? [];
 
   return (
     <div className="space-y-5">
@@ -29,14 +29,14 @@ export function AboutPage({ t }) {
         <ClinicalCard className="p-5">
           <SectionHeader title={t.team} />
           <div className="mt-4 space-y-2 text-sm text-rehab-muted">
-            <p><UsersRound className="mr-2 inline" size={16} /> Team member 1</p>
-            <p><UsersRound className="mr-2 inline" size={16} /> Team member 2</p>
-            <p><UsersRound className="mr-2 inline" size={16} /> Team member 3</p>
+            {(t.teamMembers ?? []).map((member) => (
+              <p key={member}><UsersRound className="mr-2 inline" size={16} /> {member}</p>
+            ))}
           </div>
         </ClinicalCard>
         <ClinicalCard className="p-5">
           <SectionHeader title={t.supervisor} />
-          <p className="mt-4 text-sm text-rehab-muted">Academic supervisor</p>
+          <p className="mt-4 text-sm text-rehab-muted">{t.academicSupervisor}</p>
         </ClinicalCard>
       </section>
 

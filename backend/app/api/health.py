@@ -22,5 +22,5 @@ def system_status() -> SystemStatus:
         demo_mode=True,
         webcam="available",
         esp32="optional",
-        acquisition_modes=["webcam", "demo", "combined", "board"],
+        acquisition_modes=["webcam", "demo", "combined_future", "board_future"],
     )

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api } from "./api/client";
 import { AppShell } from "./layout/AppShell";
@@ -10,6 +10,7 @@ import { PatientsPage } from "./pages/Patients";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { ProgressAnalyticsPage } from "./pages/ProgressAnalytics";
 import { SettingsPage } from "./pages/Settings";
+import { downloadSessionReport } from "./utils/report";
 import { loadPersistedState, resetPersistedState, savePersistedState } from "./utils/storage";
 
 const pages = [
@@ -27,6 +28,7 @@ export default function App() {
   const [activePage, setActivePage] = useState("dashboard");
   const [health, setHealth] = useState(null);
   const [status, setStatus] = useState(null);
+  const [dashboardSummary, setDashboardSummary] = useState(null);
   const [patients, setPatients] = useState(() => initialData.patients);
   const [sessions, setSessions] = useState(() => initialData.sessions);
   const [reports, setReports] = useState(() => initialData.reports);
@@ -37,6 +39,73 @@ export default function App() {
   const [backendReady, setBackendReady] = useState(false);
 
   const t = translations[language];
+
+  const loadPatientSessions = useCallback(
+    async (id) => {
+      if (!backendReady) return;
+      try {
+        const backendSessions = await api.patientSessions(id, patients);
+        setSessions((current) => [
+          ...backendSessions,
+          ...current.filter((session) => session.patientId !== id),
+        ]);
+      } catch (error) {
+        console.warn("Patient session refresh failed, keeping local sessions.", error);
+      }
+    },
+    [backendReady, patients],
+  );
+
+  const loadPatientProgress = useCallback(
+    async (id) => {
+      if (!backendReady) return null;
+      try {
+        return await api.patientProgress(id);
+      } catch (error) {
+        console.warn("Patient progress refresh failed, keeping local progress.", error);
+        return null;
+      }
+    },
+    [backendReady],
+  );
+
+  const downloadReportForSession = useCallback(
+    async ({ patient, session }) => {
+      if (backendReady && Number.isInteger(Number(session.id))) {
+        try {
+          const reportData = await api.sessionReportData(session.id);
+          downloadSessionReport({ patient: reportData.patient, session: reportData.session, t });
+          return;
+        } catch (error) {
+          console.warn("Backend report-data download failed, using local session data.", error);
+        }
+      }
+
+      downloadSessionReport({ patient, session, t });
+    },
+    [backendReady, t],
+  );
+
+  const downloadReportBySessionId = useCallback(
+    async ({ sessionId, patientId }) => {
+      if (backendReady && Number.isInteger(Number(sessionId))) {
+        try {
+          const reportData = await api.sessionReportData(sessionId);
+          downloadSessionReport({ patient: reportData.patient, session: reportData.session, t });
+          return;
+        } catch (error) {
+          console.warn("Backend report-data download failed, using local report data.", error);
+        }
+      }
+
+      const session = sessions.find((item) => String(item.id) === String(sessionId) || String(item.sessionId) === String(sessionId));
+      const patient = patients.find((item) => item.id === (patientId ?? session?.patientId));
+      if (patient && session) {
+        downloadSessionReport({ patient, session, t });
+      }
+    },
+    [backendReady, patients, sessions, t],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -55,19 +124,17 @@ export default function App() {
       if (healthResult.status !== "fulfilled") return;
 
       try {
-        let backendPatients = await api.patients();
-        if (backendPatients.length === 0) {
-          await api.seedDemoData(false);
-          backendPatients = await api.patients();
-        }
-        const [backendSessions, backendReports] = await Promise.all([
+        const backendPatients = await api.patients();
+        const [backendSessions, backendReports, backendDashboardSummary] = await Promise.all([
           api.sessions(backendPatients),
           api.reports(),
+          api.dashboardSummary(),
         ]);
-        if (!cancelled && backendPatients.length > 0) {
+        if (!cancelled) {
           setPatients(backendPatients);
           setSessions(backendSessions);
           setReports(backendReports);
+          setDashboardSummary(backendDashboardSummary);
         }
       } catch (error) {
         console.warn("Backend data loading failed, keeping local state.", error);
@@ -94,6 +161,8 @@ export default function App() {
           patients={patients}
           sessions={sessions}
           reports={reports}
+          dashboardSummary={dashboardSummary}
+          onDownloadReport={downloadReportBySessionId}
           onStartAssessment={(patientId) => {
             if (patientId) {
               setPreselectedPatientId(patientId);
@@ -161,6 +230,8 @@ export default function App() {
             setPreselectedPatientId(id);
             setActivePage("balanceAssessment");
           }}
+          onLoadPatientSessions={backendReady ? loadPatientSessions : null}
+          onDownloadSessionReport={downloadReportForSession}
           addRequest={patientAddRequest}
           profileRequest={patientProfileRequest}
           onProfileRequestHandled={() => setPatientProfileRequest(null)}
@@ -192,13 +263,20 @@ export default function App() {
                   : patient,
               ),
             );
+            if (backendReady) {
+              api.dashboardSummary().then(setDashboardSummary).catch(() => {});
+            }
             return saved;
           }}
           onSaveReport={async (report) => {
             const saved = backendReady ? await api.createReport(report) : report;
             setReports((current) => [saved, ...current]);
+            if (backendReady) {
+              api.dashboardSummary().then(setDashboardSummary).catch(() => {});
+            }
             return saved;
           }}
+          onDownloadSessionReport={downloadReportForSession}
           onReturnToPatientProfile={(patientId, tab = "overview") => {
             setPatientProfileRequest({ patientId, tab, requestedAt: Date.now() });
             setActivePage("patients");
@@ -208,7 +286,14 @@ export default function App() {
     }
 
     if (activePage === "progressAnalytics") {
-      return <ProgressAnalyticsPage t={t} patients={patients} sessions={sessions} />;
+      return (
+        <ProgressAnalyticsPage
+          t={t}
+          patients={patients}
+          sessions={sessions}
+          onLoadPatientProgress={backendReady ? loadPatientProgress : null}
+        />
+      );
     }
 
     if (activePage === "settings") {
@@ -219,11 +304,32 @@ export default function App() {
           onLanguageChange={setLanguage}
           health={health}
           status={status}
-          onResetDemoData={() => {
+          onResetDemoData={async () => {
+            if (backendReady) {
+              try {
+                await api.seedDemoData(true);
+                const backendPatients = await api.patients();
+                const [backendSessions, backendReports, backendDashboardSummary] = await Promise.all([
+                  api.sessions(backendPatients),
+                  api.reports(),
+                  api.dashboardSummary(),
+                ]);
+                setPatients(backendPatients);
+                setSessions(backendSessions);
+                setReports(backendReports);
+                setDashboardSummary(backendDashboardSummary);
+                setPreselectedPatientId(null);
+                return;
+              } catch (error) {
+                console.warn("Backend reset failed, resetting local demo data.", error);
+              }
+            }
+
             const seed = resetPersistedState();
             setPatients(seed.patients);
             setSessions(seed.sessions);
             setReports(seed.reports);
+            setDashboardSummary(null);
             setPreselectedPatientId(null);
           }}
         />

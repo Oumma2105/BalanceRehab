@@ -59,7 +59,7 @@ export function AppShell({
 
         <div className="absolute inset-x-5 bottom-5 rounded-lg border border-rehab-line bg-slate-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.clinicalWorkspace}</p>
-          <p className="mt-2 text-sm font-semibold text-rehab-ink">BalanceRehab MVP</p>
+          <p className="mt-2 text-sm font-semibold text-rehab-ink">{t.workspaceName}</p>
           <p className="mt-2 text-xs leading-5 text-rehab-muted">
             {t.appShellDescription}
           </p>
@@ -102,7 +102,7 @@ export function AppShell({
                 className="flex items-center gap-3 rounded-lg border border-rehab-line bg-white px-3 py-2 text-left transition hover:bg-slate-50"
               >
                 <div className="grid h-10 w-10 place-items-center rounded-lg bg-rehab-blue text-sm font-semibold text-white">
-                  HK
+                  {t.clinicianInitials}
                 </div>
                 <div className="hidden sm:block">
                   <p className="text-sm font-semibold text-rehab-ink">{t.clinicianName}</p>

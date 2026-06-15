@@ -1,10 +1,10 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
-AcquisitionMode = Literal["webcam", "demo", "combined", "board"]
+AcquisitionMode = Literal["webcam", "demo", "board_future", "combined_future"]
 TestType = Literal["static", "dynamic"]
 SupportRing = Literal["installed", "removed"]
 VisualCondition = Literal["eyes_open", "eyes_closed"]
@@ -179,3 +179,44 @@ class ReportRead(ReportBase):
     patient_id: int
     downloadable: bool
     generated_at: datetime
+
+
+class ProgressPoint(BaseModel):
+    session_id: int
+    label: str
+    date: datetime
+    test_type: str
+    visual_condition: str
+    acquisition_mode: AcquisitionMode | str
+    status: str | None = None
+    total_score: float | None = None
+    posture_score: float | None = None
+    trunk_deviation: float | None = None
+    shoulder_asymmetry: float | None = None
+    hip_asymmetry: float | None = None
+    body_center_deviation: float | None = None
+
+
+class ProgressAnalyticsRead(BaseModel):
+    patient_id: int
+    patient_code: str
+    patient_name: str
+    latest_score: float | None = None
+    session_count: int
+    score_change: float | None = None
+    static_average: float | None = None
+    dynamic_average: float | None = None
+    eyes_open_average: float | None = None
+    eyes_closed_average: float | None = None
+    follow_up_count: int
+    declining_count: int
+    trend: list[ProgressPoint] = Field(default_factory=list)
+
+
+class SessionReportData(BaseModel):
+    patient: PatientRead
+    session: SessionRead
+    board_metrics_available: bool
+    acquisition_mode_label: str
+    clinical_impression: str | None = None
+    recommendations: list[str] = Field(default_factory=list)

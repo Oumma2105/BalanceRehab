@@ -72,38 +72,44 @@ function SecondaryMetric({ icon: Icon, label, value, helper, trend, color, bg, p
   );
 }
 
-export function Dashboard({ t, patients, sessions, reports, onStartAssessment, onAddPatient, onOpenPatients }) {
+export function Dashboard({ t, patients, sessions, reports, dashboardSummary, onDownloadReport, onStartAssessment, onAddPatient, onOpenPatients }) {
   const today = new Date().toISOString().slice(0, 10);
   const weekStart = new Date();
   weekStart.setDate(weekStart.getDate() - 6);
   const weekStartIso = weekStart.toISOString().slice(0, 10);
-  const todaySessions = sessions.filter((session) => session.dateISO === today || String(session.date).startsWith(today)).length;
-  const weekSessions = sessions.filter((session) => {
+  const localTodaySessions = sessions.filter((session) => session.dateISO === today || String(session.date).startsWith(today)).length;
+  const localWeekSessions = sessions.filter((session) => {
     const sessionDate = session.dateISO ?? String(session.date).slice(0, 10);
     return sessionDate >= weekStartIso && sessionDate <= today;
   }).length;
-  const averageScore = average(sessions.map((session) => session.totalScore));
+  const todaySessions = dashboardSummary?.assessments_today ?? localTodaySessions;
+  const weekSessions = dashboardSummary?.assessments_this_week ?? localWeekSessions;
+  const averageScore = dashboardSummary?.average_stability_score ?? average(sessions.map((session) => session.totalScore));
   const followUpPatients = patients.filter((patient) =>
     ["Follow-up", "Declining"].includes(patient.status) || Number(patient.latestScore) < 70,
   );
-  const latestSessions = sessions.slice(0, 5);
-  const recentReports = reports.slice(0, 4);
+  const followUpCount = dashboardSummary?.follow_up_queue ?? followUpPatients.length;
+  const latestSessions = dashboardSummary?.recent_assessments?.length ? dashboardSummary.recent_assessments.map(dashboardAssessmentFromApi) : sessions.slice(0, 5);
+  const recentReports = dashboardSummary?.recent_reports?.length ? dashboardSummary.recent_reports.map(dashboardReportFromApi) : reports.slice(0, 4);
   const improvementValues = patients.map((patient) => Number(patient.improvement ?? 0));
   const averageImprovement = improvementValues.length ? Math.round((improvementValues.reduce((a, b) => a + b, 0) / improvementValues.length) * 10) / 10 : 0;
 
-  const scoreTrend = sessions
-    .slice(0, 6)
-    .reverse()
-    .map((session, index) => ({ label: `S${index + 1}`, value: session.totalScore }));
-  const staticAverage = average(sessions.filter((s) => s.testType === "Static").map((s) => s.totalScore));
-  const dynamicAverage = average(sessions.filter((s) => s.testType === "Dynamic").map((s) => s.totalScore));
-  const eyesOpenAverage = average(sessions.filter((s) => s.condition === "Eyes open").map((s) => s.totalScore));
-  const eyesClosedAverage = average(sessions.filter((s) => s.condition === "Eyes closed").map((s) => s.totalScore));
+  const scoreTrend = dashboardSummary?.score_trend?.length
+    ? dashboardSummary.score_trend.map((point) => ({ label: point.label, value: point.value ?? 0 }))
+    : sessions
+        .slice(0, 6)
+        .reverse()
+        .map((session, index) => ({ label: `S${index + 1}`, value: session.totalScore }));
+  const staticAverage = dashboardSummary?.static_average ?? average(sessions.filter((s) => s.testType === "Static").map((s) => s.totalScore));
+  const dynamicAverage = dashboardSummary?.dynamic_average ?? average(sessions.filter((s) => s.testType === "Dynamic").map((s) => s.totalScore));
+  const eyesOpenAverage = dashboardSummary?.eyes_open_average ?? average(sessions.filter((s) => s.condition === "Eyes open").map((s) => s.totalScore));
+  const eyesClosedAverage = dashboardSummary?.eyes_closed_average ?? average(sessions.filter((s) => s.condition === "Eyes closed").map((s) => s.totalScore));
+  const backendDistribution = dashboardSummary?.score_distribution;
   const distribution = [
-    { label: "<60", value: sessions.filter((s) => s.totalScore < 60).length, color: "#F94144" },
-    { label: "60-69", value: sessions.filter((s) => s.totalScore >= 60 && s.totalScore < 70).length, color: "#F8961E" },
-    { label: "70-79", value: sessions.filter((s) => s.totalScore >= 70 && s.totalScore < 80).length, color: "#F9C74F" },
-    { label: "80+", value: sessions.filter((s) => s.totalScore >= 80).length, color: "#43AA8B" },
+    { label: "<60", value: backendDistribution?.lt_60 ?? sessions.filter((s) => s.totalScore < 60).length, color: "#F94144" },
+    { label: "60-69", value: backendDistribution?.["60_69"] ?? sessions.filter((s) => s.totalScore >= 60 && s.totalScore < 70).length, color: "#F8961E" },
+    { label: "70-79", value: backendDistribution?.["70_79"] ?? sessions.filter((s) => s.totalScore >= 70 && s.totalScore < 80).length, color: "#F9C74F" },
+    { label: "80+", value: backendDistribution?.["80_plus"] ?? sessions.filter((s) => s.totalScore >= 80).length, color: "#43AA8B" },
   ];
 
   const secondaryMetrics = [
@@ -130,12 +136,12 @@ export function Dashboard({ t, patients, sessions, reports, onStartAssessment, o
     {
       icon: Activity,
       label: t.followUpQueue,
-      value: followUpPatients.length,
+      value: followUpCount,
       helper: t.patientsToReview,
       trend: t.priority,
       color: "#F8961E",
       bg: "bg-orange-50",
-      points: [7, 6, 6, 5, 6, followUpPatients.length || 1],
+      points: [7, 6, 6, 5, 6, followUpCount || 1],
     },
     {
       icon: TrendingUp,
@@ -146,6 +152,32 @@ export function Dashboard({ t, patients, sessions, reports, onStartAssessment, o
       color: "#43AA8B",
       bg: "bg-teal-50",
       points: [2, 3, 5, 5, 7, Math.max(1, averageImprovement)],
+    },
+  ];
+  const clinicalInsights = [
+    {
+      icon: TrendingDown,
+      title: `${dashboardSummary?.declining_patients ?? patients.filter((patient) => patient.status === "Declining").length} ${t.decliningPatients ?? "declining patients"}`,
+      body: t.decliningPatientsInsight ?? "Review patients with recent reduction in estimated stability.",
+      color: "#F94144",
+      bg: "bg-rose-50",
+      border: "border-rose-200",
+    },
+    {
+      icon: Activity,
+      title: `${followUpCount} ${t.followUpQueue}`,
+      body: t.followUpQueueInsight ?? "Prioritize follow-up decisions before adding new training difficulty.",
+      color: "#F8961E",
+      bg: "bg-orange-50",
+      border: "border-orange-200",
+    },
+    {
+      icon: CalendarCheck,
+      title: `${todaySessions} ${t.assessmentsToday}`,
+      body: t.assessmentsTodayInsight ?? "Today's workload and completed evaluations at a glance.",
+      color: "#577590",
+      bg: "bg-blue-50",
+      border: "border-blue-200",
     },
   ];
 
@@ -171,7 +203,7 @@ export function Dashboard({ t, patients, sessions, reports, onStartAssessment, o
           <div className="border-b border-slate-200 bg-slate-50 p-6 xl:border-b-0 xl:border-r">
             <p className="text-sm font-semibold uppercase tracking-wide text-rehab-orange">{t.todayPriority}</p>
             <h2 className="mt-3 max-w-xl text-3xl font-semibold leading-tight text-rehab-ink">
-              {followUpPatients.length} {t.patientsNeedAttention}
+              {followUpCount} {t.patientsNeedAttention}
             </h2>
             <p className="mt-3 max-w-xl text-sm leading-6 text-rehab-muted">{t.priorityDescription}</p>
             <div className="mt-6 flex flex-wrap gap-3">
@@ -191,6 +223,12 @@ export function Dashboard({ t, patients, sessions, reports, onStartAssessment, o
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {secondaryMetrics.map((metric) => (
           <SecondaryMetric key={metric.label} {...metric} />
+        ))}
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-3">
+        {clinicalInsights.map((insight) => (
+          <ClinicalInsight key={insight.title} {...insight} />
         ))}
       </section>
 
@@ -215,11 +253,11 @@ export function Dashboard({ t, patients, sessions, reports, onStartAssessment, o
                     </div>
                   </td>
                   <td className="px-4 py-3 text-rehab-muted">{assessment.date}</td>
-                  <td className="px-4 py-3 text-rehab-muted">{assessment.testType}</td>
-                  <td className="px-4 py-3 text-rehab-muted">{assessment.condition}</td>
+                  <td className="px-4 py-3 text-rehab-muted">{testTypeLabel(t, assessment.testType)}</td>
+                  <td className="px-4 py-3 text-rehab-muted">{conditionLabel(t, assessment.condition)}</td>
                   <td className="px-4 py-3 font-semibold text-rehab-ink">{assessment.totalScore}/100</td>
                   <td className="px-4 py-3">
-                    <StatusBadge tone={statusTone[assessment.status] ?? "neutral"}>{assessment.status}</StatusBadge>
+                    <StatusBadge tone={statusTone[assessment.status] ?? "neutral"}>{statusLabel(t, assessment.status)}</StatusBadge>
                   </td>
                   <td className="px-4 py-3">
                     <button
@@ -263,7 +301,7 @@ export function Dashboard({ t, patients, sessions, reports, onStartAssessment, o
                           {patient.latestScore ?? "-"}
                         </StatusBadge>
                       </div>
-                      <p className="mt-2 text-sm leading-5 text-rehab-muted">{patient.status ?? t.noSessions}</p>
+                      <p className="mt-2 text-sm leading-5 text-rehab-muted">{statusLabel(t, patient.status)}</p>
                     </div>
                   </div>
                 </button>
@@ -278,10 +316,10 @@ export function Dashboard({ t, patients, sessions, reports, onStartAssessment, o
           <MiniLineChart data={scoreTrend.length > 1 ? scoreTrend : [{ label: "S1", value: averageScore || 0 }, { label: "S2", value: averageScore || 0 }]} color="#577590" />
         </ChartPanel>
         <ChartPanel title={t.staticVsDynamic} description={t.staticVsDynamicDesc}>
-          <MiniBarChart data={[{ label: "Static", value: staticAverage, color: "#90BE6D" }, { label: "Dynamic", value: dynamicAverage, color: "#577590" }]} />
+          <MiniBarChart data={[{ label: t.staticTest, value: staticAverage, color: "#90BE6D" }, { label: t.dynamicTest, value: dynamicAverage, color: "#577590" }]} />
         </ChartPanel>
         <ChartPanel title={t.eyesOpenVsClosed} description={t.eyesOpenVsClosedDesc}>
-          <MiniBarChart data={[{ label: "Eyes open", value: eyesOpenAverage, color: "#90BE6D" }, { label: "Eyes closed", value: eyesClosedAverage, color: "#F8961E" }]} />
+          <MiniBarChart data={[{ label: t.eyesOpen, value: eyesOpenAverage, color: "#90BE6D" }, { label: t.eyesClosed, value: eyesClosedAverage, color: "#F8961E" }]} />
         </ChartPanel>
         <ChartPanel title={t.scoreDistribution} description={t.scoreDistributionDesc}>
           <MiniBarChart data={distribution} max={Math.max(1, ...distribution.map((item) => item.value))} />
@@ -304,7 +342,12 @@ export function Dashboard({ t, patients, sessions, reports, onStartAssessment, o
                   </p>
                 </div>
               </div>
-              <Button variant="secondary" className="px-3 py-1.5">
+              <Button
+                variant="secondary"
+                className="px-3 py-1.5"
+                onClick={() => onDownloadReport?.({ sessionId: report.sessionId, patientId: report.patientId })}
+                disabled={!report.sessionId}
+              >
                 {t.export}
               </Button>
             </article>
@@ -325,13 +368,95 @@ function HeroStat({ label, value, color }) {
   );
 }
 
+function ClinicalInsight({ icon: Icon, title, body, color, bg, border }) {
+  return (
+    <article className={`rounded-xl border ${border} ${bg} p-4`}>
+      <div className="flex items-start gap-3">
+        <div className="grid h-10 w-10 place-items-center rounded-lg text-white" style={{ backgroundColor: color }}>
+          <Icon size={18} />
+        </div>
+        <div>
+          <p className="font-semibold text-rehab-ink">{title}</p>
+          <p className="mt-1 text-sm leading-5 text-rehab-muted">{body}</p>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function average(values) {
   const usable = values.filter((value) => Number.isFinite(Number(value)));
   if (!usable.length) return 0;
   return Math.round(usable.reduce((sum, value) => sum + Number(value), 0) / usable.length);
 }
 
+function statusLabel(t, status) {
+  const labels = {
+    Stable: t.statusStable,
+    Improving: t.statusImproving,
+    "Follow-up": t.statusFollowUp,
+    Declining: t.statusDeclining,
+    "No sessions": t.statusNoSessions,
+  };
+  return labels[status] ?? status ?? t.statusNoSessions ?? t.noSessions;
+}
+
+function testTypeLabel(t, testType) {
+  const normalized = String(testType ?? "").toLowerCase();
+  if (normalized === "static") return t.staticTest;
+  if (normalized === "dynamic") return t.dynamicTest;
+  return testType ?? "-";
+}
+
+function conditionLabel(t, condition) {
+  const normalized = String(condition ?? "").toLowerCase().replace("_", " ");
+  if (normalized === "eyes open") return t.eyesOpen;
+  if (normalized === "eyes closed") return t.eyesClosed;
+  return condition ?? "-";
+}
+
 function trendPoints(value) {
   const end = Math.max(1, Number(value) || 1);
   return [Math.max(1, end - 5), Math.max(1, end - 4), Math.max(1, end - 3), Math.max(1, end - 2), Math.max(1, end - 1), end];
+}
+
+function dashboardAssessmentFromApi(assessment) {
+  return {
+    id: `S-${assessment.id}`,
+    patientId: assessment.patient_id,
+    patient: assessment.patient,
+    patientCode: assessment.patient_code,
+    date: formatDashboardDate(assessment.date),
+    dateISO: assessment.date,
+    testType: titleCase(assessment.test_type),
+    condition: assessment.visual_condition === "eyes_closed" ? "Eyes closed" : "Eyes open",
+    acquisitionMode: assessment.acquisition_mode,
+    totalScore: assessment.total_score,
+    status: assessment.status,
+  };
+}
+
+function dashboardReportFromApi(report) {
+  return {
+    id: report.report_id,
+    patientId: report.patient_id,
+    sessionId: report.session_id,
+    patient: report.patient || report.patient_code || report.report_id,
+    patientCode: report.patient_code,
+    generatedAt: formatDashboardDate(report.generated_at),
+    acquisitionMode: report.acquisition_mode,
+    summary: report.summary,
+  };
+}
+
+function titleCase(value) {
+  const normalized = String(value ?? "");
+  return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "";
+}
+
+function formatDashboardDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
 }

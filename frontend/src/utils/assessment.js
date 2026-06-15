@@ -186,6 +186,11 @@ function generateSamples(duration, metrics) {
     ap: metrics.meanSwayAp == null ? null : round1(metrics.meanSwayAp + Math.sin(index / 4) * 3),
     ml: metrics.meanSwayMl == null ? null : round1(metrics.meanSwayMl + Math.cos(index / 5) * 3),
     posture: clamp(Math.round(metrics.postureStabilityScore + Math.sin(index / 6) * 5), 45, 98),
+    trunkInclination: round1(metrics.trunkDeviation + Math.sin(index / 5) * 0.8),
+    trunkDeviation: round1(metrics.trunkDeviation + Math.sin(index / 5) * 0.8),
+    shoulderAsymmetry: round1(metrics.shoulderAsymmetry + Math.cos(index / 6) * 0.5),
+    hipAsymmetry: round1(metrics.hipAsymmetry + Math.sin(index / 7) * 0.5),
+    bodyCenterDeviation: round1(metrics.bodyCenterDeviation + Math.cos(index / 4) * 0.7),
   }));
 }
 
