@@ -1,10 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, AlertTriangle, Camera, CheckCircle2, ClipboardCheck, Eye, EyeOff, Gauge, Save, Search, ShieldCheck, Target, Timer, UserRound, Waves } from "lucide-react";
 import {
   CartesianGrid,
   Label,
   Line,
   LineChart,
+  Bar,
+  BarChart,
+  PolarAngleAxis,
+  PolarGrid,
+  Radar,
+  RadarChart,
   ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
@@ -25,7 +31,7 @@ import { acquisitionModes, createAssessmentSource, getAssessmentSourceOptions } 
 import { buildSession } from "../utils/assessment";
 import { WebcamPoseAssessment } from "../webcam/WebcamPoseAssessment.jsx";
 
-export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, onSaveReport, onDownloadSessionReport, preselectedPatientId, onClearPreselectedPatient, onReturnToPatientProfile, onWorkflowFocusChange }) {
+export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, onSaveReport, onDownloadSessionReport, preselectedPatientId, onClearPreselectedPatient, onReturnToPatientProfile, onWorkflowFocusChange, webcamMirrored = true }) {
   const [workflowOpen, setWorkflowOpen] = useState(false);
   const [step, setStep] = useState(0);
   const [selectedPatientId, setSelectedPatientId] = useState(preselectedPatientId ?? null);
@@ -48,6 +54,9 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
   const [liveFrame, setLiveFrame] = useState(() => createAssessmentSource({ mode: acquisitionModes.webcam, config: { acquisitionMode: acquisitionModes.webcam }, t }).getFrame(0));
   const [webcamStream, setWebcamStream] = useState(null);
   const [sourceError, setSourceError] = useState("");
+  const [poseState, setPoseState] = useState(null);
+  const [assessmentPhase, setAssessmentPhase] = useState("positioning");
+  const [assessmentRunning, setAssessmentRunning] = useState(false);
   const [results, setResults] = useState(null);
   const [savedSession, setSavedSession] = useState(null);
   const [report, setReport] = useState(null);
@@ -55,6 +64,9 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
   const selectedPatient = patients.find((patient) => patient.id === selectedPatientId);
   const steps = [t.selectPatient, t.configureTest, t.preparation, t.liveAssessment, t.results, t.reportStep];
   const activeSource = useMemo(() => createAssessmentSource({ mode: config.acquisitionMode, config, t }), [config, t]);
+  const countdownIntervalRef = useRef(null);
+  const countdownLostTimeoutRef = useRef(null);
+  const completionTimeoutRef = useRef(null);
 
   useEffect(() => {
     if (preselectedPatientId) {
@@ -70,22 +82,94 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
     return () => onWorkflowFocusChange?.(false);
   }, [workflowOpen, step, onWorkflowFocusChange]);
 
+  const clearCountdownInterval = () => {
+    if (countdownIntervalRef.current) {
+      window.clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    if (countdownLostTimeoutRef.current) {
+      window.clearTimeout(countdownLostTimeoutRef.current);
+      countdownLostTimeoutRef.current = null;
+    }
+  };
+
+  const showCompletedThenResults = (finalResults) => {
+    if (completionTimeoutRef.current) {
+      window.clearTimeout(completionTimeoutRef.current);
+      completionTimeoutRef.current = null;
+    }
+    setCountdown(null);
+    setAssessmentPhase("complete");
+    setAssessmentRunning(false);
+
+    completionTimeoutRef.current = window.setTimeout(() => {
+      activeSource.stop();
+      setWebcamStream(null);
+      setResults(finalResults);
+      setStep(4);
+      completionTimeoutRef.current = null;
+    }, 900);
+  };
+
+  const startCalibrationCountdown = () => {
+    if (countdownIntervalRef.current || assessmentPhase !== "positioning") return;
+
+    console.log("[BalanceRehab] assessment phase: positioning -> countdown");
+    if (countdownLostTimeoutRef.current) {
+      window.clearTimeout(countdownLostTimeoutRef.current);
+      countdownLostTimeoutRef.current = null;
+    }
+    setAssessmentPhase("countdown");
+    setAssessmentRunning(false);
+    setCountdown(3);
+
+    countdownIntervalRef.current = window.setInterval(() => {
+      setCountdown((current) => {
+        if (current == null) return current;
+        if (current <= 1) {
+          clearCountdownInterval();
+          console.log("[BalanceRehab] assessment phase: countdown -> assessing");
+          setAssessmentPhase("assessing");
+          setAssessmentRunning(true);
+          return null;
+        }
+        return current - 1;
+      });
+    }, 1000);
+  };
+
   useEffect(() => {
-    if (step !== 3 || countdown == null) return undefined;
-    if (countdown <= 0) {
-      setCountdown(null);
-      return undefined;
+    if (!workflowOpen || step !== 3 || results || assessmentPhase !== "positioning") return;
+    const calibrationReady = config.acquisitionMode === acquisitionModes.demo || poseState?.readiness?.ready;
+    if (calibrationReady) {
+      startCalibrationCountdown();
+    }
+  }, [workflowOpen, step, config.acquisitionMode, results, assessmentPhase, poseState]);
+
+  useEffect(() => {
+    if (step !== 3 || assessmentPhase !== "countdown" || config.acquisitionMode !== acquisitionModes.webcam) return;
+
+    if (poseState?.readiness?.ready) {
+      if (countdownLostTimeoutRef.current) {
+        window.clearTimeout(countdownLostTimeoutRef.current);
+        countdownLostTimeoutRef.current = null;
+      }
+      return;
     }
 
-    const timeout = window.setTimeout(() => {
-      setCountdown((current) => (current == null ? null : current - 1));
-    }, 1000);
-
-    return () => window.clearTimeout(timeout);
-  }, [step, countdown]);
+    if (!countdownLostTimeoutRef.current) {
+      countdownLostTimeoutRef.current = window.setTimeout(() => {
+        console.log("[BalanceRehab] assessment phase: countdown -> positioning (tracking lost)");
+        clearCountdownInterval();
+        setCountdown(null);
+        setAssessmentPhase("positioning");
+        setAssessmentRunning(false);
+      }, 1000);
+    }
+  }, [step, assessmentPhase, config.acquisitionMode, poseState]);
 
   useEffect(() => {
-    if (!workflowOpen || step !== 3 || results || countdown != null) return;
+    if (!workflowOpen || step !== 3 || results || assessmentPhase !== "assessing" || !assessmentRunning) return;
 
     const timer = window.setInterval(() => {
       setElapsed((current) => {
@@ -93,22 +177,23 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
         setLiveFrame(activeSource.getFrame(next));
         if (next >= config.durationSeconds) {
           window.clearInterval(timer);
-              const finalResults = activeSource.getResults();
-              activeSource.stop();
-              setCountdown(null);
-              setWebcamStream(null);
-              setResults(finalResults);
-              setStep(4);
+          const finalResults = activeSource.getResults();
+          showCompletedThenResults(finalResults);
         }
         return next;
       });
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [workflowOpen, step, config, results, activeSource, countdown]);
+  }, [workflowOpen, step, config, results, activeSource, assessmentPhase, assessmentRunning]);
 
   useEffect(() => {
     return () => {
+      clearCountdownInterval();
+      if (completionTimeoutRef.current) {
+        window.clearTimeout(completionTimeoutRef.current);
+        completionTimeoutRef.current = null;
+      }
       activeSource.stop();
     };
   }, [activeSource]);
@@ -215,18 +300,23 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
           canStart={canStart}
           onBack={() => setStep(1)}
           onStart={async () => {
+            clearCountdownInterval();
             setElapsed(0);
             setResults(null);
             setSourceError("");
+            setPoseState(null);
+            setCountdown(null);
+            setAssessmentPhase("positioning");
+            setAssessmentRunning(false);
             try {
               const stream = await activeSource.start();
               const sourceStream = activeSource.getStream?.() ?? null;
               setWebcamStream(sourceStream || null);
               setLiveFrame(activeSource.getFrame(0));
-              setCountdown(3);
               setStep(3);
             } catch (error) {
-              setSourceError(error.message || t.webcamPermissionDenied);
+              console.warn("Webcam acquisition could not start.", error);
+              setSourceError(t.webcamPermissionDenied);
             }
           }}
         />
@@ -238,17 +328,26 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
           elapsed={elapsed}
           duration={config.durationSeconds}
           countdown={countdown}
+          assessmentPhase={assessmentPhase}
+          assessmentRunning={assessmentRunning}
           frame={liveFrame}
           config={config}
           webcamStream={webcamStream}
-          onPoseMetrics={(metrics) => activeSource.recordPoseMetrics?.(metrics)}
+          webcamMirrored={webcamMirrored}
+          poseState={poseState}
+          onPoseState={setPoseState}
+          onPoseMetrics={(metrics) => {
+            if (assessmentRunning && countdown == null) {
+              activeSource.recordPoseMetrics?.(metrics);
+            } else {
+              activeSource.previewPoseMetrics?.(metrics);
+            }
+            setLiveFrame(activeSource.getFrame(elapsed));
+          }}
           onEnd={() => {
+            clearCountdownInterval();
             const finalResults = activeSource.getResults();
-            activeSource.stop();
-            setCountdown(null);
-            setWebcamStream(null);
-            setResults(finalResults);
-            setStep(4);
+            showCompletedThenResults(finalResults);
           }}
         />
       ) : null}
@@ -308,7 +407,10 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
             setWorkflowOpen(false);
             setStep(0);
             setResults(null);
+            clearCountdownInterval();
             setCountdown(null);
+            setAssessmentPhase("positioning");
+            setAssessmentRunning(false);
             setSavedSession(null);
             setReport(null);
           }}
@@ -498,79 +600,101 @@ function PreparationStep({ t, checklist, config, sourceError, onChange, canStart
   );
 }
 
-function LiveStep({ t, elapsed, duration, countdown, frame, config, webcamStream, onPoseMetrics, onEnd }) {
+function LiveStep({ t, elapsed, duration, countdown, assessmentPhase, assessmentRunning, frame, config, webcamStream, webcamMirrored, poseState, onPoseState, onPoseMetrics, onEnd }) {
   const isWebcamOnly = config.acquisitionMode === acquisitionModes.webcam;
   const isCountingDown = countdown != null;
+  const progress = Math.min(100, (elapsed / duration) * 100);
+  const cameraActive = !isWebcamOnly || isCameraStreamActive(webcamStream);
+  const modelActive = !isWebcamOnly || Boolean(poseState?.readiness?.modelActive || poseState?.engineMode || poseState?.processingStatus);
+  const bodyDetected = !isWebcamOnly || Boolean(poseState?.readiness?.personDetected || poseState?.tracking?.bodyDetected);
+  const fullBodyVisible = !isWebcamOnly || Boolean(poseState?.readiness?.fullBodyVisible);
+  const ready = !isWebcamOnly || (cameraActive && modelActive && fullBodyVisible);
+  const isComplete = assessmentPhase === "complete";
+  const isAssessing = assessmentPhase === "assessing" && assessmentRunning;
+  const isLoading = isWebcamOnly && (!cameraActive || !modelActive);
+  const liveMessage = liveAssessmentMessage({ t, isLoading, isCountingDown, isAssessing, isComplete, ready, poseState, isWebcamOnly });
 
   return (
-    <div className="min-h-screen bg-rehab-bg p-5 lg:p-6">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-rehab-teal">{t.liveAssessment}</p>
-          <h1 className="text-2xl font-semibold text-rehab-ink">{isCountingDown ? t.assessmentStarting : t.assessmentInProgress}</h1>
-        </div>
-        <div className="rounded-full bg-[#43AA8B]/10 px-4 py-2 text-sm font-semibold text-[#2F7D67]">
-          {isCountingDown ? t.preparePatientStill : `${elapsed}s / ${duration}s`}
-        </div>
-      </div>
-      <div className="grid gap-5 xl:grid-cols-[1.4fr_0.7fr]">
-      <ClinicalCard className="p-5">
-        <SectionHeader title={t.stepLiveAssessment} description={t.liveAssessmentDesc} />
-        <div className="relative">
+    <div className="min-h-screen bg-slate-950 p-2">
+      <section className="relative min-h-[calc(100vh-1rem)] overflow-hidden rounded-[1rem] border border-white/10 bg-slate-950 shadow-2xl shadow-slate-950/40">
+        <div className="absolute inset-0">
           {isWebcamOnly && webcamStream ? (
-            <WebcamPoseAssessment t={t} stream={webcamStream} frame={frame} onMetrics={onPoseMetrics} />
+            <WebcamPoseAssessment t={t} stream={webcamStream} frame={frame} onMetrics={onPoseMetrics} onState={onPoseState} mirrored={webcamMirrored} immersive />
           ) : (
-            <div className="mt-5 grid min-h-96 place-items-center rounded-lg bg-slate-900 text-white">
-            <div className="text-center">
-              <div className="mx-auto mb-5 h-40 w-28 rounded-full border-4 border-teal-300" />
-              <p className="text-lg font-semibold">{t.simulatedSkeleton}</p>
-              <p className="text-sm text-slate-300">{isWebcamOnly ? t.webcamPosePrimary : t.webcamLater}</p>
-            </div>
+            <div className="grid h-full place-items-center bg-slate-950 text-white">
+              <div className="text-center">
+                <div className="mx-auto mb-5 h-44 w-32 rounded-full border-4 border-[#43AA8B]" />
+                <p className="text-xl font-semibold">{t.simulatedSkeleton}</p>
+                <p className="mt-2 text-sm text-slate-300">{isWebcamOnly ? t.webcamPosePrimary : t.liveAssessmentDesc}</p>
+              </div>
             </div>
           )}
-          {isCountingDown ? <CountdownOverlay t={t} value={countdown} /> : null}
         </div>
-        {isWebcamOnly ? (
-          <p className="mt-3 text-sm text-rehab-muted">{t.mediaPipeActiveHelp}</p>
-        ) : null}
-      </ClinicalCard>
-      <ClinicalCard className="p-5">
-        <div className="rounded-xl bg-slate-50 p-4">
-          <p className="text-sm text-rehab-muted">{isCountingDown ? t.countdown : t.timer}</p>
-          <div className="mt-2 flex items-end justify-between gap-3">
-            <p className="text-4xl font-semibold text-rehab-ink">{isCountingDown ? countdown : `${elapsed}s`}</p>
-            <span className="rounded-full bg-rehab-teal/10 px-3 py-1 text-xs font-semibold text-rehab-teal">{duration}s</span>
+
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-44 bg-gradient-to-b from-slate-950/58 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-44 bg-gradient-to-t from-slate-950/58 to-transparent" />
+
+        <div className="absolute left-4 top-4 z-20 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-white/16 bg-slate-950/54 p-3 text-white shadow-xl shadow-slate-950/20 backdrop-blur-md">
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            <StatusDot label={t.cameraReady ?? "Camera ready"} active={cameraActive} />
+            <StatusDot label={t.modelActive ?? "Model active"} active={modelActive} />
+            <StatusDot label={t.bodyDetected ?? "Body detected"} active={bodyDetected} />
+            <StatusDot label={t.fullBodyVisible ?? "Full body visible"} active={fullBodyVisible} />
           </div>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-white">
-            <div className="h-full rounded-full bg-rehab-teal transition-all" style={{ width: `${Math.min(100, (elapsed / duration) * 100)}%` }} />
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/58">{liveMessage.label}</p>
+          <div className="mt-1 flex items-center gap-3">
+            {isCountingDown ? (
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-[#43AA8B] text-lg font-semibold text-white shadow-lg shadow-slate-950/25">
+                {countdown}
+              </span>
+            ) : null}
+            <p className="text-sm font-semibold leading-5">{liveMessage.text}</p>
           </div>
         </div>
-        <div className="mt-5 grid gap-3">
-          <Metric label={t.stabilityScore} value={`${frame.stability}/100`} score={frame.stability} icon={Gauge} />
-          <Metric label={t.postureScore} value={`${frame.posture}/100`} score={frame.posture} icon={Activity} />
-          <Metric label={t.trunkDeviation} value={`${frame.trunkInclination} deg`} score={100 - frame.trunkInclination * 8} icon={Target} />
-          <Metric label={t.bodyCenterDeviation} value={`${frame.bodyCenterDeviation} ${isWebcamOnly ? "%" : "mm"}`} score={100 - frame.bodyCenterDeviation * 7} icon={UserRound} />
-          {!isWebcamOnly ? <Metric label={t.apSway} value={`${frame.apSway} mm`} score={100 - frame.apSway * 4} icon={Waves} /> : null}
-          {!isWebcamOnly ? <Metric label={t.mlSway} value={`${frame.mlSway} mm`} score={100 - frame.mlSway * 4} icon={Waves} /> : null}
-          {isWebcamOnly ? <Metric label={t.boardStability} value={t.notAvailableWebcamOnly} muted /> : null}
+
+        <div className="absolute right-4 top-4 z-20">
+          <Button variant="secondary" className="border-white/20 bg-white/92 shadow-xl shadow-slate-950/15 backdrop-blur-md" onClick={onEnd}>
+            {t.endAssessment}
+          </Button>
         </div>
-        <div className={`mt-5 rounded-lg p-4 text-sm font-semibold ${warningPanelClass(frame.warningLevel)}`}>{frame.warning}</div>
-        <Button className="mt-5 w-full" onClick={onEnd}>{t.endAssessment}</Button>
-      </ClinicalCard>
-      </div>
+
+        <div className="absolute bottom-4 right-4 z-20 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-white/16 bg-slate-950/54 px-4 py-3 text-white shadow-xl shadow-slate-950/20 backdrop-blur-md">
+          <div className="flex items-center justify-between gap-3 text-xs font-semibold text-white/70">
+            <span>{isComplete ? t.assessmentComplete ?? "Assessment complete" : t.assessmentProgress}</span>
+            <span>{elapsed}s / {duration}s</span>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/18">
+            <div className="h-full rounded-full bg-[#43AA8B] transition-all" style={{ width: `${isComplete ? 100 : progress}%` }} />
+          </div>
+          {!isAssessing && !isComplete ? (
+            <div className="mt-2 text-[11px] font-semibold leading-4 text-white/66">
+              {ready ? t.stablePosture ?? "Stable posture" : t.positioningCalibrationHelp}
+            </div>
+          ) : null}
+        </div>
+      </section>
     </div>
   );
 }
 
-function CountdownOverlay({ t, value }) {
+function liveAssessmentMessage({ t, isLoading, isCountingDown, isAssessing, isComplete, ready, poseState, isWebcamOnly }) {
+  if (isComplete) return { label: t.liveAssessment, text: t.assessmentComplete ?? "Assessment complete" };
+  if (isAssessing) return { label: t.liveAssessment, text: t.assessmentInProgress ?? "Assessment in progress" };
+  if (isCountingDown || ready) return { label: t.positioningCalibration, text: t.goodPositionReady ?? "Good position, ready to start" };
+  if (isLoading) return { label: t.positioningCalibration, text: t.cameraLoading ?? "Camera loading" };
+  if (!isWebcamOnly) return { label: t.liveAssessment, text: t.demoModeActive ?? "Demo mode active" };
+  return {
+    label: t.positioningCalibration,
+    text: poseState?.readiness?.feedback ?? t.moveBackwardUntilVisible ?? "Move back until your entire body is visible",
+  };
+}
+
+function StatusDot({ label, active }) {
   return (
-    <div className="absolute inset-0 z-20 grid place-items-center rounded-xl bg-slate-950/72 backdrop-blur-sm">
-      <div className="text-center text-white">
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#90BE6D]">{t.assessmentStarting}</p>
-        <p className="mt-4 text-8xl font-semibold leading-none text-white">{value}</p>
-        <p className="mt-4 text-sm font-medium text-slate-200">{t.preparePatientStill}</p>
-      </div>
-    </div>
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-semibold ${active ? "border-[#90BE6D]/35 bg-[#90BE6D]/16 text-white" : "border-white/12 bg-white/8 text-white/58"}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-[#90BE6D]" : "bg-white/30"}`} />
+      {label}
+    </span>
   );
 }
 
@@ -581,40 +705,531 @@ function warningPanelClass(level) {
   return "bg-[#90BE6D]/10 text-[#47743C]";
 }
 
+function LiveTrackingPanel({ t, poseState, detectionStatus, isWebcamOnly, webcamStream, overlay = false }) {
+  const tracking = poseState?.tracking ?? {};
+  const cameraActive = isCameraStreamActive(webcamStream);
+  const modelActive = Boolean(poseState?.engineMode || poseState?.processingStatus);
+  const items = isWebcamOnly
+    ? [
+        [t.cameraActive ?? "Camera active", cameraActive],
+        [t.bodyDetected ?? "Body detected", Boolean(tracking.bodyDetected)],
+        [t.faceDetected ?? "Face detected", Boolean(tracking.faceDetected)],
+        [t.leftHandDetected ?? "Left hand detected", Boolean(tracking.leftHandDetected)],
+        [t.rightHandDetected ?? "Right hand detected", Boolean(tracking.rightHandDetected)],
+      ]
+    : [[t.demoModeActive, true]];
+
+  const cleanStatus =
+    isWebcamOnly && cameraActive && !tracking.bodyDetected && !poseState?.error
+      ? t.moveBackwardUntilVisible ?? "Move back until your entire body is visible."
+      : detectionStatus;
+  const shellClass = overlay
+    ? "text-white"
+    : "rounded-2xl border border-slate-100 bg-slate-50 p-3";
+  const titleClass = overlay ? "text-white/62" : "text-rehab-muted";
+  const statusClass = overlay ? "text-white" : "text-rehab-ink";
+
+  return (
+    <div className={shellClass}>
+      <div className={`flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between ${overlay ? "sr-only" : ""}`}>
+        <div>
+          <p className={`text-xs font-semibold uppercase tracking-wide ${titleClass}`}>{t.trackingStatus ?? "Tracking status"}</p>
+          <p className={`mt-1 text-sm font-semibold leading-5 ${statusClass}`}>{cleanStatus}</p>
+        </div>
+        {isWebcamOnly ? (
+          <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${overlay ? "bg-white/14 text-white" : "bg-[#577590]/10 text-[#577590]"}`}>
+            {poseState?.fps ?? 0} FPS
+          </span>
+        ) : null}
+      </div>
+
+      <div className={`${overlay ? "" : "mt-3"} flex flex-wrap justify-end gap-2`}>
+        {items.map(([label, active]) => (
+          <TrackingRow key={label} label={label} active={active} overlay={overlay} />
+        ))}
+      </div>
+
+      {poseState?.error && !cameraActive ? (
+        <div className="mt-3 rounded-xl border border-[#F8961E]/25 bg-[#F8961E]/10 px-3 py-2 text-sm font-semibold text-[#8A4A00]">
+          {poseState.error}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function TrackingRow({ label, active, overlay = false }) {
+  const className = overlay
+    ? active
+      ? "border-[#90BE6D]/45 bg-slate-950/38 text-white shadow-lg shadow-slate-950/15 backdrop-blur-md"
+      : "border-white/18 bg-slate-950/28 text-white/68 shadow-lg shadow-slate-950/10 backdrop-blur-md"
+    : active
+      ? "border-[#90BE6D]/30 bg-[#90BE6D]/15 text-[#2F7D67]"
+      : "border-slate-200 bg-white text-rehab-muted";
+  return (
+    <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${className}`}>
+      <span className={`h-2 w-2 rounded-full ${active ? "bg-[#43AA8B]" : overlay ? "bg-white/38" : "bg-slate-300"}`} />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function CalibrationPanel({ t, poseState, webcamStream, overlay = false }) {
+  const readiness = poseState?.readiness;
+  const tracking = poseState?.tracking ?? {};
+  const cameraActive = isCameraStreamActive(webcamStream);
+  const bodyDetected = Boolean(tracking.bodyDetected || readiness?.personDetected);
+  const checks = [
+    [t.cameraReady, cameraActive],
+    [t.personDetected, bodyDetected],
+    [t.fullBodyVisible, Boolean(readiness?.fullBodyVisible)],
+  ];
+  const guidance = bodyDetected
+    ? readiness?.moveHint || readiness?.feedback || t.standInMarkedArea
+    : t.moveBackwardUntilVisible ?? "Move back until your entire body is visible.";
+  const panelClass = overlay
+    ? "absolute bottom-5 left-5 z-20 max-w-3xl rounded-2xl border border-white/16 bg-slate-950/42 p-4 text-white shadow-xl shadow-slate-950/20 backdrop-blur-md"
+    : "rounded-2xl border border-[#F9C74F]/20 bg-[#F9C74F]/10 p-3";
+  const titleClass = overlay ? "text-white/65" : "text-rehab-muted";
+  const textClass = overlay ? "text-white" : "text-rehab-ink";
+
+  return (
+    <div className={panelClass}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className={`text-xs font-semibold uppercase tracking-wide ${titleClass}`}>{t.positioningCalibration}</p>
+          <p className={`mt-1 text-sm font-semibold leading-5 ${textClass}`}>{guidance}</p>
+        </div>
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+          {checks.map(([label, ok]) => (
+            <div key={label} className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${ok ? "border-[#90BE6D]/40 bg-[#90BE6D]/20 text-white" : "border-[#F9C74F]/45 bg-[#F9C74F]/20 text-white"}`}>
+              <span className={`h-2 w-2 rounded-full ${ok ? "bg-[#90BE6D]" : "bg-[#F9C74F]"}`} />
+              <span>{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      {!bodyDetected ? <TroubleshootingList t={t} overlay={overlay} /> : null}
+    </div>
+  );
+}
+
+function TroubleshootingList({ t, overlay = false }) {
+  const tips = [
+    t.troubleshootStepBack ?? "Step back from the camera.",
+    t.troubleshootFullBody ?? "Make sure your full body is visible.",
+    t.troubleshootLighting ?? "Improve lighting.",
+  ];
+
+  return (
+    <ul className={`mt-3 flex flex-wrap gap-2 text-xs font-semibold ${overlay ? "text-white/78" : "text-[#705600]"}`}>
+      {tips.map((tip) => (
+        <li key={tip} className={`rounded-full px-3 py-1.5 ${overlay ? "bg-white/12" : "bg-white"}`}>- {tip}</li>
+      ))}
+    </ul>
+  );
+}
+
+function LegacyLiveTrackingPanel({ t, poseState, detectionStatus, isWebcamOnly, webcamStream }) {
+  const tracking = poseState?.tracking ?? {};
+  const cameraActive = isCameraStreamActive(webcamStream);
+  const modelActive = Boolean(poseState?.engineMode || poseState?.processingStatus);
+  const items = isWebcamOnly
+    ? [
+        [t.cameraActive ?? "Camera active", cameraActive],
+        [t.modelActive ?? "Model active", modelActive],
+        [t.bodyDetected ?? "Body detected", Boolean(tracking.bodyDetected)],
+        [t.faceDetected ?? "Face detected", Boolean(tracking.faceDetected)],
+        [t.leftHandDetected ?? "Left hand detected", Boolean(tracking.leftHandDetected)],
+        [t.rightHandDetected ?? "Right hand detected", Boolean(tracking.rightHandDetected)],
+      ]
+    : [[t.demoModeActive, true]];
+
+  const cleanStatus =
+    isWebcamOnly && cameraActive && !tracking.bodyDetected && !poseState?.error
+      ? t.cameraActiveWaitingFullBody ?? "Camera active, waiting for full-body pose detection."
+      : detectionStatus;
+
+  return (
+    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.trackingStatus ?? "Tracking status"}</p>
+          <p className="mt-1 text-sm font-semibold leading-5 text-rehab-ink">{cleanStatus}</p>
+        </div>
+        {isWebcamOnly ? (
+          <span className="shrink-0 rounded-full bg-[#577590]/10 px-2.5 py-1 text-xs font-semibold text-[#577590]">
+            {poseState?.fps ?? 0} FPS
+          </span>
+        ) : null}
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {items.map(([label, active]) => (
+          <LegacyTrackingRow key={label} label={label} active={active} t={t} />
+        ))}
+      </div>
+
+      {poseState?.error && !cameraActive ? (
+        <div className="mt-3 rounded-xl border border-[#F8961E]/25 bg-[#F8961E]/10 px-3 py-2 text-sm font-semibold text-[#8A4A00]">
+          {poseState.error}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function LegacyTrackingRow({ label, active }) {
+  return (
+    <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${active ? "border-[#90BE6D]/30 bg-[#90BE6D]/15 text-[#2F7D67]" : "border-slate-200 bg-white text-rehab-muted"}`}>
+      <span className={`h-2 w-2 rounded-full ${active ? "bg-[#43AA8B]" : "bg-slate-300"}`} />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function LegacyCalibrationPanel({ t, poseState, webcamStream }) {
+  const readiness = poseState?.readiness;
+  const tracking = poseState?.tracking ?? {};
+  const cameraActive = isCameraStreamActive(webcamStream);
+  const bodyDetected = Boolean(tracking.bodyDetected || readiness?.personDetected);
+  const checks = [
+    [t.cameraReady, cameraActive],
+    [t.bodyDetected ?? t.personDetected, bodyDetected],
+    [t.fullBodyVisible, Boolean(readiness?.fullBodyVisible)],
+  ];
+  const guidance = bodyDetected
+    ? readiness?.moveHint || readiness?.feedback || t.standInMarkedArea
+    : t.cameraActiveWaitingFullBody ?? "Camera active, waiting for full-body pose detection.";
+
+  return (
+    <div className="rounded-2xl border border-[#F9C74F]/20 bg-[#F9C74F]/10 p-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.positioningCalibration}</p>
+          <p className="mt-1 text-sm font-semibold leading-5 text-rehab-ink">{bodyDetected ? guidance : t.moveBackwardUntilVisible}</p>
+        </div>
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+        {checks.map(([label, ok]) => (
+            <div key={label} className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${ok ? "border-[#90BE6D]/30 bg-white text-[#2F7D67]" : "border-[#F8961E]/30 bg-white text-[#8A6400]"}`}>
+              <span className={`h-2 w-2 rounded-full ${ok ? "bg-[#43AA8B]" : "bg-[#F8961E]"}`} />
+              <span>{label}</span>
+          </div>
+        ))}
+        </div>
+      </div>
+      {!bodyDetected ? <LegacyTroubleshootingList t={t} /> : null}
+    </div>
+  );
+}
+
+function LegacyTroubleshootingList({ t }) {
+  const tips = [
+    t.troubleshootStepBack ?? "Step back from the camera.",
+    t.troubleshootFullBody ?? "Make sure your full body is visible.",
+    t.troubleshootLighting ?? "Improve lighting.",
+    t.troubleshootHandsClear ?? "Remove hands from blocking the face or body.",
+    t.troubleshootCameraHeight ?? "Place the camera at chest height or farther away.",
+  ];
+
+  return (
+    <ul className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-[#705600]">
+      {tips.map((tip) => (
+        <li key={tip} className="rounded-full bg-white px-3 py-1.5">- {tip}</li>
+      ))}
+    </ul>
+  );
+}
+
+function VeryLegacyCalibrationPanel({ t, poseState }) {
+  const readiness = poseState?.readiness;
+  const checks = [
+    [t.cameraReady, true],
+    [t.personDetected, Boolean(readiness?.personDetected)],
+    [t.fullBodyVisible, Boolean(readiness?.fullBodyVisible)],
+  ];
+
+  return (
+    <div className="absolute left-5 top-28 z-20 max-w-sm rounded-2xl border border-white/20 bg-white/92 p-4 shadow-xl shadow-slate-950/10 backdrop-blur-md">
+      <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.positioningCalibration}</p>
+      <div className="mt-4 space-y-2">
+        {checks.map(([label, ok]) => (
+          <div key={label} className={`flex items-center gap-2 text-sm font-semibold ${ok ? "text-[#2F7D67]" : "text-[#A14F00]"}`}>
+            <span>{ok ? "OK" : "!"}</span>
+            <span>{label}</span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-4 rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-rehab-muted">
+        {readiness?.moveHint || readiness?.feedback || t.standInMarkedArea}
+      </p>
+    </div>
+  );
+}
+
+function DuplicateLiveTrackingPanel({ t, poseState, detectionStatus, isWebcamOnly, webcamStream }) {
+  const tracking = poseState?.tracking ?? {};
+  const cameraActive = isCameraStreamActive(webcamStream);
+  const modelActive = Boolean(poseState?.engineMode || poseState?.processingStatus);
+  const items = isWebcamOnly
+    ? [
+        [t.cameraActive ?? "Camera active", cameraActive],
+        [t.modelActive ?? "Model active", modelActive],
+        [t.bodyDetected ?? "Body detected", Boolean(tracking.bodyDetected)],
+        [t.faceDetected ?? "Face detected", Boolean(tracking.faceDetected)],
+        [t.leftHandDetected ?? "Left hand detected", Boolean(tracking.leftHandDetected)],
+        [t.rightHandDetected ?? "Right hand detected", Boolean(tracking.rightHandDetected)],
+      ]
+    : [[t.demoModeActive, true]];
+
+  const cleanStatus =
+    isWebcamOnly && cameraActive && !tracking.bodyDetected && !poseState?.error
+      ? t.cameraActiveWaitingFullBody ?? "Camera active, waiting for full-body pose detection."
+      : detectionStatus;
+
+  return (
+    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.trackingStatus ?? "Tracking status"}</p>
+          <p className="mt-1 text-sm font-semibold leading-5 text-rehab-ink">{cleanStatus}</p>
+        </div>
+        {isWebcamOnly ? (
+          <span className="shrink-0 rounded-full bg-[#577590]/10 px-2.5 py-1 text-xs font-semibold text-[#577590]">
+            {poseState?.fps ?? 0} FPS
+          </span>
+        ) : null}
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {items.map(([label, active]) => (
+          <TrackingRow key={label} label={label} active={active} t={t} />
+        ))}
+      </div>
+
+      {poseState?.error && !cameraActive ? (
+        <div className="mt-3 rounded-xl border border-[#F8961E]/25 bg-[#F8961E]/10 px-3 py-2 text-sm font-semibold text-[#8A4A00]">
+          {poseState.error}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DuplicateTrackingRow({ label, active, t }) {
+  return (
+    <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${active ? "border-[#90BE6D]/30 bg-[#90BE6D]/15 text-[#2F7D67]" : "border-slate-200 bg-white text-rehab-muted"}`}>
+      <span className={`h-2 w-2 rounded-full ${active ? "bg-[#43AA8B]" : "bg-slate-300"}`} />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function DuplicateCalibrationPanel({ t, poseState, webcamStream }) {
+  const readiness = poseState?.readiness;
+  const tracking = poseState?.tracking ?? {};
+  const cameraActive = isCameraStreamActive(webcamStream);
+  const bodyDetected = Boolean(tracking.bodyDetected || readiness?.personDetected);
+  const checks = [
+    [t.cameraReady, cameraActive],
+    [t.bodyDetected ?? t.personDetected, bodyDetected],
+    [t.fullBodyVisible, Boolean(readiness?.fullBodyVisible)],
+  ];
+  const guidance = bodyDetected
+    ? readiness?.moveHint || readiness?.feedback || t.standInMarkedArea
+    : t.cameraActiveWaitingFullBody ?? "Camera active, waiting for full-body pose detection.";
+
+  return (
+    <div className="rounded-2xl border border-[#F9C74F]/20 bg-[#F9C74F]/10 p-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.positioningCalibration}</p>
+          <p className="mt-1 text-sm font-semibold leading-5 text-rehab-ink">{bodyDetected ? guidance : t.moveBackwardUntilVisible}</p>
+        </div>
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+        {checks.map(([label, ok]) => (
+            <div key={label} className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${ok ? "border-[#90BE6D]/30 bg-white text-[#2F7D67]" : "border-[#F8961E]/30 bg-white text-[#8A6400]"}`}>
+              <span className={`h-2 w-2 rounded-full ${ok ? "bg-[#43AA8B]" : "bg-[#F8961E]"}`} />
+              <span>{label}</span>
+          </div>
+        ))}
+        </div>
+      </div>
+      {!bodyDetected ? <TroubleshootingList t={t} /> : null}
+    </div>
+  );
+}
+
+function DuplicateTroubleshootingList({ t }) {
+  const tips = [
+    t.troubleshootStepBack ?? "Step back from the camera.",
+    t.troubleshootFullBody ?? "Make sure your full body is visible.",
+    t.troubleshootLighting ?? "Improve lighting.",
+    t.troubleshootHandsClear ?? "Remove hands from blocking the face or body.",
+    t.troubleshootCameraHeight ?? "Place the camera at chest height or farther away.",
+  ];
+
+  return (
+    <ul className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-[#705600]">
+      {tips.map((tip) => (
+        <li key={tip} className="rounded-full bg-white px-3 py-1.5">- {tip}</li>
+      ))}
+    </ul>
+  );
+}
+
+function DuplicateLegacyCalibrationPanel({ t, poseState }) {
+  const readiness = poseState?.readiness;
+  const checks = [
+    [t.cameraReady, true],
+    [t.personDetected, Boolean(readiness?.personDetected)],
+    [t.fullBodyVisible, Boolean(readiness?.fullBodyVisible)],
+  ];
+
+  return (
+    <div className="absolute left-5 top-28 z-20 max-w-sm rounded-2xl border border-white/20 bg-white/92 p-4 shadow-xl shadow-slate-950/10 backdrop-blur-md">
+      <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.positioningCalibration}</p>
+      <div className="mt-4 space-y-2">
+        {checks.map(([label, ok]) => (
+          <div key={label} className={`flex items-center gap-2 text-sm font-semibold ${ok ? "text-[#2F7D67]" : "text-[#A14F00]"}`}>
+            <span>{ok ? "✓" : "⚠"}</span>
+            <span>{label}</span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-4 rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-rehab-muted">
+        {readiness?.moveHint || readiness?.feedback || t.standInMarkedArea}
+      </p>
+    </div>
+  );
+}
+
+function CalibrationOverlay({ t, value }) {
+  return (
+    <div className="absolute inset-0 z-20 grid place-items-center rounded-xl bg-slate-950/72 backdrop-blur-sm">
+      <div className="mx-4 max-w-xl rounded-3xl border border-white/15 bg-white/10 p-8 text-center text-white shadow-2xl backdrop-blur-md">
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#90BE6D]">{t.positioningCalibration}</p>
+        <p className="mt-4 text-6xl font-semibold leading-none text-white">{value}</p>
+        <p className="mt-4 text-lg font-semibold">{t.assessmentBeginsIn}</p>
+        <p className="mt-3 text-sm font-medium leading-6 text-slate-200">{t.positioningCalibrationHelp}</p>
+      </div>
+    </div>
+  );
+}
+
+function poseStatusLabel(t, status, readiness, tracking, webcamStream) {
+  const cameraActive = isCameraStreamActive(webcamStream);
+  if (status === "lost") return t.poseLost;
+  if (readiness?.ready) return t.poseDetected;
+  if (readiness?.bodyBlockedByHands) return t.handsBodyBlocked ?? "Hands detected, but body is blocked. Move your hands away and step back.";
+  if (tracking?.bodyDetected && !readiness?.fullBodyVisible) return t.moveBackwardUntilVisible ?? "Move back until your full body is visible.";
+  if (tracking?.bodyDetected) return t.poseDetected;
+  if (cameraActive) return t.cameraActiveWaitingFullBody ?? "Camera active, waiting for full-body pose detection.";
+  return t.poseNotDetected;
+}
+
+function poseStatusTone(status, readiness, isWebcamOnly, tracking) {
+  if (!isWebcamOnly) return "bg-[#43AA8B] text-white";
+  if (status === "lost") return "bg-[#F8961E] text-white";
+  if (readiness?.ready) return "bg-[#43AA8B] text-white";
+  if (tracking?.bodyDetected || readiness?.bodyBlockedByHands) return "bg-[#F9C74F] text-[#604A00]";
+  return "bg-[#F9C74F] text-[#604A00]";
+}
+
+function liveFeedback(t, poseState, frame, isWebcamOnly) {
+  if (!isWebcamOnly) return { level: frame.warningLevel, text: frame.warning };
+  const readiness = poseState?.readiness;
+  const tracking = poseState?.tracking ?? {};
+  if (poseState?.status === "lost") return { level: "warning", text: t.poseLost };
+  if (readiness?.bodyBlockedByHands) return { level: "warning", text: t.handsBodyBlocked ?? "Hands detected, but body is blocked. Move your hands away and step back." };
+  if (!tracking.bodyDetected) return { level: "warning", text: t.moveBackwardUntilVisible ?? "Move back until your full body is visible." };
+  if (!readiness?.fullBodyVisible) return { level: "warning", text: t.moveBackwardUntilVisible ?? "Move back until your full body is visible." };
+  if (!readiness?.ready) return { level: readiness?.level ?? "warning", text: readiness?.feedback ?? t.standInMarkedArea };
+  return { level: frame.warningLevel ?? "stable", text: frame.warning ?? t.stablePosture };
+}
+
+function isCameraStreamActive(stream) {
+  return Boolean(stream?.getVideoTracks?.().some((track) => track.readyState === "live"));
+}
+
+function liveFeedbackTone(level) {
+  if (level === "danger") return "border-[#F94144]/35 bg-[#F94144]/90 text-white";
+  if (level === "alert") return "border-[#F8961E]/35 bg-[#F8961E]/92 text-white";
+  if (level === "warning") return "border-[#F9C74F]/50 bg-[#F9C74F]/92 text-[#574100]";
+  return "border-[#90BE6D]/35 bg-[#90BE6D]/92 text-[#263F21]";
+}
+
 function ResultsStep({ t, patient, config, results, patientSessions, savedSession, onSave, onReport, onReturnToProfile }) {
   const boardAvailable = Boolean(results.availableMetrics?.board);
   const postureUnits = getPostureUnits(config.acquisitionMode);
   const [clinicalImpression, setClinicalImpression] = useState(results.interpretation ?? "");
   const comparisonSession = patientSessions.find((session) => !savedSession || String(session.id) !== String(savedSession.id));
+  const analytics = buildResultAnalytics(results, comparisonSession, t);
 
   return (
-    <ClinicalCard className="p-5">
-      <SectionHeader title={t.stepResults} description={`${t.estimatedIndicatorsFor} ${patient.fullName}.`} />
-      <div className={`mt-5 overflow-hidden rounded-2xl border ${resultTone(results.totalBalanceScore).border} ${resultTone(results.totalBalanceScore).bg}`}>
-        <div className="grid gap-0 lg:grid-cols-[0.85fr_1.15fr]">
-          <div className="p-6">
-            <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.totalBalanceScore}</p>
-            <div className="mt-3 flex items-end gap-3">
-              <p className={`text-6xl font-semibold leading-none ${resultTone(results.totalBalanceScore).text}`}>{results.totalBalanceScore}</p>
-              <p className="pb-2 text-lg font-semibold text-rehab-muted">/100</p>
+    <div className="space-y-5">
+      <section>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#43AA8B]">{t.assessmentSummary ?? "Assessment Summary"}</p>
+        <ClinicalCard className="mt-3 overflow-hidden border-0 bg-gradient-to-br from-[#0F766E] via-[#43AA8B] to-[#90BE6D] p-0 text-white shadow-xl shadow-slate-200/80">
+        <div className="grid gap-0 lg:grid-cols-[1.05fr_0.95fr]">
+          <div className="relative p-8">
+            <div className="absolute right-5 top-5 rounded-full bg-white/18 px-3 py-1 text-xs font-semibold text-white">
+              {acquisitionLabelForResults(config.acquisitionMode, t)}
             </div>
-            <StatusBadge tone={results.status === "High instability" ? "danger" : results.status === "Moderate instability" ? "warning" : "connected"} dot={false}>
-              {resultStatusLabel(t, results.status)}
-            </StatusBadge>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/75">{t.stepResults}</p>
+            <p className="mt-2 inline-flex rounded-full bg-white/16 px-3 py-1 text-xs font-semibold text-white/88">
+              {results.metricLabel ?? t.estimatedWebcamIndicators ?? "Estimated webcam-based indicators"}
+            </p>
+            <h2 className="mt-2 text-3xl font-semibold">{patient.fullName}</h2>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-white/85">
+              <span className="rounded-full bg-white/14 px-3 py-1">{testTypeLabel(t, config.testType)}</span>
+              <span className="rounded-full bg-white/14 px-3 py-1">{conditionLabel(t, config.visualCondition)}</span>
+              <span className="rounded-full bg-white/14 px-3 py-1">{config.durationSeconds}s</span>
+            </div>
+            <p className="mt-5 max-w-2xl text-sm leading-6 text-white/88">{results.interpretation}</p>
+            <div className="mt-8 flex flex-wrap items-center gap-6">
+              <CircularScore score={results.totalBalanceScore} light />
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-white/75">{t.totalBalanceScore}</p>
+                <p className="mt-1 text-5xl font-semibold leading-none">{Math.round(results.totalBalanceScore)}<span className="text-xl text-white/70">/100</span></p>
+                <span className="mt-4 inline-flex rounded-full bg-white px-3 py-1 text-sm font-semibold text-rehab-ink">
+                  {analytics.sessionLabel}
+                </span>
+                <p className="mt-3 text-sm font-semibold text-white/90">{analytics.shortInterpretation}</p>
+              </div>
+            </div>
           </div>
-          <div className="grid gap-3 border-t border-white/80 bg-white/70 p-5 sm:grid-cols-2 lg:border-l lg:border-t-0">
-            <MiniOutcome label={t.postureStability} value={`${results.postureStabilityScore}/100`} score={results.postureStabilityScore} />
-            <MiniOutcome label={t.boardStability} value={boardAvailable ? `${results.boardStabilityScore}/100` : t.notAvailableWebcamOnly} score={results.boardStabilityScore} muted={!boardAvailable} />
-            <MiniOutcome label={t.trunkDeviation} value={`${results.trunkDeviation} ${postureUnits.trunk}`} score={100 - results.trunkDeviation * 8} />
-            <MiniOutcome label={t.bodyCenterDeviation} value={`${results.bodyCenterDeviation} ${postureUnits.center}`} score={100 - results.bodyCenterDeviation * 7} />
+          <div className="grid gap-4 border-t border-white/20 bg-white/14 p-5 sm:grid-cols-2 lg:border-l lg:border-t-0">
+            {analytics.keyMetrics.map((metric) => (
+              <AnalyticsMetricCard key={metric.label} metric={metric} />
+            ))}
           </div>
         </div>
-      </div>
-      <ResultsCharts samples={results.samples ?? []} boardAvailable={boardAvailable} t={t} />
-      {comparisonSession ? (
-        <SessionComparisonCard t={t} results={results} previousSession={comparisonSession} postureUnits={postureUnits} />
+      </ClinicalCard>
+      </section>
+
+      {results.trackingQuality && !results.trackingQuality.sufficient ? (
+        <ClinicalCard className="border-[#F9C74F]/35 bg-[#F9C74F]/12 p-4">
+          <p className="text-sm font-semibold text-[#8A6B00]">{t.trackingQualityInsufficient ?? "Tracking quality insufficient"}</p>
+          <p className="mt-1 text-xs font-medium text-[#8A6B00]/80">
+            {results.trackingQuality.sampleCount ?? 0} {t.recordedSamples ?? "recorded samples"} / {results.trackingQuality.usablePercent ?? 0}% usable tracking.
+          </p>
+        </ClinicalCard>
       ) : null}
-      <div className="mt-5">
+
+      <ResultsAnalyticsGrid analytics={analytics} t={t} sampleCount={(results.samples ?? []).length} />
+
+      <FullBodyAnalysisPanel t={t} results={results} analytics={analytics} />
+
+      <section className="space-y-4">
+        <AnalyticsSectionHeader title={t.clinicalInterpretationSection ?? "Clinical Interpretation"} />
+        <div className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
+          <ClinicalFindingsPanel findings={analytics.findings} t={t} />
+          <RecommendationCards recommendations={analytics.recommendations} t={t} />
+        </div>
+      </section>
+
+      <ClinicalCard className="p-5">
         <label className="text-sm font-semibold text-rehab-ink" htmlFor="clinical-impression">
           {t.clinicalImpressionEditable}
         </label>
@@ -627,37 +1242,531 @@ function ResultsStep({ t, patient, config, results, patientSessions, savedSessio
           className="mt-2 w-full rounded-lg border border-rehab-line px-3 py-2 text-sm text-rehab-ink outline-none transition focus:border-rehab-teal focus:ring-2 focus:ring-rehab-teal/15"
         />
         <p className="mt-1 text-xs text-rehab-muted">{template(t.characterCount, { count: clinicalImpression.length })}</p>
-      </div>
-      <div className="mt-5 grid gap-4 md:grid-cols-2">
-        {boardAvailable ? (
-          <MetricsList title={t.swayMetrics} items={[`${t.apMean}: ${results.meanSwayAp} mm`, `${t.mlMean}: ${results.meanSwayMl} mm`, `${t.swayVelocity}: ${results.swayVelocity} mm/s`, `${t.instabilityEvents}: ${results.instabilityEvents}`]} />
-        ) : (
-          <UnavailablePanel title={t.swayMetrics} message={t.notAvailableWebcamOnly} />
-        )}
-        <MetricsList
-          title={t.postureMetrics}
-          items={[
-            `${t.trunkDeviation}: ${results.trunkDeviation} ${postureUnits.trunk}`,
-            `${t.shoulderAsymmetry}: ${results.shoulderAsymmetry} ${postureUnits.asymmetry}`,
-            `${t.hipAsymmetry}: ${results.hipAsymmetry} ${postureUnits.asymmetry}`,
-            `${t.bodyCenterDeviation}: ${results.bodyCenterDeviation} ${postureUnits.center}`,
-          ]}
-        />
-        <MetricsList title={t.recommendations} items={results.recommendations} />
-      </div>
-      <div className="mt-5 flex justify-end gap-2">
-        {savedSession ? (
-          <Button variant="secondary" onClick={onReturnToProfile}>
-            {t.viewPatientSessions}
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          {comparisonSession ? (
+            <Button variant="secondary" onClick={() => document.getElementById("session-comparison")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+              {t.comparePreviousSession ?? "Compare previous session"}
+            </Button>
+          ) : null}
+          {savedSession ? (
+            <Button variant="secondary" onClick={onReturnToProfile}>
+              {t.viewPatientSessions}
+            </Button>
+          ) : null}
+          <Button variant="secondary" onClick={() => onSave(clinicalImpression)} disabled={Boolean(savedSession)}>
+            <Save size={16} /> {savedSession ? t.sessionSaved : t.saveSession}
           </Button>
-        ) : null}
-        <Button variant="secondary" onClick={() => onSave(clinicalImpression)} disabled={Boolean(savedSession)}>
-          <Save size={16} /> {savedSession ? t.sessionSaved : t.saveSession}
-        </Button>
-        <Button onClick={onReport} disabled={!savedSession}>{t.generatePdfReport}</Button>
+          <Button onClick={onReport} disabled={!savedSession}>{t.generatePdfReport}</Button>
+        </div>
+      </ClinicalCard>
+
+      {comparisonSession ? (
+        <SessionComparisonCard t={t} results={results} previousSession={comparisonSession} postureUnits={postureUnits} />
+      ) : null}
+    </div>
+  );
+}
+
+function CircularScore({ score, light = false }) {
+  const numeric = Math.max(0, Math.min(100, Number(score) || 0));
+  const color = light ? "#FFFFFF" : metricTone(numeric);
+  return (
+    <div className="relative grid h-44 w-44 shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(${color} ${numeric * 3.6}deg, ${light ? "rgba(255,255,255,0.22)" : "#E2E8F0"} 0deg)` }}>
+      <div className={`grid h-36 w-36 place-items-center rounded-full shadow-inner ${light ? "bg-white/16 text-white" : "bg-white"}`}>
+        <div className="text-center">
+          <p className={`text-5xl font-semibold leading-none ${light ? "text-white" : "text-rehab-ink"}`}>{Math.round(numeric)}</p>
+          <p className={`text-xs font-semibold ${light ? "text-white/75" : "text-rehab-muted"}`}>/100</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AnalyticsMetricCard({ metric }) {
+  const Icon = metric.icon;
+  return (
+    <div className="overflow-hidden rounded-2xl border border-white/20 bg-white/95 p-4 shadow-lg shadow-slate-900/5">
+      <div className="flex items-start justify-between gap-3">
+        <span className="grid h-10 w-10 place-items-center rounded-xl text-white" style={{ backgroundColor: metric.color }}>
+          <Icon size={18} />
+        </span>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${metric.trendClass}`}>{metric.trendArrow} {metric.trendLabel}</span>
+      </div>
+      <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-rehab-muted">{metric.label}</p>
+      <p className="mt-1 text-3xl font-semibold text-rehab-ink">{Math.round(metric.score)}<span className="text-sm text-rehab-muted">/100</span></p>
+      <div className="mt-3 h-12">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={metric.sparkline}>
+            <Line type="monotone" dataKey="value" stroke={metric.color} strokeWidth={3} dot={false} isAnimationActive={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function ResultsAnalyticsGrid({ analytics, t, sampleCount }) {
+  return (
+    <section className="space-y-6">
+      <AnalyticsSectionHeader title={t.mainTrendSection ?? "Main Trend"} subtitle={`${sampleCount} ${t.recordedSamples ?? "recorded samples"}`} />
+      <AnalyticsChartCard title={t.stabilityOverTime ?? "Stability score over time"} size="large">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={analytics.timeSeries} margin={{ top: 12, right: 26, left: 0, bottom: 12 }}>
+            <CartesianGrid stroke="#D9E4EA" strokeDasharray="3 3" />
+            <XAxis dataKey="t" stroke="#577590" tick={{ fontSize: 12 }} />
+            <YAxis domain={[0, 100]} stroke="#577590" tick={{ fontSize: 12 }} />
+            <ReferenceArea y1={75} y2={100} fill="#90BE6D" fillOpacity={0.18} />
+            <ReferenceLine y={75} stroke="#90BE6D" strokeDasharray="4 4" />
+            <Line type="monotone" dataKey="stability" stroke="#43AA8B" strokeWidth={4} dot={false} isAnimationActive={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </AnalyticsChartCard>
+
+      <AnalyticsSectionHeader title={t.movementAnalysis ?? "Movement Analysis"} />
+      <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
+        <AnalyticsChartCard title={t.bodyCenterTrajectory ?? "Body center movement trajectory"} size="medium">
+          <ResponsiveContainer width="100%" height="100%">
+            <ScatterChart margin={{ top: 10, right: 22, bottom: 22, left: 8 }}>
+              <CartesianGrid stroke="#D9E4EA" strokeDasharray="3 3" />
+              <XAxis type="number" dataKey="centerX" stroke="#577590" tick={{ fontSize: 12 }} />
+              <YAxis type="number" dataKey="trunkY" stroke="#577590" tick={{ fontSize: 12 }} />
+              <ReferenceLine x={0} stroke="#F9C74F" strokeDasharray="4 4" />
+              <ReferenceLine y={0} stroke="#F9C74F" strokeDasharray="4 4" />
+              <Scatter data={analytics.trajectory} fill="#F8961E" isAnimationActive={false} />
+            </ScatterChart>
+          </ResponsiveContainer>
+        </AnalyticsChartCard>
+        <AnalyticsChartCard title={t.bodyCenterHeatmap ?? "Body center heatmap"} size="medium">
+          <BodyCenterHeatmap samples={analytics.timeSeries} />
+        </AnalyticsChartCard>
+      </div>
+
+      <AnalyticsSectionHeader title={t.postureAnalysis ?? "Posture Analysis"} />
+      <div className="grid gap-5 lg:grid-cols-2">
+        <AnalyticsChartCard title={t.trunkDeviationOverTime ?? "Trunk deviation over time"} size="medium">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={analytics.timeSeries} margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
+              <CartesianGrid stroke="#D9E4EA" strokeDasharray="3 3" />
+              <XAxis dataKey="t" stroke="#577590" tick={{ fontSize: 12 }} />
+              <YAxis stroke="#577590" tick={{ fontSize: 12 }} />
+              <ReferenceLine y={8} stroke="#F8961E" strokeDasharray="4 4" />
+              <Line type="monotone" dataKey="trunk" stroke="#F8961E" strokeWidth={4} dot={false} isAnimationActive={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </AnalyticsChartCard>
+        <AnalyticsChartCard title={t.symmetryBars ?? "Shoulder / hip symmetry"} size="medium">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={analytics.symmetryBars} margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
+              <CartesianGrid stroke="#D9E4EA" strokeDasharray="3 3" />
+              <XAxis dataKey="name" stroke="#577590" tick={{ fontSize: 12 }} />
+              <YAxis domain={[0, 100]} stroke="#577590" tick={{ fontSize: 12 }} />
+              <Bar dataKey="score" fill="#577590" radius={[10, 10, 0, 0]} isAnimationActive={false} />
+            </BarChart>
+          </ResponsiveContainer>
+        </AnalyticsChartCard>
+      </div>
+
+      <AnalyticsSectionHeader title={t.progressComparisonSection ?? "Progress Comparison"} />
+      <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
+        <AnalyticsChartCard title={t.sessionProgressComparison ?? "Session progress comparison"} size="medium">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={analytics.progressComparison} margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
+              <CartesianGrid stroke="#D9E4EA" strokeDasharray="3 3" />
+              <XAxis dataKey="name" stroke="#577590" tick={{ fontSize: 12 }} />
+              <YAxis domain={[0, 100]} stroke="#577590" tick={{ fontSize: 12 }} />
+              <Bar dataKey="score" fill="#43AA8B" radius={[10, 10, 0, 0]} isAnimationActive={false} />
+            </BarChart>
+          </ResponsiveContainer>
+        </AnalyticsChartCard>
+        <AnalyticsChartCard title={t.functionalRadar ?? "Functional radar profile"} size="radar">
+          <ResponsiveContainer width="100%" height="100%">
+            <RadarChart data={analytics.radar}>
+              <PolarGrid stroke="#B8C7D3" />
+              <PolarAngleAxis dataKey="metric" tick={{ fill: "#577590", fontSize: 13 }} />
+              <Radar dataKey="score" stroke="#43AA8B" fill="#43AA8B" fillOpacity={0.4} isAnimationActive={false} />
+            </RadarChart>
+          </ResponsiveContainer>
+        </AnalyticsChartCard>
+      </div>
+    </section>
+  );
+}
+
+function FullBodyAnalysisPanel({ t, results, analytics }) {
+  const groups = buildFullBodyMetricGroups(results, t);
+  return (
+    <section className="space-y-4">
+      <AnalyticsSectionHeader
+        title={t.fullBodyAnalysis ?? "Full-body analysis"}
+        subtitle={t.fullBodyAnalysisDesc ?? "Landmark-derived posture, head, arm, and alignment indicators"}
+      />
+      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+        {groups.map((group) => (
+          <ClinicalCard key={group.title} className="border-0 bg-gradient-to-br from-white to-slate-50 p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-rehab-ink">{group.title}</p>
+                <p className="mt-1 text-xs text-rehab-muted">{group.description}</p>
+              </div>
+              <span className="rounded-full px-2.5 py-1 text-xs font-semibold" style={{ backgroundColor: `${group.color}1F`, color: group.color }}>
+                {group.availableCount}/{group.items.length}
+              </span>
+            </div>
+            <div className="mt-4 space-y-3">
+              {group.items.map((item) => (
+                <div key={item.label} className="rounded-xl border border-slate-100 bg-white px-3 py-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold text-rehab-muted">{item.label}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${metricAvailabilityClass(item.value)}`}>
+                      {item.value == null ? (t.notAvailable ?? "Not available") : item.status}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-lg font-semibold text-rehab-ink">{formatMetricValue(item.value, item.unit)}</p>
+                </div>
+              ))}
+            </div>
+          </ClinicalCard>
+        ))}
+      </div>
+      <ClinicalCard className="border-0 bg-[#577590]/8 p-5">
+        <div className="grid gap-4 sm:grid-cols-4">
+          {analytics.secondaryScores.map((score) => (
+            <div key={score.label}>
+              <p className="text-xs font-semibold text-rehab-muted">{score.label}</p>
+              <p className="mt-1 text-2xl font-semibold text-rehab-ink">{Math.round(score.value)}<span className="text-sm text-rehab-muted">/100</span></p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-5 grid gap-3 border-t border-[#577590]/15 pt-4 sm:grid-cols-3">
+          {engineCoverageItems(results.engineCoverage, t).map((item) => (
+            <div key={item.label} className="flex items-center justify-between rounded-xl bg-white px-3 py-2">
+              <span className="text-xs font-semibold text-rehab-muted">{item.label}</span>
+              <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${item.className}`}>{item.value}</span>
+            </div>
+          ))}
+        </div>
+      </ClinicalCard>
+    </section>
+  );
+}
+
+function AnalyticsSectionHeader({ title, subtitle }) {
+  return (
+    <div className="flex flex-wrap items-end justify-between gap-3">
+      <h3 className="text-xl font-semibold text-rehab-ink">{title}</h3>
+      {subtitle ? <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-rehab-muted">{subtitle}</span> : null}
+    </div>
+  );
+}
+
+function AnalyticsChartCard({ title, children, size = "medium", className = "" }) {
+  const height = size === "large" ? "h-[26rem]" : size === "radar" ? "h-[24rem]" : "h-[22rem]";
+  return (
+    <div className={`rounded-2xl border border-rehab-line bg-white p-5 shadow-sm ${className}`}>
+      <p className="font-semibold text-rehab-ink">{title}</p>
+      <div className={`mt-4 ${height}`}>{children}</div>
+    </div>
+  );
+}
+
+function BodyCenterHeatmap({ samples }) {
+  const cells = samples.slice(-40);
+  return (
+    <div className="grid h-full grid-cols-8 gap-1">
+      {cells.length ? cells.map((sample, index) => {
+        const intensity = Math.min(1, Math.abs(sample.centerAbs ?? 0) / 18);
+        const color = intensity > 0.72 ? "#F94144" : intensity > 0.42 ? "#F8961E" : intensity > 0.22 ? "#F9C74F" : "#43AA8B";
+        return <div key={`${sample.t}-${index}`} className="rounded-md" style={{ backgroundColor: color, opacity: 0.35 + intensity * 0.65 }} title={`${sample.centerAbs}%`} />;
+      }) : <div className="col-span-8 grid place-items-center rounded-xl border border-dashed border-white/20 text-sm font-semibold text-slate-300">No recorded samples</div>}
+    </div>
+  );
+}
+
+function ClinicalFindingsPanel({ findings, t }) {
+  return (
+    <ClinicalCard className="border-0 bg-gradient-to-br from-white to-slate-50 p-5 shadow-sm">
+      <SectionHeader title={t.clinicalFindings ?? "Clinical findings"} description={t.clinicalFindingsDesc ?? "Color-coded observations from recorded posture metrics."} />
+      <div className="mt-5 grid gap-3">
+        {findings.map((finding) => (
+          <div key={finding.text} className={`rounded-2xl border p-4 shadow-sm ${findingToneClass(finding.tone)}`}>
+            <p className="text-sm font-semibold">{finding.text}</p>
+          </div>
+        ))}
       </div>
     </ClinicalCard>
   );
+}
+
+function RecommendationCards({ recommendations, t }) {
+  return (
+    <ClinicalCard className="border-0 bg-gradient-to-br from-white to-slate-50 p-5 shadow-sm">
+      <SectionHeader title={t.recommendations} description={t.recommendationsDesc ?? "Rule-based rehabilitation support suggestions."} />
+      <div className="mt-5 grid gap-3">
+        {recommendations.map((recommendation) => (
+          <div key={recommendation.text} className={`rounded-2xl border p-4 shadow-sm ${findingToneClass(recommendation.tone)}`}>
+            <p className="text-xs font-semibold uppercase tracking-wide opacity-75">{recommendation.label}</p>
+            <p className="mt-1 text-sm font-semibold">{recommendation.text}</p>
+          </div>
+        ))}
+      </div>
+    </ClinicalCard>
+  );
+}
+
+function buildResultAnalytics(results, previousSession, t = {}) {
+  const samples = Array.isArray(results.samples) ? results.samples : [];
+  const timeSeries = samples.map((sample, index) => ({
+    t: sample.t ?? index,
+    stability: finite(sample.stability ?? sample.posture ?? results.postureStabilityScore),
+    posture: finite(sample.posture ?? results.postureStabilityScore),
+    trunk: finite(sample.trunkInclination ?? sample.trunkDeviation ?? results.trunkDeviation),
+    shoulder: finite(sample.shoulderAsymmetry ?? results.shoulderAsymmetry),
+    hip: finite(sample.hipAsymmetry ?? results.hipAsymmetry),
+    centerAbs: finite(sample.bodyCenterDeviation ?? results.bodyCenterDeviation),
+    centerX: finite(sample.signedBodyCenterDeviation ?? sample.bodyCenterDeviation ?? 0),
+    trunkY: finite(sample.signedTrunkInclination ?? sample.trunkInclination ?? sample.trunkDeviation ?? 0),
+    estimatedBodySway: finite(sample.estimatedBodySway ?? sample.bodyCenterDeviation ?? 0),
+    handArmCompensation: finite(sample.handArmCompensation ?? results.handArmCompensation ?? 0),
+  }));
+
+  const stabilityScore = finite(results.stabilityScore ?? results.totalBalanceScore);
+  const postureScore = finite(results.postureStabilityScore ?? results.totalBalanceScore);
+  const alignmentScore = finite(results.alignmentScore ?? scoreFromDeviation(results.bodyCenterDeviation, 7));
+  const symmetryScore = finite(results.symmetryScore ?? scoreFromDeviation((finite(results.shoulderAsymmetry) + finite(results.hipAsymmetry)) / 2, 8));
+  const trunkControlScore = finite(results.trunkControlScore ?? scoreFromDeviation(results.trunkDeviation, 6.5));
+  const posturalControlScore = finite(results.posturalControlScore ?? stabilityScore);
+  const previousScore = getSessionMetric(previousSession, "totalScore", "totalBalanceScore");
+  const scoreDelta = Number.isFinite(previousScore) && previousScore > 0 ? roundDelta(results.totalBalanceScore - previousScore) : 0;
+
+  const keyMetrics = [
+    makeMetric(t.stabilityScore ?? "Stability score", stabilityScore, Activity, "#43AA8B", timeSeries.map((item) => item.stability)),
+    makeMetric(t.estimatedBodySway ?? "Estimated body sway", deviationScore(results.estimatedBodySway, 11), ShieldCheck, "#90BE6D", timeSeries.map((item) => deviationScore(item.estimatedBodySway, 11))),
+    makeMetric(t.postureSymmetry ?? "Posture symmetry", symmetryScore, UserRound, "#577590", timeSeries.map((item) => scoreFromDeviation((item.shoulder + item.hip) / 2, 8))),
+    makeMetric(t.movementSmoothness ?? "Movement smoothness", finite(results.movementSmoothnessScore ?? stabilityScore), Target, "#F8961E", timeSeries.map((item) => item.stability)),
+  ];
+
+  const findings = [
+    findingFromScore(stabilityScore, "Posture stability remained within the expected supervised range.", "Posture stability requires attention during progression.", "Posture stability indicates elevated instability risk."),
+    findingFromScore(alignmentScore, "Body center alignment is well controlled.", "Body center movement increased during the assessment.", "Body center deviation is high and should be reviewed."),
+    findingFromScore(symmetryScore, "Shoulder and hip symmetry are clinically acceptable.", "Asymmetry is present and should be monitored.", "Marked asymmetry detected during the assessment."),
+    findingFromScore(trunkControlScore, "Trunk control is stable.", "Trunk deviation is increased.", "Trunk control requires focused intervention."),
+  ];
+
+  const recommendationCards = (results.recommendations ?? []).map((text) => ({
+    label: "Recommendation",
+    text,
+    tone: recommendationTone(text),
+  }));
+
+  return {
+    timeSeries,
+    trajectory: timeSeries.map((item) => ({ centerX: item.centerX, trunkY: item.trunkY })),
+    keyMetrics,
+    findings,
+    recommendations: recommendationCards.length ? recommendationCards : [{ label: "Recommendation", text: "Continue supervised balance training and repeat assessment for trend monitoring.", tone: "good" }],
+    radar: [
+      { metric: t.stability ?? "Stability", score: stabilityScore },
+      { metric: t.symmetry ?? "Symmetry", score: symmetryScore },
+      { metric: t.alignment ?? "Alignment", score: alignmentScore },
+      { metric: t.trunkControl ?? "Trunk Control", score: trunkControlScore },
+      { metric: t.posture ?? "Posture", score: postureScore },
+    ],
+    secondaryScores: [
+      { label: t.alignment ?? "Alignment", value: alignmentScore },
+      { label: t.symmetry ?? "Symmetry", value: symmetryScore },
+      { label: t.trunkControl ?? "Trunk control", value: trunkControlScore },
+      { label: t.posturalControl ?? "Postural control", value: posturalControlScore },
+    ],
+    symmetryBars: [
+      { name: "Shoulder", score: scoreFromDeviation(results.shoulderAsymmetry, 10) },
+      { name: "Hip", score: scoreFromDeviation(results.hipAsymmetry, 10) },
+    ],
+    progressComparison: previousScore > 0
+      ? [
+          { name: "Previous", score: previousScore },
+          { name: "Current", score: results.totalBalanceScore },
+        ]
+      : [{ name: "Current", score: results.totalBalanceScore }],
+    sessionLabel: scoreDelta > 2 ? "Improving" : scoreDelta < -2 ? "Declining" : results.totalBalanceScore < 65 ? "Follow-up" : "Stable",
+    shortInterpretation: scoreDelta > 2 ? `Improved by ${scoreDelta} points since last session.` : scoreDelta < -2 ? `Declined by ${Math.abs(scoreDelta)} points since last session.` : "Current session shows stable functional balance indicators.",
+  };
+}
+
+function buildFullBodyMetricGroups(results, t = {}) {
+  const movementItems = [
+    metricItem(t.estimatedBodySway ?? "Estimated body sway", results.estimatedBodySway, "% frame", 6, false, t),
+    metricItem(t.shoulderCenterMovement ?? "Shoulder center movement", results.shoulderCenterMovement, "% frame", 6, false, t),
+    metricItem(t.hipCenterMovement ?? "Hip center movement", results.hipCenterMovement, "% frame", 6, false, t),
+    metricItem(t.headMovement ?? "Head movement", results.headMovement, "% frame", 6, false, t),
+    metricItem(t.handArmCompensation ?? "Hand/arm compensation", results.handArmCompensation, "%", 35, false, t),
+    metricItem(t.movementSmoothness ?? "Movement smoothness", results.movementSmoothnessScore, "/100", 70, true, t),
+  ];
+  const postureItems = [
+    metricItem(t.trunkInclinationMetric ?? "Trunk inclination", results.trunkInclination ?? results.trunkDeviation, "deg", 8, false, t),
+    metricItem(t.trunkRotation ?? "Trunk rotation", results.trunkRotation, "deg", 10, false, t),
+    metricItem(t.pelvicTilt ?? "Pelvic tilt", results.pelvicTilt, "deg", 5, false, t),
+    metricItem(t.weightShift ?? "Weight shift", results.weightShiftEstimation, "%", 9, false, t),
+  ];
+  const headItems = [
+    metricItem(t.headTilt ?? "Head tilt", results.headTilt, "deg", 8, false, t),
+    metricItem(t.headRotation ?? "Head rotation", results.headRotation, "%", 8, false, t),
+    metricItem(t.chinDeviation ?? "Chin deviation", results.chinDeviation, "%", 5, false, t),
+    metricItem(t.eyeAlignment ?? "Eye alignment", results.eyeAlignment, "deg", 5, false, t),
+  ];
+  const symmetryItems = [
+    metricItem(t.shoulderAsymmetry ?? "Shoulder asymmetry", results.shoulderAsymmetry, "deg", 5, false, t),
+    metricItem(t.hipAsymmetry ?? "Hip asymmetry", results.hipAsymmetry, "deg", 5, false, t),
+    metricItem(t.armSymmetry ?? "Arm symmetry", results.armSymmetry, "%", 12, false, t),
+    metricItem(t.armDrift ?? "Arm drift", results.armDrift, "%", 12, false, t),
+  ];
+
+  return [
+    {
+      title: t.webcamMovementIndicators ?? "Estimated webcam-based indicators",
+      description: t.webcamMovementIndicatorsDesc ?? "Calculated from recorded MediaPipe landmark movement; force-plate metrics are not inferred.",
+      color: "#43AA8B",
+      items: movementItems,
+      availableCount: movementItems.filter((item) => item.value != null).length,
+    },
+    {
+      title: t.postureAlignmentGroup ?? "Posture and alignment",
+      description: t.postureAlignmentGroupDesc ?? "Trunk, pelvis, center shift",
+      color: "#577590",
+      items: postureItems,
+      availableCount: postureItems.filter((item) => item.value != null).length,
+    },
+    {
+      title: t.headFaceTracking ?? "Head and face tracking",
+      description: t.headFaceTrackingDesc ?? "Face Landmarker when available",
+      color: "#F8961E",
+      items: headItems,
+      availableCount: headItems.filter((item) => item.value != null).length,
+    },
+    {
+      title: t.symmetryUpperLimbs ?? "Symmetry and upper limbs",
+      description: t.symmetryUpperLimbsDesc ?? "Shoulders, hips, hands",
+      color: "#90BE6D",
+      items: symmetryItems,
+      availableCount: symmetryItems.filter((item) => item.value != null).length,
+    },
+  ];
+}
+
+function metricItem(label, value, unit, threshold, higherIsBetter, t = {}) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return { label, value: null, unit, status: t.notAvailable ?? "Not available" };
+  }
+  const isGood = higherIsBetter ? numeric >= threshold : numeric <= threshold;
+  const isWarning = higherIsBetter ? numeric >= threshold - 10 : numeric <= threshold * 1.5;
+  return {
+    label,
+    value: numeric,
+    unit,
+    status: isGood ? (t.withinRange ?? "Within range") : isWarning ? (t.monitor ?? "Monitor") : (t.attention ?? "Attention"),
+  };
+}
+
+function formatMetricValue(value, unit) {
+  if (value == null) return "-";
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "-";
+  return `${Math.round(numeric * 10) / 10}${unit ? ` ${unit}` : ""}`;
+}
+
+function metricAvailabilityClass(value) {
+  if (value == null) return "bg-slate-100 text-rehab-muted";
+  return "bg-emerald-50 text-emerald-700";
+}
+
+function engineCoverageItems(engineCoverage = {}, t = {}) {
+  return [
+    engineCoverageItem(t.poseTracking ?? "Pose tracking", engineCoverage.pose, t),
+    engineCoverageItem(t.faceTracking ?? "Face tracking", engineCoverage.face, t),
+    engineCoverageItem(t.handTracking ?? "Hand tracking", engineCoverage.hands, t),
+  ];
+}
+
+function engineCoverageItem(label, coverage = {}, t = {}) {
+  if (!coverage?.available) {
+    return {
+      label,
+      value: t.notAvailable ?? "Not available",
+      className: "bg-slate-100 text-rehab-muted",
+    };
+  }
+  const percent = Number(coverage.detectedPercent) || 0;
+  return {
+    label,
+    value: `${percent}%`,
+    className: percent >= 75 ? "bg-emerald-50 text-emerald-700" : percent >= 35 ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700",
+  };
+}
+
+function makeMetric(label, score, icon, color, values) {
+  const cleanValues = values.filter((value) => Number.isFinite(value));
+  const first = cleanValues[0] ?? score;
+  const last = cleanValues[cleanValues.length - 1] ?? score;
+  const delta = roundDelta(last - first);
+  return {
+    label,
+    score,
+    icon,
+    color,
+    trendArrow: Math.abs(delta) <= 2 ? "→" : delta > 0 ? "↑" : "↓",
+    trendLabel: Math.abs(delta) <= 2 ? "stable" : `${delta > 0 ? "+" : ""}${delta}`,
+    trendClass: Math.abs(delta) <= 2 ? "bg-slate-100 text-rehab-muted" : delta > 0 ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700",
+    sparkline: cleanValues.length ? cleanValues.map((value, index) => ({ index, value })) : [{ index: 0, value: score }],
+  };
+}
+
+function findingFromScore(score, good, attention, risk) {
+  if (score >= 80) return { tone: "good", text: good };
+  if (score >= 65) return { tone: "attention", text: attention };
+  return { tone: "risk", text: risk };
+}
+
+function findingToneClass(tone) {
+  if (tone === "risk") return "border-[#F94144]/25 bg-[#F94144]/10 text-[#B4232A]";
+  if (tone === "attention") return "border-[#F8961E]/25 bg-[#F8961E]/12 text-[#9A4B00]";
+  return "border-[#90BE6D]/25 bg-[#90BE6D]/12 text-[#3E6E31]";
+}
+
+function statusToneFromScore(score) {
+  const numeric = Number(score);
+  if (numeric >= 80) return "connected";
+  if (numeric >= 65) return "warning";
+  return "danger";
+}
+
+function acquisitionLabelForResults(mode, t = {}) {
+  if (mode === acquisitionModes.webcam) return t.webcamBasedAssessment ?? "Webcam-Based Assessment";
+  if (mode === acquisitionModes.demo) return t.demoAssessmentMode ?? "Demo Mode";
+  if (mode === acquisitionModes.board) return t.boardSensorsOnly ?? "Board sensors only";
+  if (mode === acquisitionModes.combined) return t.combinedWebcamBoard ?? "Combined webcam + board";
+  return mode ?? "-";
+}
+
+function recommendationTone(text = "") {
+  const lowered = text.toLowerCase();
+  if (lowered.includes("high") || lowered.includes("poor") || lowered.includes("worse")) return "risk";
+  if (lowered.includes("continue") || lowered.includes("progress")) return "good";
+  return "attention";
+}
+
+function scoreFromDeviation(value, multiplier) {
+  return Math.max(0, Math.min(100, Math.round(100 - finite(value) * multiplier)));
+}
+
+function deviationScore(value, multiplier) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return scoreFromDeviation(numeric, multiplier);
+}
+
+function finite(value, fallback = 0) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
 }
 
 function SessionComparisonCard({ t, results, previousSession, postureUnits }) {
@@ -714,7 +1823,7 @@ function SessionComparisonCard({ t, results, previousSession, postureUnits }) {
         : template(t.overallDeclining, { delta: overallDelta });
 
   return (
-    <div className="mt-5 rounded-lg border border-rehab-line bg-white p-4">
+    <div id="session-comparison" className="mt-5 rounded-lg border border-rehab-line bg-white p-4">
       <p className="font-semibold text-rehab-ink">{t.comparedToLastSession}</p>
       <div className="mt-4 overflow-x-auto">
         <table className="w-full min-w-[560px] text-left text-sm">

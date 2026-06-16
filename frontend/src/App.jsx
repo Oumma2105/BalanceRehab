@@ -25,6 +25,7 @@ const pages = [
 export default function App() {
   const initialData = useMemo(() => loadPersistedState(), []);
   const [language, setLanguage] = useState("en");
+  const [webcamViewMode, setWebcamViewMode] = useState(() => localStorage.getItem("balancerehab_webcam_view") ?? "mirrored");
   const [activePage, setActivePage] = useState("dashboard");
   const [health, setHealth] = useState(null);
   const [status, setStatus] = useState(null);
@@ -151,6 +152,10 @@ export default function App() {
     savePersistedState({ patients, sessions, reports });
   }, [patients, sessions, reports]);
 
+  useEffect(() => {
+    localStorage.setItem("balancerehab_webcam_view", webcamViewMode);
+  }, [webcamViewMode]);
+
   const pageTitle = useMemo(() => t[activePage], [activePage, t]);
 
   const renderPage = () => {
@@ -248,6 +253,7 @@ export default function App() {
           t={t}
           onClearPreselectedPatient={() => setPreselectedPatientId(null)}
           onWorkflowFocusChange={setAssessmentFocus}
+          webcamMirrored={webcamViewMode === "mirrored"}
           onSaveSession={async (session) => {
             const saved = backendReady ? await api.createSession(session, patients) : session;
             setSessions((current) => [saved, ...current]);
@@ -302,6 +308,8 @@ export default function App() {
           t={t}
           language={language}
           onLanguageChange={setLanguage}
+          webcamViewMode={webcamViewMode}
+          onWebcamViewModeChange={setWebcamViewMode}
           health={health}
           status={status}
           onResetDemoData={async () => {

@@ -34,18 +34,19 @@ function SettingRow({ icon: Icon, title, description, children }) {
   );
 }
 
-function SegmentedControl({ options, active }) {
+function SegmentedControl({ options, active, onChange }) {
   return (
     <div className="flex rounded-lg border border-rehab-line bg-white p-1">
       {options.map((option) => (
         <button
-          key={option}
+          key={option.value ?? option}
           type="button"
+          onClick={() => onChange?.(option.value ?? option)}
           className={`rounded-md px-3 py-1.5 text-sm font-semibold ${
-            option === active ? "bg-rehab-blue text-white" : "text-rehab-muted hover:bg-slate-50"
+            (option.value ?? option) === active ? "bg-rehab-blue text-white" : "text-rehab-muted hover:bg-slate-50"
           }`}
         >
-          {option}
+          {option.label ?? option}
         </button>
       ))}
     </div>
@@ -64,7 +65,7 @@ function Toggle({ active = true }) {
   );
 }
 
-export function SettingsPage({ t, language, onLanguageChange, status, health, onResetDemoData }) {
+export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, onWebcamViewModeChange, status, health, onResetDemoData }) {
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetState, setResetState] = useState("idle");
 
@@ -113,6 +114,21 @@ export function SettingsPage({ t, language, onLanguageChange, status, health, on
             description={t.modeDescription}
           >
             <Toggle active={status?.demo_mode ?? true} />
+          </SettingRow>
+
+          <SettingRow
+            icon={Camera}
+            title={t.webcamView}
+            description={t.webcamViewDesc}
+          >
+            <SegmentedControl
+              options={[
+                { value: "mirrored", label: t.webcamViewMirrored },
+                { value: "original", label: t.webcamViewOriginal },
+              ]}
+              active={webcamViewMode}
+              onChange={onWebcamViewModeChange}
+            />
           </SettingRow>
 
           <SettingRow

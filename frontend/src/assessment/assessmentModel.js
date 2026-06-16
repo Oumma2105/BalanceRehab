@@ -34,6 +34,7 @@ export function createAvailableMetric(value, unit = "") {
 
 export function normalizeAssessmentResults(results) {
   return {
+    ...results,
     acquisitionMode: results.acquisitionMode,
     acquisitionLabel: results.acquisitionLabel,
     availableMetrics: {

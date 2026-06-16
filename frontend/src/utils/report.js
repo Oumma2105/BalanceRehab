@@ -112,10 +112,42 @@ function drawResultsPage(doc, { patient, session, results, t }) {
     rows,
   });
 
+  y += 12;
+  y = sectionTitle(doc, t.pdfFullBodyIndicators ?? "Full-Body Movement Indicators", y);
+  y = drawTable(doc, {
+    y,
+    columns: [t.metric ?? "Metric", t.pdfValue ?? "Value", t.pdfReference ?? "Reference", t.status ?? "Status"],
+    widths: [72, 38, 38, 32],
+    rows: [
+      [t.alignmentScore ?? "Alignment Score", `${valueOrDash(results.alignmentScore)}/100`, ">75", statusSymbol(results.alignmentScore, 75, true, t)],
+      [t.symmetryScore ?? "Symmetry Score", `${valueOrDash(results.symmetryScore)}/100`, ">75", statusSymbol(results.symmetryScore, 75, true, t)],
+      [t.trunkControl ?? "Trunk Control", `${valueOrDash(results.trunkControlScore)}/100`, ">75", statusSymbol(results.trunkControlScore, 75, true, t)],
+      [t.posturalControl ?? "Postural Control", `${valueOrDash(results.posturalControlScore)}/100`, ">75", statusSymbol(results.posturalControlScore, 75, true, t)],
+      [t.pelvicTilt ?? "Pelvic Tilt", `${valueOrDash(results.pelvicTilt)} deg`, "<5 deg", statusSymbol(results.pelvicTilt, 5, false, t)],
+      [t.headTilt ?? "Head Tilt", `${valueOrDash(results.headTilt)} deg`, "<8 deg", statusSymbol(results.headTilt, 8, false, t)],
+      [t.armSymmetry ?? "Arm Symmetry", `${valueOrDash(results.armSymmetry)}%`, "<12%", statusSymbol(results.armSymmetry, 12, false, t)],
+      [t.weightShift ?? "Weight Shift", `${valueOrDash(results.weightShiftEstimation)}%`, "<9%", statusSymbol(results.weightShiftEstimation, 9, false, t)],
+    ],
+  });
+
+  y += 12;
+  y = sectionTitle(doc, t.pdfTrackingCoverage ?? "Tracking Coverage", y);
+  y = drawTable(doc, {
+    y,
+    columns: [t.trackingSource ?? "Tracking source", t.pdfDetectedFrames ?? "Detected frames", t.status ?? "Status"],
+    widths: [72, 54, 54],
+    rows: trackingCoverageRows(results.engineCoverage, t),
+  });
+
+  if (y > 205) {
+    doc.addPage();
+    y = 32;
+  }
+
   if (results.availableMetrics?.board) {
     y += 12;
     y = sectionTitle(doc, t.swayMetrics ?? "Sway Metrics", y);
-    drawTable(doc, {
+    y = drawTable(doc, {
       y,
       columns: [t.pdfApSwayMean ?? "AP Sway Mean", t.pdfMlSwayMean ?? "ML Sway Mean", t.pdfApSwayMax ?? "AP Sway Max", t.pdfMlSwayMax ?? "ML Sway Max", t.swayVelocity ?? "Sway Velocity"],
       widths: [36, 36, 36, 36, 36],
@@ -135,9 +167,10 @@ function drawResultsPage(doc, { patient, session, results, t }) {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
     doc.text(t.pdfBoardUnavailable ?? "Board sway metrics are not available in webcam-only mode.", MARGIN + 5, y + 13);
+    y += 26;
   }
 
-  drawScoreBand(doc, patient, session, 212, t);
+  drawScoreBand(doc, patient, session, Math.min(Math.max(y + 8, 212), 238), t);
 }
 
 function drawInterpretationPage(doc, { session, results, recommendations, t }) {
@@ -395,7 +428,7 @@ function drawSwayScatter(doc, samples, x, y, width, height, t) {
   doc.setTextColor(...TEXT);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.text(t.centerOfPressurePath ?? "Center of Pressure Path", x, y - 4);
+  doc.text(t.estimatedMovementPath ?? "Estimated movement path", x, y - 4);
   doc.setDrawColor(...LINE);
   doc.rect(x, y, width, height, "S");
   doc.setDrawColor(...ORANGE);
@@ -423,6 +456,23 @@ function statusSymbol(value, threshold, higherIsBetter, t = {}) {
   return higherIsBetter
     ? (numeric > threshold ? (t.pdfOk ?? "OK") : (t.pdfReview ?? "Review"))
     : (numeric < threshold ? (t.pdfOk ?? "OK") : (t.pdfReview ?? "Review"));
+}
+
+function trackingCoverageRows(engineCoverage = {}, t = {}) {
+  return [
+    trackingCoverageRow(t.poseTracking ?? "Pose tracking", engineCoverage.pose, t),
+    trackingCoverageRow(t.faceTracking ?? "Face tracking", engineCoverage.face, t),
+    trackingCoverageRow(t.handTracking ?? "Hand tracking", engineCoverage.hands, t),
+  ];
+}
+
+function trackingCoverageRow(label, coverage = {}, t = {}) {
+  if (!coverage?.available) {
+    return [label, "-", t.notAvailable ?? "Not available"];
+  }
+  const percent = Number(coverage.detectedPercent) || 0;
+  const status = percent >= 75 ? (t.pdfOk ?? "OK") : percent >= 35 ? (t.pdfReview ?? "Review") : (t.attention ?? "Attention");
+  return [label, `${percent}%`, status];
 }
 
 function displaySex(t, sex) {
