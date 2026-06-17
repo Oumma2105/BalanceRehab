@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import demo, health, ml, patients, placeholders, reports, sessions
+from app.api import board, demo, health, ml, patients, placeholders, reports, sessions
 from app.database import init_db
 
 app = FastAPI(
@@ -32,3 +32,4 @@ app.include_router(sessions.router, prefix="/api")
 app.include_router(ml.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
 app.include_router(placeholders.router, prefix="/api")
+app.include_router(board.router)

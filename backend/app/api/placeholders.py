@@ -54,6 +54,19 @@ def dashboard_summary(db: Session = Depends(get_db)):
         "80_plus": len([score for score in scores if score >= 80]),
     }
 
+    patient_improvements = []
+    for patient in patients:
+        patient_sessions = sorted(
+            [s for s in sessions if s.patient_id == patient.id],
+            key=lambda s: str(s.created_at),
+        )
+        if len(patient_sessions) >= 2:
+            first_score = patient_sessions[0].total_balance_score
+            last_score = patient_sessions[-1].total_balance_score
+            if first_score is not None and last_score is not None:
+                patient_improvements.append(last_score - first_score)
+    average_improvement = round(sum(patient_improvements) / len(patient_improvements), 1) if patient_improvements else None
+
     return {
         "total_patients": len(patients),
         "active_patients": len([patient for patient in patients if patient.id in latest_by_patient]),
@@ -92,6 +105,7 @@ def dashboard_summary(db: Session = Depends(get_db)):
             for report in reports
         ],
         "last_assessment": sessions[0].created_at if sessions else None,
+        "average_improvement": average_improvement,
         "mode": "backend",
     }
 

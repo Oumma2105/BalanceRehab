@@ -82,3 +82,7 @@ def ensure_sqlite_columns() -> None:
             for column, definition in columns.items():
                 if column not in existing:
                     connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}"))
+
+        # Rename legacy acquisition mode values to canonical names.
+        connection.execute(text("UPDATE sessions SET acquisition_mode = 'board' WHERE acquisition_mode = 'board_future'"))
+        connection.execute(text("UPDATE sessions SET acquisition_mode = 'combined' WHERE acquisition_mode = 'combined_future'"))

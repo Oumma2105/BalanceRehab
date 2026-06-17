@@ -4,7 +4,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-AcquisitionMode = Literal["webcam", "demo", "board_future", "combined_future"]
+AcquisitionMode = Literal["webcam", "demo", "board", "combined", "board_future", "combined_future"]
 TestType = Literal["static", "dynamic"]
 SupportRing = Literal["installed", "removed"]
 VisualCondition = Literal["eyes_open", "eyes_closed"]
@@ -240,6 +240,10 @@ class SessionCreate(SessionBase):
     posture_samples: list[PostureSampleBase] = []
     recommendations: list[RecommendationBase] = []
     movement_labels: list[MovementLabelCreate] = []
+
+
+class SensorSamplesAppend(BaseModel):
+    samples: list[SensorSampleBase] = Field(min_length=1)
 
 
 class SessionRead(SessionBase):

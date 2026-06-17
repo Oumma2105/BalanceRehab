@@ -9,7 +9,8 @@ from app.models import PostureSample
 from app.models import Recommendation
 from app.models import SensorSample
 from app.models import Session as AssessmentSession
-from app.schemas import MovementFeaturesRead, MovementLabelCreate, MovementLabelRead, SessionCreate, SessionRead, SessionReportData
+from app.schemas import MovementFeaturesRead, MovementLabelCreate, MovementLabelRead, SensorSamplesAppend, SessionCreate, SessionRead, SessionReportData
+from app.services.board_metrics import compute_board_metrics, normalize_board_samples
 from app.services.movement_features import build_movement_feature_payload
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -23,7 +24,8 @@ BOARD_METRIC_FIELDS = [
     "sway_velocity",
     "instability_events",
 ]
-FUTURE_MODES = {"board_future", "combined_future"}
+FUTURE_MODES = {"board", "combined"}
+BOARD_MODES = {"board", "combined", "board_future", "combined_future", "demo"}
 
 
 @router.get("", response_model=list[SessionRead])
@@ -45,12 +47,13 @@ def create_session(payload: SessionCreate, db: Session = Depends(get_db)) -> Ass
     data = payload.model_dump(exclude={"sensor_samples", "posture_samples", "recommendations", "movement_labels"})
     validate_acquisition_payload(payload, data)
     apply_webcam_computation(payload, data)
+    apply_board_computation(payload.sensor_samples, data)
 
     if data.get("status") is None:
         data["status"] = status_from_score(data.get("total_balance_score"))
 
     session = AssessmentSession(**data)
-    session.sensor_samples = [SensorSample(**sample.model_dump()) for sample in payload.sensor_samples]
+    session.sensor_samples = [SensorSample(**sensor_sample_data(sample)) for sample in payload.sensor_samples]
     session.posture_samples = [PostureSample(**sample.model_dump()) for sample in payload.posture_samples]
     session.movement_labels = [MovementLabel(**label.model_dump()) for label in payload.movement_labels]
     recommendations = payload.recommendations or generate_recommendations(data)
@@ -101,6 +104,24 @@ def get_movement_features(session_id: int, db: Session = Depends(get_db)) -> dic
     return build_movement_feature_payload(session)
 
 
+@router.post("/{session_id}/sensor-samples", response_model=SessionRead)
+def append_sensor_samples(session_id: int, payload: SensorSamplesAppend, db: Session = Depends(get_db)) -> AssessmentSession:
+    session = load_session(session_id, db)
+    if session.acquisition_mode == "webcam":
+        raise HTTPException(status_code=422, detail="Webcam-only sessions cannot include ESP32 board sensor samples.")
+
+    for sample in payload.samples:
+        session.sensor_samples.append(SensorSample(**sensor_sample_data(sample)))
+
+    data = session_to_metric_data(session)
+    apply_board_sample_computation(session, data)
+    apply_session_metric_data(session, data)
+    session.status = status_from_score(session.total_balance_score)
+
+    db.commit()
+    return load_session(session.id, db)
+
+
 @router.get("/{session_id}/movement-labels", response_model=list[MovementLabelRead])
 def list_movement_labels(session_id: int, db: Session = Depends(get_db)) -> list[MovementLabel]:
     session = load_session(session_id, db)
@@ -122,22 +143,18 @@ def create_movement_label(session_id: int, payload: MovementLabelCreate, db: Ses
 @router.post("/{session_id}/compute", response_model=SessionRead)
 def recompute_session(session_id: int, db: Session = Depends(get_db)) -> AssessmentSession:
     session = load_session(session_id, db)
-    if session.acquisition_mode in FUTURE_MODES:
-        raise HTTPException(status_code=400, detail="Future hardware modes cannot be computed in the current MVP.")
-
     data = session_to_metric_data(session)
     if session.acquisition_mode == "webcam":
         apply_webcam_sample_computation(session, data)
         clear_board_metrics(session)
+    elif session.acquisition_mode in BOARD_MODES:
+        if session.acquisition_mode in {"combined", "combined_future"}:
+            apply_webcam_sample_computation(session, data)
+        apply_board_sample_computation(session, data)
 
-    session.posture_stability_score = data.get("posture_stability_score")
-    session.total_balance_score = data.get("total_balance_score")
-    session.trunk_deviation = data.get("trunk_deviation")
-    session.shoulder_asymmetry = data.get("shoulder_asymmetry")
-    session.hip_asymmetry = data.get("hip_asymmetry")
-    session.body_center_deviation = data.get("body_center_deviation")
+    apply_session_metric_data(session, data)
     session.status = status_from_score(session.total_balance_score)
-    session.interpretation = session.interpretation or webcam_interpretation(session.total_balance_score)
+    session.interpretation = session.interpretation or interpretation_for_session(session)
 
     session.recommendations.clear()
     for recommendation in generate_recommendations(data):
@@ -179,12 +196,6 @@ def session_query():
 
 def validate_acquisition_payload(payload: SessionCreate, data: dict) -> None:
     mode = data.get("acquisition_mode")
-    if mode in FUTURE_MODES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"{mode} is reserved for future hardware integration and is not available in the current MVP.",
-        )
-
     if mode == "webcam":
         board_values = {field: data.get(field) for field in BOARD_METRIC_FIELDS}
         provided_board_values = {field: value for field, value in board_values.items() if value is not None}
@@ -200,9 +211,46 @@ def validate_acquisition_payload(payload: SessionCreate, data: dict) -> None:
     if mode == "demo":
         data["is_demo"] = True
 
+    if mode in FUTURE_MODES:
+        data["is_demo"] = False
+
+
+def apply_board_computation(sensor_samples: list, data: dict) -> None:
+    if data.get("acquisition_mode") not in BOARD_MODES or not sensor_samples:
+        return
+
+    board_metrics = compute_board_metrics(sensor_samples)
+    for field, value in board_metrics.items():
+        data[field] = data.get(field) if data.get(field) is not None else value
+
+    board_score = data.get("board_stability_score")
+    posture_score = data.get("posture_stability_score")
+    if data.get("acquisition_mode") in {"combined", "combined_future"} and posture_score is not None and board_score is not None:
+        data["total_balance_score"] = data.get("total_balance_score") or round((board_score * 0.6) + (posture_score * 0.4), 1)
+    elif board_score is not None:
+        data["total_balance_score"] = data.get("total_balance_score") or board_score
+
+    if not data.get("interpretation"):
+        data["interpretation"] = board_interpretation(data.get("total_balance_score"))
+
+
+def sensor_sample_data(sample) -> dict:
+    data = sample.model_dump()
+    normalized = normalize_board_samples([sample])
+    if normalized:
+        data["anterior_posterior_sway"] = data.get("anterior_posterior_sway") if data.get("anterior_posterior_sway") is not None else normalized[0].anterior_posterior_sway
+        data["medial_lateral_sway"] = data.get("medial_lateral_sway") if data.get("medial_lateral_sway") is not None else normalized[0].medial_lateral_sway
+        data["stability_score"] = data.get("stability_score") if data.get("stability_score") is not None else normalized[0].stability_score
+    # Older local SQLite databases created these columns as NOT NULL. Keep AP/ML-only
+    # firmware payloads insertable while the current model remains nullable for new DBs.
+    for field in ["front_left", "front_right", "rear_left", "rear_right"]:
+        if data.get(field) is None:
+            data[field] = 0
+    return data
+
 
 def apply_webcam_computation(payload: SessionCreate, data: dict) -> None:
-    if data.get("acquisition_mode") != "webcam" or not payload.posture_samples:
+    if data.get("acquisition_mode") not in {"webcam", "combined", "combined_future"} or not payload.posture_samples:
         return
 
     posture_scores = [sample.posture_score for sample in payload.posture_samples if sample.posture_score is not None]
@@ -239,6 +287,36 @@ def apply_webcam_sample_computation(session: AssessmentSession, data: dict) -> N
     data["body_center_deviation"] = average(center_values) or session.body_center_deviation
 
 
+def apply_board_sample_computation(session: AssessmentSession, data: dict) -> None:
+    board_metrics = compute_board_metrics(session.sensor_samples)
+    data.update(board_metrics)
+    board_score = data.get("board_stability_score")
+    posture_score = data.get("posture_stability_score")
+    if session.acquisition_mode in {"combined", "combined_future"} and posture_score is not None and board_score is not None:
+        data["total_balance_score"] = round((board_score * 0.6) + (posture_score * 0.4), 1)
+    else:
+        data["total_balance_score"] = board_score
+
+
+def apply_session_metric_data(session: AssessmentSession, data: dict) -> None:
+    for field in [
+        "posture_stability_score",
+        "total_balance_score",
+        "board_stability_score",
+        "mean_sway_ap",
+        "mean_sway_ml",
+        "max_sway_ap",
+        "max_sway_ml",
+        "sway_velocity",
+        "instability_events",
+        "trunk_deviation",
+        "shoulder_asymmetry",
+        "hip_asymmetry",
+        "body_center_deviation",
+    ]:
+        setattr(session, field, data.get(field))
+
+
 def clear_board_metrics(session: AssessmentSession) -> None:
     for field in BOARD_METRIC_FIELDS:
         setattr(session, field, None)
@@ -251,6 +329,13 @@ def session_to_metric_data(session: AssessmentSession) -> dict:
         "visual_condition": session.visual_condition,
         "total_balance_score": session.total_balance_score,
         "posture_stability_score": session.posture_stability_score,
+        "board_stability_score": session.board_stability_score,
+        "mean_sway_ap": session.mean_sway_ap,
+        "mean_sway_ml": session.mean_sway_ml,
+        "max_sway_ap": session.max_sway_ap,
+        "max_sway_ml": session.max_sway_ml,
+        "sway_velocity": session.sway_velocity,
+        "instability_events": session.instability_events,
         "trunk_deviation": session.trunk_deviation,
         "shoulder_asymmetry": session.shoulder_asymmetry,
         "hip_asymmetry": session.hip_asymmetry,
@@ -266,8 +351,10 @@ def acquisition_mode_label(mode: str) -> str:
     labels = {
         "webcam": "Webcam-Based Assessment",
         "demo": "Demo Assessment",
-        "board_future": "Board Sensors Only (future)",
-        "combined_future": "Webcam + Board Sensors (future)",
+        "board": "Balance Board (ESP32)",
+        "combined": "Webcam + ESP32 Board",
+        "board_future": "Balance Board (ESP32)",
+        "combined_future": "Webcam + ESP32 Board",
     }
     return labels.get(mode, mode)
 
@@ -280,6 +367,22 @@ def webcam_interpretation(score: float | None) -> str:
     if score >= 65:
         return "Estimated webcam-based posture indicators suggest moderate instability requiring rehabilitation follow-up."
     return "Estimated webcam-based posture indicators suggest high instability requiring supervised progression."
+
+
+def board_interpretation(score: float | None) -> str:
+    if score is None:
+        return "ESP32 board sensor samples were saved for rehabilitation-support review."
+    if score >= 80:
+        return "ESP32 board indicators suggest stable stance during this prototype assessment."
+    if score >= 65:
+        return "ESP32 board indicators suggest moderate instability during this prototype assessment."
+    return "ESP32 board indicators suggest high instability requiring supervised rehabilitation follow-up."
+
+
+def interpretation_for_session(session: AssessmentSession) -> str:
+    if session.acquisition_mode == "webcam":
+        return webcam_interpretation(session.total_balance_score)
+    return board_interpretation(session.total_balance_score)
 
 
 def average(values: list[float]) -> float | None:
