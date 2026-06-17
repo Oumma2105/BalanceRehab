@@ -8,6 +8,7 @@ frontend/.vite/
 
 backend/.venv/
 backend/venv/
+backend/data/movement_intent_model.json
 
 .env
 .env.local

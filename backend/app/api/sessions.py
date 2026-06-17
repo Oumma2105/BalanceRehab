@@ -4,11 +4,13 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.models import Patient
+from app.models import MovementLabel
 from app.models import PostureSample
 from app.models import Recommendation
 from app.models import SensorSample
 from app.models import Session as AssessmentSession
-from app.schemas import SessionCreate, SessionRead, SessionReportData
+from app.schemas import MovementFeaturesRead, MovementLabelCreate, MovementLabelRead, SessionCreate, SessionRead, SessionReportData
+from app.services.movement_features import build_movement_feature_payload
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -40,7 +42,7 @@ def create_session(payload: SessionCreate, db: Session = Depends(get_db)) -> Ass
     if db.get(Patient, payload.patient_id) is None:
         raise HTTPException(status_code=404, detail="Patient not found")
 
-    data = payload.model_dump(exclude={"sensor_samples", "posture_samples", "recommendations"})
+    data = payload.model_dump(exclude={"sensor_samples", "posture_samples", "recommendations", "movement_labels"})
     validate_acquisition_payload(payload, data)
     apply_webcam_computation(payload, data)
 
@@ -50,6 +52,7 @@ def create_session(payload: SessionCreate, db: Session = Depends(get_db)) -> Ass
     session = AssessmentSession(**data)
     session.sensor_samples = [SensorSample(**sample.model_dump()) for sample in payload.sensor_samples]
     session.posture_samples = [PostureSample(**sample.model_dump()) for sample in payload.posture_samples]
+    session.movement_labels = [MovementLabel(**label.model_dump()) for label in payload.movement_labels]
     recommendations = payload.recommendations or generate_recommendations(data)
     session.recommendations = [
         Recommendation(
@@ -90,6 +93,30 @@ def get_session_report_data(session_id: int, db: Session = Depends(get_db)) -> S
         clinical_impression=session.interpretation,
         recommendations=[item.recommendation_en for item in session.recommendations],
     )
+
+
+@router.get("/{session_id}/movement-features", response_model=MovementFeaturesRead)
+def get_movement_features(session_id: int, db: Session = Depends(get_db)) -> dict:
+    session = load_session(session_id, db)
+    return build_movement_feature_payload(session)
+
+
+@router.get("/{session_id}/movement-labels", response_model=list[MovementLabelRead])
+def list_movement_labels(session_id: int, db: Session = Depends(get_db)) -> list[MovementLabel]:
+    session = load_session(session_id, db)
+    return session.movement_labels
+
+
+@router.post("/{session_id}/movement-labels", response_model=MovementLabelRead, status_code=201)
+def create_movement_label(session_id: int, payload: MovementLabelCreate, db: Session = Depends(get_db)) -> MovementLabel:
+    session = load_session(session_id, db)
+    if payload.end_ms < payload.start_ms:
+        raise HTTPException(status_code=422, detail="Movement label end_ms must be greater than or equal to start_ms.")
+    label = MovementLabel(session_id=session.id, **payload.model_dump())
+    db.add(label)
+    db.commit()
+    db.refresh(label)
+    return label
 
 
 @router.post("/{session_id}/compute", response_model=SessionRead)
@@ -145,6 +172,7 @@ def session_query():
     return select(AssessmentSession).options(
         selectinload(AssessmentSession.sensor_samples),
         selectinload(AssessmentSession.posture_samples),
+        selectinload(AssessmentSession.movement_labels),
         selectinload(AssessmentSession.recommendations),
     )
 

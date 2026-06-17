@@ -67,6 +67,7 @@ class Session(Base):
     patient: Mapped["Patient"] = relationship(back_populates="sessions")
     sensor_samples: Mapped[list["SensorSample"]] = relationship(back_populates="session", cascade="all, delete-orphan")
     posture_samples: Mapped[list["PostureSample"]] = relationship(back_populates="session", cascade="all, delete-orphan")
+    movement_labels: Mapped[list["MovementLabel"]] = relationship(back_populates="session", cascade="all, delete-orphan")
     reports: Mapped[list["Report"]] = relationship(back_populates="session", cascade="all, delete-orphan")
     recommendations: Mapped[list["Recommendation"]] = relationship(back_populates="session", cascade="all, delete-orphan")
 
@@ -99,8 +100,39 @@ class PostureSample(Base):
     hip_asymmetry: Mapped[float | None] = mapped_column(Float, nullable=True)
     body_center_deviation: Mapped[float | None] = mapped_column(Float, nullable=True)
     posture_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stability_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    body_center_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    body_center_y: Mapped[float | None] = mapped_column(Float, nullable=True)
+    shoulder_center_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    shoulder_center_y: Mapped[float | None] = mapped_column(Float, nullable=True)
+    hip_center_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    hip_center_y: Mapped[float | None] = mapped_column(Float, nullable=True)
+    head_center_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    head_center_y: Mapped[float | None] = mapped_column(Float, nullable=True)
+    estimated_body_sway: Mapped[float | None] = mapped_column(Float, nullable=True)
+    hand_arm_compensation: Mapped[float | None] = mapped_column(Float, nullable=True)
+    movement_label: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    movement_intent: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    label_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    raw_landmarks_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     session: Mapped["Session"] = relationship(back_populates="posture_samples")
+
+
+class MovementLabel(Base):
+    __tablename__ = "movement_labels"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), index=True)
+    start_ms: Mapped[int] = mapped_column(Integer)
+    end_ms: Mapped[int] = mapped_column(Integer)
+    label: Mapped[str] = mapped_column(String(64))
+    intent: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    session: Mapped["Session"] = relationship(back_populates="movement_labels")
 
 
 class Report(Base):

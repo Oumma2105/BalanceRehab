@@ -27,6 +27,7 @@ import { ContextStrip } from "../components/clinical/ContextStrip";
 import { EmptyState } from "../components/clinical/EmptyState";
 import { SectionHeader } from "../components/clinical/SectionHeader";
 import { StatusBadge } from "../components/clinical/StatusBadge";
+import { api } from "../api/client.js";
 import { acquisitionModes, createAssessmentSource, getAssessmentSourceOptions } from "../assessment/sources/index.js";
 import { buildSession } from "../utils/assessment";
 import { WebcamPoseAssessment } from "../webcam/WebcamPoseAssessment.jsx";
@@ -1163,8 +1164,62 @@ function ResultsStep({ t, patient, config, results, patientSessions, savedSessio
   const boardAvailable = Boolean(results.availableMetrics?.board);
   const postureUnits = getPostureUnits(config.acquisitionMode);
   const [clinicalImpression, setClinicalImpression] = useState(results.interpretation ?? "");
+  const [movementFeatures, setMovementFeatures] = useState(null);
+  const [movementReviewState, setMovementReviewState] = useState("idle");
   const comparisonSession = patientSessions.find((session) => !savedSession || String(session.id) !== String(savedSession.id));
   const analytics = buildResultAnalytics(results, comparisonSession, t);
+
+  useEffect(() => {
+    let cancelled = false;
+    const sessionId = savedSession?.id;
+    if (!sessionId || Number.isNaN(Number(sessionId))) {
+      setMovementFeatures(null);
+      setMovementReviewState("idle");
+      return;
+    }
+
+    setMovementReviewState("loading");
+    api.movementFeatures(sessionId)
+      .then((features) => {
+        if (!cancelled) {
+          setMovementFeatures(features);
+          setMovementReviewState("ready");
+        }
+      })
+      .catch((error) => {
+        console.warn("Movement feature extraction could not be loaded.", error);
+        if (!cancelled) {
+          setMovementFeatures(null);
+          setMovementReviewState("error");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [savedSession?.id]);
+
+  const labelMovement = async (label, intent = "unknown") => {
+    const sessionId = savedSession?.id;
+    if (!sessionId || Number.isNaN(Number(sessionId))) return;
+    setMovementReviewState("saving");
+    try {
+      await api.createMovementLabel(sessionId, {
+        start_ms: 0,
+        end_ms: Math.max(0, Number(config.durationSeconds ?? 0) * 1000),
+        label,
+        intent,
+        confidence: 0.8,
+        notes: "Whole-session prototype label from results review.",
+      });
+      const features = await api.movementFeatures(sessionId);
+      setMovementFeatures(features);
+      setMovementReviewState("ready");
+    } catch (error) {
+      console.warn("Movement label could not be saved.", error);
+      setMovementReviewState("error");
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -1220,6 +1275,14 @@ function ResultsStep({ t, patient, config, results, patientSessions, savedSessio
       <ResultsAnalyticsGrid analytics={analytics} t={t} sampleCount={(results.samples ?? []).length} />
 
       <FullBodyAnalysisPanel t={t} results={results} analytics={analytics} />
+
+      <MovementIntelligencePanel
+        t={t}
+        savedSession={savedSession}
+        features={movementFeatures}
+        state={movementReviewState}
+        onLabel={labelMovement}
+      />
 
       <section className="space-y-4">
         <AnalyticsSectionHeader title={t.clinicalInterpretationSection ?? "Clinical Interpretation"} />
@@ -1447,6 +1510,74 @@ function FullBodyAnalysisPanel({ t, results, analytics }) {
         </div>
       </ClinicalCard>
     </section>
+  );
+}
+
+function MovementIntelligencePanel({ t, savedSession, features, state, onLabel }) {
+  const featureRows = [
+    [t.estimatedBodySway ?? "Estimated body sway", features?.features?.estimated_body_sway, "% frame"],
+    [t.movementSmoothness ?? "Movement smoothness", features?.features?.movement_smoothness, ""],
+    [t.handArmCompensation ?? "Hand/arm compensation", features?.features?.hand_arm_compensation, "%"],
+    [t.postureSymmetry ?? "Posture symmetry", features?.features?.posture_symmetry, "/100"],
+    [t.headMovement ?? "Head movement", features?.features?.head_movement, "% frame"],
+    [t.bodySwayVelocity ?? "Body sway velocity", features?.features?.body_sway_velocity, "%/s"],
+    [t.dominantFrequency ?? "Dominant frequency", features?.features?.dominant_frequency_hz, "Hz"],
+    [t.movementJerk ?? "Movement jerk", features?.features?.movement_jerk, ""],
+  ];
+  const quality = features?.tracking_quality;
+  const disabled = !savedSession || state === "saving" || state === "loading";
+
+  return (
+    <section className="space-y-4">
+      <AnalyticsSectionHeader
+        title={t.movementIntelligence ?? "Movement intelligence dataset"}
+        subtitle={t.movementIntelligenceDesc ?? "Feature extraction and clinician labels for future ML training"}
+      />
+      <ClinicalCard className="border-0 bg-gradient-to-br from-white to-slate-50 p-5 shadow-sm">
+        <div className="grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
+          <div>
+            <p className="text-sm font-semibold text-rehab-ink">{t.modelReadiness ?? "Model readiness"}</p>
+            <div className="mt-3 grid gap-2 text-sm">
+              <FeatureStatusRow label={t.sessionSaved ?? "Session saved"} value={savedSession ? (t.ok ?? "OK") : (t.saveSessionFirst ?? "Save session first")} good={Boolean(savedSession)} />
+              <FeatureStatusRow label={t.trackingQuality ?? "Tracking quality"} value={quality?.message ?? (state === "loading" ? "Loading" : "Pending")} good={Boolean(quality?.sufficient)} />
+              <FeatureStatusRow label={t.intentEstimate ?? "Intent estimate"} value={features?.intent_estimate ?? "unknown"} good={features?.intent_estimate && features.intent_estimate !== "unknown"} />
+              <FeatureStatusRow label={t.labelsCount ?? "Labels"} value={features?.labels_count ?? 0} good={(features?.labels_count ?? 0) > 0} />
+            </div>
+            <p className="mt-4 rounded-xl border border-[#F9C74F]/30 bg-[#F9C74F]/12 p-3 text-xs font-semibold leading-5 text-[#8A6B00]">
+              {features?.note ?? t.intentModelNotTrained ?? "Voluntary vs involuntary classification is not trained yet. Add clinician labels to build the dataset."}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button variant="secondary" disabled={disabled} onClick={() => onLabel("voluntary", "voluntary")}>{t.labelVoluntary ?? "Label voluntary"}</Button>
+              <Button variant="secondary" disabled={disabled} onClick={() => onLabel("involuntary", "involuntary")}>{t.labelInvoluntary ?? "Label involuntary"}</Button>
+              <Button variant="secondary" disabled={disabled} onClick={() => onLabel("compensation", "unknown")}>{t.labelCompensation ?? "Label compensation"}</Button>
+              <Button variant="secondary" disabled={disabled} onClick={() => onLabel("tracking_failure", "unknown")}>{t.labelTrackingFailure ?? "Label tracking failure"}</Button>
+            </div>
+            {state === "error" ? (
+              <p className="mt-3 text-xs font-semibold text-[#B4232A]">{t.movementFeaturesUnavailable ?? "Movement feature service unavailable. Save the session and make sure the backend is running."}</p>
+            ) : null}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {featureRows.map(([label, value, unit]) => (
+              <div key={label} className="rounded-xl border border-slate-100 bg-white px-3 py-2">
+                <p className="text-xs font-semibold text-rehab-muted">{label}</p>
+                <p className="mt-1 text-xl font-semibold text-rehab-ink">{formatMetricValue(value, unit)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </ClinicalCard>
+    </section>
+  );
+}
+
+function FeatureStatusRow({ label, value, good }) {
+  return (
+    <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-white px-3 py-2">
+      <span className="text-xs font-semibold text-rehab-muted">{label}</span>
+      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${good ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-rehab-muted"}`}>
+        {value}
+      </span>
+    </div>
   );
 }
 

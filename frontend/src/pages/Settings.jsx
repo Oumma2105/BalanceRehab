@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { Camera, Database, FileText, Globe2, MonitorCog, RotateCcw, Server, ToggleLeft, Wifi } from "lucide-react";
+import { useEffect, useState } from "react";
+import { BrainCircuit, Camera, Database, FileText, Globe2, MonitorCog, RotateCcw, Server, ToggleLeft, Wifi } from "lucide-react";
 
+import { api } from "../api/client.js";
 import { Button } from "../components/clinical/Button";
 import { ClinicalCard } from "../components/clinical/ClinicalCard";
 import { SectionHeader } from "../components/clinical/SectionHeader";
@@ -68,6 +69,25 @@ function Toggle({ active = true }) {
 export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, onWebcamViewModeChange, status, health, onResetDemoData }) {
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetState, setResetState] = useState("idle");
+  const [movementAi, setMovementAi] = useState({ readiness: null, model: null, state: "idle" });
+
+  const refreshMovementAi = async () => {
+    setMovementAi((current) => ({ ...current, state: "loading" }));
+    try {
+      const [readiness, model] = await Promise.all([
+        api.movementTrainingReadiness(),
+        api.movementModelStatus(),
+      ]);
+      setMovementAi({ readiness, model, state: "ready" });
+    } catch (error) {
+      console.warn("Movement AI status could not be loaded.", error);
+      setMovementAi((current) => ({ ...current, state: "error" }));
+    }
+  };
+
+  useEffect(() => {
+    refreshMovementAi();
+  }, []);
 
   const handleReset = async () => {
     setResetState("loading");
@@ -78,6 +98,18 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
     } catch (error) {
       console.warn("Demo reset failed.", error);
       setResetState("error");
+    }
+  };
+
+  const handleTrainMovementModel = async () => {
+    setMovementAi((current) => ({ ...current, state: "training" }));
+    try {
+      const model = await api.trainMovementModel();
+      const readiness = await api.movementTrainingReadiness();
+      setMovementAi({ readiness, model, state: model.trained ? "trained" : "not-ready" });
+    } catch (error) {
+      console.warn("Movement model training failed.", error);
+      setMovementAi((current) => ({ ...current, state: "error" }));
     }
   };
 
@@ -175,6 +207,53 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
       </ClinicalCard>
 
       <ClinicalCard className="p-5">
+        <SectionHeader title={t.movementAiSettings ?? "Movement AI"} description={t.movementAiSettingsDesc ?? "Prototype voluntary/involuntary movement model status and training readiness."} />
+        <div className="mt-5">
+          <SettingRow
+            icon={BrainCircuit}
+            title={t.movementModelStatus ?? "Movement intent model"}
+            description={t.movementModelStatusDesc ?? "Uses clinician labels and extracted webcam movement features. Not clinically validated."}
+          >
+            <div className="flex flex-col items-end gap-2">
+              <StatusBadge tone={movementAi.model?.trained ? "connected" : "warning"}>
+                {movementAi.model?.trained ? (t.trained ?? "Trained") : (t.notTrained ?? "Not trained")}
+              </StatusBadge>
+              <Button variant="secondary" onClick={refreshMovementAi} disabled={movementAi.state === "loading" || movementAi.state === "training"}>
+                {t.refresh ?? "Refresh"}
+              </Button>
+            </div>
+          </SettingRow>
+
+          <div className="grid gap-3 border-t border-rehab-line py-4 sm:grid-cols-4">
+            <AiStat label={t.labeledSegments ?? "Labeled segments"} value={movementAi.readiness?.labeled_segments ?? 0} />
+            <AiStat label={t.usableSegments ?? "Usable segments"} value={movementAi.readiness?.usable_labeled_segments ?? 0} />
+            <AiStat label={t.trainingSamples ?? "Training samples"} value={movementAi.model?.training_samples ?? 0} />
+            <AiStat label={t.modelAccuracy ?? "Prototype accuracy"} value={formatAccuracy(movementAi.model?.evaluation?.accuracy)} />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#F9C74F]/25 bg-[#F9C74F]/10 px-4 py-3">
+            <p className="max-w-3xl text-sm font-semibold leading-5 text-[#8A6B00]">
+              {movementAi.model?.note ?? movementAi.readiness?.note ?? t.intentModelNotTrained ?? "Experimental model. Add clinician labels before using predictions."}
+            </p>
+            <Button onClick={handleTrainMovementModel} disabled={movementAi.state === "training" || movementAi.state === "loading"}>
+              {movementAi.state === "training" ? (t.trainingModel ?? "Training...") : (t.trainMovementModel ?? "Train model")}
+            </Button>
+          </div>
+
+          {movementAi.state === "not-ready" ? (
+            <p className="mt-3 text-sm font-semibold text-[#8A6B00]">
+              {movementAi.model?.reason ?? t.notEnoughLabelsToTrain ?? "Not enough labeled voluntary and involuntary samples to train yet."}
+            </p>
+          ) : null}
+          {movementAi.state === "error" ? (
+            <p className="mt-3 text-sm font-semibold text-[#B4232A]">
+              {t.movementAiUnavailable ?? "Movement AI status is unavailable. Check the backend connection."}
+            </p>
+          ) : null}
+        </div>
+      </ClinicalCard>
+
+      <ClinicalCard className="p-5">
         <SectionHeader title={t.reports} description={t.reportsSettingsDesc} />
         <div className="mt-5">
           <SettingRow icon={FileText} title={t.pdfLanguage} description={t.pdfLanguageDesc}>
@@ -221,4 +300,19 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
       </ClinicalCard>
     </div>
   );
+}
+
+function AiStat({ label, value }) {
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+      <p className="text-xs font-semibold text-rehab-muted">{label}</p>
+      <p className="mt-1 text-xl font-semibold text-rehab-ink">{value}</p>
+    </div>
+  );
+}
+
+function formatAccuracy(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "-";
+  return `${Math.round(numeric * 100)}%`;
 }

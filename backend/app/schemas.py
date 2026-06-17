@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -10,6 +10,16 @@ SupportRing = Literal["installed", "removed"]
 VisualCondition = Literal["eyes_open", "eyes_closed"]
 SessionStatus = Literal["Stable", "Improving", "Follow-up", "Declining"]
 RecommendationPriority = Literal["low", "medium", "high"]
+MovementLabelName = Literal[
+    "voluntary",
+    "involuntary",
+    "compensation",
+    "normal_correction",
+    "loss_of_balance",
+    "tracking_failure",
+    "unknown",
+]
+MovementIntent = Literal["voluntary", "involuntary", "unknown"]
 
 
 class HealthResponse(BaseModel):
@@ -93,6 +103,21 @@ class PostureSampleBase(BaseModel):
     hip_asymmetry: float | None = None
     body_center_deviation: float | None = None
     posture_score: float | None = None
+    stability_score: float | None = None
+    body_center_x: float | None = None
+    body_center_y: float | None = None
+    shoulder_center_x: float | None = None
+    shoulder_center_y: float | None = None
+    hip_center_x: float | None = None
+    hip_center_y: float | None = None
+    head_center_x: float | None = None
+    head_center_y: float | None = None
+    estimated_body_sway: float | None = None
+    hand_arm_compensation: float | None = None
+    movement_label: MovementLabelName | None = None
+    movement_intent: MovementIntent | None = None
+    label_confidence: float | None = None
+    raw_landmarks_json: str | None = None
 
 
 class PostureSampleRead(PostureSampleBase):
@@ -114,6 +139,74 @@ class RecommendationRead(RecommendationBase):
 
     id: int
     session_id: int
+
+
+class MovementLabelBase(BaseModel):
+    start_ms: int
+    end_ms: int
+    label: MovementLabelName
+    intent: MovementIntent | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    notes: str | None = None
+
+
+class MovementLabelCreate(MovementLabelBase):
+    pass
+
+
+class MovementLabelRead(MovementLabelBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    session_id: int
+    created_at: datetime
+
+
+class MovementFeaturesRead(BaseModel):
+    session_id: int
+    model_status: str
+    intent_estimate: MovementIntent
+    intent_confidence: float | None = None
+    tracking_quality: dict[str, Any]
+    features: dict[str, float | int | str | None]
+    training_ready: bool
+    labels_count: int
+    note: str
+
+
+class MovementTrainingDatasetRow(BaseModel):
+    session_id: int
+    patient_id: int
+    label_id: int
+    label: MovementLabelName
+    intent: MovementIntent | None = None
+    confidence: float | None = None
+    start_ms: int
+    end_ms: int
+    tracking_quality: dict[str, Any]
+    features: dict[str, float | int | str | None]
+
+
+class MovementTrainingReadiness(BaseModel):
+    labeled_sessions: int
+    labeled_segments: int
+    usable_labeled_segments: int
+    label_counts: dict[str, int]
+    intent_counts: dict[str, int]
+    ready_for_training: bool
+    recommended_min_segments: int
+    note: str
+
+
+class MovementModelRead(BaseModel):
+    trained: bool
+    model_type: str | None = None
+    created_at: str | None = None
+    training_samples: int = 0
+    class_counts: dict[str, int] = Field(default_factory=dict)
+    evaluation: dict[str, Any] | None = None
+    note: str | None = None
+    reason: str | None = None
 
 
 class SessionBase(BaseModel):
@@ -146,6 +239,7 @@ class SessionCreate(SessionBase):
     sensor_samples: list[SensorSampleBase] = []
     posture_samples: list[PostureSampleBase] = []
     recommendations: list[RecommendationBase] = []
+    movement_labels: list[MovementLabelCreate] = []
 
 
 class SessionRead(SessionBase):
@@ -157,6 +251,7 @@ class SessionRead(SessionBase):
     sensor_samples: list[SensorSampleRead] = []
     posture_samples: list[PostureSampleRead] = []
     recommendations: list[RecommendationRead] = []
+    movement_labels: list[MovementLabelRead] = []
 
 
 class ReportBase(BaseModel):
