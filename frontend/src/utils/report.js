@@ -1,6 +1,6 @@
 import { jsPDF } from "jspdf";
 
-const PRIMARY = [37, 99, 235];
+const PRIMARY = [67, 170, 139];
 const TEXT = [30, 41, 59];
 const MUTED = [100, 116, 139];
 const LINE = [203, 213, 225];
@@ -119,15 +119,14 @@ function drawResultsPage(doc, { patient, session, results, t }) {
     columns: [t.metric ?? "Metric", t.pdfValue ?? "Value", t.pdfReference ?? "Reference", t.status ?? "Status"],
     widths: [72, 38, 38, 32],
     rows: [
-      [t.alignmentScore ?? "Alignment Score", `${valueOrDash(results.alignmentScore)}/100`, ">75", statusSymbol(results.alignmentScore, 75, true, t)],
-      [t.symmetryScore ?? "Symmetry Score", `${valueOrDash(results.symmetryScore)}/100`, ">75", statusSymbol(results.symmetryScore, 75, true, t)],
-      [t.trunkControl ?? "Trunk Control", `${valueOrDash(results.trunkControlScore)}/100`, ">75", statusSymbol(results.trunkControlScore, 75, true, t)],
-      [t.posturalControl ?? "Postural Control", `${valueOrDash(results.posturalControlScore)}/100`, ">75", statusSymbol(results.posturalControlScore, 75, true, t)],
-      [t.pelvicTilt ?? "Pelvic Tilt", `${valueOrDash(results.pelvicTilt)} deg`, "<5 deg", statusSymbol(results.pelvicTilt, 5, false, t)],
-      [t.headTilt ?? "Head Tilt", `${valueOrDash(results.headTilt)} deg`, "<8 deg", statusSymbol(results.headTilt, 8, false, t)],
-      [t.armSymmetry ?? "Arm Symmetry", `${valueOrDash(results.armSymmetry)}%`, "<12%", statusSymbol(results.armSymmetry, 12, false, t)],
-      [t.weightShift ?? "Weight Shift", `${valueOrDash(results.weightShiftEstimation)}%`, "<9%", statusSymbol(results.weightShiftEstimation, 9, false, t)],
-    ],
+      results.alignmentScore != null && [t.alignmentScore ?? "Alignment Score", `${results.alignmentScore}/100`, ">75", statusSymbol(results.alignmentScore, 75, true, t)],
+      results.symmetryScore != null && [t.symmetryScore ?? "Symmetry Score", `${results.symmetryScore}/100`, ">75", statusSymbol(results.symmetryScore, 75, true, t)],
+      results.trunkControlScore != null && [t.trunkControl ?? "Trunk Control", `${results.trunkControlScore}/100`, ">75", statusSymbol(results.trunkControlScore, 75, true, t)],
+      results.posturalControlScore != null && [t.posturalControl ?? "Postural Control", `${results.posturalControlScore}/100`, ">75", statusSymbol(results.posturalControlScore, 75, true, t)],
+      results.pelvicTilt != null && [t.pelvicTilt ?? "Pelvic Tilt", `${results.pelvicTilt} deg`, "<5 deg", statusSymbol(results.pelvicTilt, 5, false, t)],
+      results.headTilt != null && [t.headTilt ?? "Head Tilt", `${results.headTilt} deg`, "<8 deg", statusSymbol(results.headTilt, 8, false, t)],
+      results.armSymmetry != null && [t.armSymmetry ?? "Arm Symmetry", `${results.armSymmetry}%`, "<12%", statusSymbol(results.armSymmetry, 12, false, t)],
+    ].filter(Boolean),
   });
 
   y += 12;
