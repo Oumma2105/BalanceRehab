@@ -44,12 +44,12 @@ export function WebcamPoseAssessment({ t, stream, frame, onMetrics, onState, mir
   if (immersive) {
     return (
       <div className="h-full">
-        <div className="relative h-full overflow-hidden bg-slate-950">
+        <div className="relative h-full overflow-hidden bg-[linear-gradient(135deg,#f3faf7,#dfeef4)]">
           <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" style={{ transform: mediaTransform }} />
           <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" style={{ transform: mediaTransform }} />
         </div>
         {pose.error ? (
-          <div className="absolute bottom-5 left-5 z-30 max-w-sm rounded-lg border border-[#F94144]/25 bg-slate-950/78 p-3 text-sm font-semibold text-white shadow-xl shadow-slate-950/20 backdrop-blur-md">
+          <div className="absolute bottom-5 left-5 z-30 max-w-sm rounded-lg border border-[#F94144]/25 bg-[#16352f]/78 p-3 text-sm font-semibold text-white shadow-xl shadow-[#16352f]/20 backdrop-blur-md">
             {t.modelDetectionCouldNotStart ?? "Camera is active, but pose detection could not start. Restart the assessment."}
           </div>
         ) : null}
@@ -59,7 +59,7 @@ export function WebcamPoseAssessment({ t, stream, frame, onMetrics, onState, mir
 
   return (
     <div className="mt-5 space-y-4">
-      <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-slate-950 shadow-sm">
+      <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-[linear-gradient(135deg,#f3faf7,#dfeef4)] shadow-sm">
         <video ref={videoRef} autoPlay playsInline muted className="h-[28rem] w-full object-cover" style={{ transform: mediaTransform }} />
         <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" style={{ transform: mediaTransform }} />
         <div className="absolute left-4 top-4 flex flex-wrap items-center gap-2">
@@ -102,7 +102,7 @@ function TrackingStatusPanel({ tracking = {}, readiness, t, compact = false }) {
   ];
 
   return (
-    <div className={`absolute right-4 top-16 rounded-lg border border-white/16 bg-slate-950/48 p-2.5 text-white shadow-xl shadow-slate-950/15 backdrop-blur-md ${compact ? "max-w-[13.5rem]" : "w-[15rem]"}`}>
+    <div className={`absolute right-4 top-16 rounded-lg border border-white/18 bg-[#16352f]/58 p-2.5 text-white shadow-xl shadow-[#16352f]/15 backdrop-blur-md ${compact ? "max-w-[13.5rem]" : "w-[15rem]"}`}>
       <div className="mb-2 flex items-center justify-between gap-3">
         <p className="text-[10px] font-semibold uppercase text-white/62">{t.trackingStatus ?? "Tracking status"}</p>
         <span className="rounded-full bg-white/12 px-2 py-1 text-[10px] font-semibold text-white">

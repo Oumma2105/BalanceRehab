@@ -13,6 +13,7 @@ function readableStatus(t, value) {
     active: t.active,
     demo_mode: t.demoMode,
     connected: t.connected,
+    api_ready: t.apiReady ?? "API ready",
   };
 
   return labels[value] ?? t.checking;

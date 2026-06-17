@@ -2,7 +2,6 @@ import {
   Activity,
   ArrowRight,
   CalendarCheck,
-  FileText,
   Plus,
   TrendingDown,
   TrendingUp,
@@ -11,11 +10,8 @@ import {
 } from "lucide-react";
 
 import { Button } from "../components/clinical/Button";
-import { ChartPanel } from "../components/clinical/ChartPanel";
 import { ClinicalCard } from "../components/clinical/ClinicalCard";
 import { ClinicalTable } from "../components/clinical/ClinicalTable";
-import { MiniBarChart } from "../components/clinical/MiniBarChart";
-import { MiniLineChart } from "../components/clinical/MiniLineChart";
 import { SectionHeader } from "../components/clinical/SectionHeader";
 import { StatusBadge } from "../components/clinical/StatusBadge";
 
@@ -34,41 +30,31 @@ function initials(name = "") {
     .slice(0, 2);
 }
 
-function Sparkline({ color = "#577590", points = [16, 24, 20, 34, 30, 38] }) {
-  const max = Math.max(...points);
-  const min = Math.min(...points);
-  const span = Math.max(1, max - min);
-  const coords = points
-    .map((point, index) => `${4 + index * 14},${36 - ((point - min) / span) * 28}`)
-    .join(" ");
-
+function StatCard({ icon: Icon, label, value, helper, color, accentBg }) {
   return (
-    <svg viewBox="0 0 80 42" className="h-10 w-20" aria-hidden="true">
-      <polyline points={coords} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <ClinicalCard className={`overflow-hidden border-0 p-5 ${accentBg}`}>
+      <span className="grid h-10 w-10 place-items-center rounded-xl text-white" style={{ backgroundColor: color }}>
+        <Icon size={18} />
+      </span>
+      <p className="mt-4 text-sm font-medium text-rehab-muted">{label}</p>
+      <p className="mt-1 text-3xl font-semibold text-rehab-ink">{value}</p>
+      <p className="mt-2 text-xs text-rehab-muted">{helper}</p>
+    </ClinicalCard>
   );
 }
 
-function SecondaryMetric({ icon: Icon, label, value, helper, trend, color, bg, points }) {
+function ScoreChip({ score }) {
+  const n = Number(score);
+  if (!Number.isFinite(n)) return <span className="text-sm text-rehab-muted">-</span>;
+  const chipClass =
+    n >= 80 ? "bg-emerald-100 text-emerald-700" :
+    n >= 70 ? "bg-teal-100 text-teal-700" :
+    n >= 60 ? "bg-amber-100 text-amber-700" :
+              "bg-rose-100 text-rose-700";
   return (
-    <ClinicalCard className={`overflow-hidden border-0 ${bg}`}>
-      <div className="p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="grid h-10 w-10 place-items-center rounded-lg text-white" style={{ backgroundColor: color }}>
-            <Icon size={19} />
-          </div>
-          <Sparkline color={color} points={points} />
-        </div>
-        <p className="mt-4 text-sm font-medium text-rehab-muted">{label}</p>
-        <div className="mt-1 flex items-end justify-between gap-3">
-          <p className="text-2xl font-semibold text-rehab-ink">{value}</p>
-          <span className="rounded-full bg-white/80 px-2 py-1 text-xs font-semibold" style={{ color }}>
-            {trend}
-          </span>
-        </div>
-        <p className="mt-2 text-xs leading-5 text-rehab-muted">{helper}</p>
-      </div>
-    </ClinicalCard>
+    <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${chipClass}`}>
+      {n}
+    </span>
   );
 }
 
@@ -90,7 +76,6 @@ export function Dashboard({ t, patients, sessions, reports, dashboardSummary, on
   );
   const followUpCount = dashboardSummary?.follow_up_queue ?? followUpPatients.length;
   const latestSessions = dashboardSummary?.recent_assessments?.length ? dashboardSummary.recent_assessments.map(dashboardAssessmentFromApi) : sessions.slice(0, 5);
-  const recentReports = dashboardSummary?.recent_reports?.length ? dashboardSummary.recent_reports.map(dashboardReportFromApi) : reports.slice(0, 4);
   const patientImprovements = patients.map((patient) => {
     const patientSessions = sessions
       .filter((s) => s.patientId === patient.id)
@@ -106,148 +91,65 @@ export function Dashboard({ t, patients, sessions, reports, dashboardSummary, on
       ? Math.round((patientImprovements.reduce((a, b) => a + b, 0) / patientImprovements.length) * 10) / 10
       : 0;
 
-  const scoreTrend = dashboardSummary?.score_trend?.length
-    ? dashboardSummary.score_trend.map((point) => ({ label: point.label, value: point.value ?? 0 }))
-    : sessions
-        .slice(0, 6)
-        .reverse()
-        .map((session, index) => ({ label: `S${index + 1}`, value: session.totalScore }));
-  const staticAverage = dashboardSummary?.static_average ?? average(sessions.filter((s) => s.testType === "Static").map((s) => s.totalScore));
-  const dynamicAverage = dashboardSummary?.dynamic_average ?? average(sessions.filter((s) => s.testType === "Dynamic").map((s) => s.totalScore));
-  const eyesOpenAverage = dashboardSummary?.eyes_open_average ?? average(sessions.filter((s) => s.condition === "Eyes open").map((s) => s.totalScore));
-  const eyesClosedAverage = dashboardSummary?.eyes_closed_average ?? average(sessions.filter((s) => s.condition === "Eyes closed").map((s) => s.totalScore));
-  const backendDistribution = dashboardSummary?.score_distribution;
-  const distribution = [
-    { label: "<60", value: backendDistribution?.lt_60 ?? sessions.filter((s) => s.totalScore < 60).length, color: "#F94144" },
-    { label: "60-69", value: backendDistribution?.["60_69"] ?? sessions.filter((s) => s.totalScore >= 60 && s.totalScore < 70).length, color: "#F8961E" },
-    { label: "70-79", value: backendDistribution?.["70_79"] ?? sessions.filter((s) => s.totalScore >= 70 && s.totalScore < 80).length, color: "#F9C74F" },
-    { label: "80+", value: backendDistribution?.["80_plus"] ?? sessions.filter((s) => s.totalScore >= 80).length, color: "#43AA8B" },
-  ];
-
-  const secondaryMetrics = [
-    {
-      icon: UsersRound,
-      label: t.totalPatients,
-      value: patients.length,
-      helper: t.patientsInProgram,
-      trend: `+${Math.max(0, patients.length - 5)} ${t.thisMonth}`,
-      color: "#577590",
-      bg: "bg-blue-50",
-      points: trendPoints(patients.length),
-    },
-    {
-      icon: CalendarCheck,
-      label: t.assessmentsThisWeek,
-      value: weekSessions,
-      helper: t.functionalSessionsDone,
-      trend: `+${Math.max(0, weekSessions - 5)}`,
-      color: "#90BE6D",
-      bg: "bg-emerald-50",
-      points: trendPoints(weekSessions),
-    },
-    {
-      icon: Activity,
-      label: t.followUpQueue,
-      value: followUpCount,
-      helper: t.patientsToReview,
-      trend: t.priority,
-      color: "#F8961E",
-      bg: "bg-orange-50",
-      points: [7, 6, 6, 5, 6, followUpCount || 1],
-    },
-    {
-      icon: TrendingUp,
-      label: t.averageImprovement,
-      value: `${averageImprovement >= 0 ? "+" : ""}${averageImprovement}%`,
-      helper: t.scoreEvolutionDesc,
-      trend: t.stable,
-      color: "#43AA8B",
-      bg: "bg-teal-50",
-      points: [2, 3, 5, 5, 7, Math.max(1, averageImprovement)],
-    },
-  ];
-  const clinicalInsights = [
-    {
-      icon: TrendingDown,
-      title: `${dashboardSummary?.declining_patients ?? patients.filter((patient) => patient.status === "Declining").length} ${t.decliningPatients ?? "declining patients"}`,
-      body: t.decliningPatientsInsight ?? "Review patients with recent reduction in estimated stability.",
-      color: "#F94144",
-      bg: "bg-rose-50",
-      border: "border-rose-200",
-    },
-    {
-      icon: Activity,
-      title: `${followUpCount} ${t.followUpQueue}`,
-      body: t.followUpQueueInsight ?? "Prioritize follow-up decisions before adding new training difficulty.",
-      color: "#F8961E",
-      bg: "bg-orange-50",
-      border: "border-orange-200",
-    },
-    {
-      icon: CalendarCheck,
-      title: `${todaySessions} ${t.assessmentsToday}`,
-      body: t.assessmentsTodayInsight ?? "Today's workload and completed evaluations at a glance.",
-      color: "#577590",
-      bg: "bg-blue-50",
-      border: "border-blue-200",
-    },
-  ];
-
   return (
-    <div className="space-y-6">
-      <section className="flex flex-wrap items-start justify-between gap-4">
+    <div className="space-y-5">
+      {/* Header */}
+      <section className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold tracking-normal text-rehab-ink">{t.greeting}</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-rehab-muted">{t.dashboardSubtitle}</p>
+          <h1 className="text-2xl font-semibold text-rehab-ink">{t.greeting}</h1>
+          <p className="mt-1 text-sm text-rehab-muted">{t.dashboardSubtitle}</p>
         </div>
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-2">
           <Button onClick={() => onStartAssessment()}>
-            <Plus size={17} /> {t.newAssessment}
+            <Plus size={16} /> {t.newAssessment}
           </Button>
           <Button variant="secondary" onClick={onAddPatient}>
-            <UserPlus size={17} /> {t.addPatient}
+            <UserPlus size={16} /> {t.addPatient}
           </Button>
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-clinical">
-        <div className="grid gap-0 xl:grid-cols-[1.25fr_1fr]">
-          <div className="border-b border-slate-200 bg-slate-50 p-6 xl:border-b-0 xl:border-r">
-            <p className="text-sm font-semibold uppercase tracking-wide text-rehab-orange">{t.todayPriority}</p>
-            <h2 className="mt-3 max-w-xl text-3xl font-semibold leading-tight text-rehab-ink">
-              {followUpCount} {t.patientsNeedAttention}
-            </h2>
-            <p className="mt-3 max-w-xl text-sm leading-6 text-rehab-muted">{t.priorityDescription}</p>
-            <div className="mt-6 flex flex-wrap gap-3">
-              <Button onClick={onOpenPatients}>{t.viewConcernedPatients}</Button>
-              <Button variant="secondary" onClick={() => onStartAssessment()}>{t.newAssessment}</Button>
-            </div>
-          </div>
-
-          <div className="grid gap-0 sm:grid-cols-3 xl:grid-cols-1">
-            <HeroStat label={t.averageScore} value={`${averageScore || "-"} / 100`} color="#577590" />
-            <HeroStat label={t.assessmentsToday} value={todaySessions} color="#90BE6D" />
-            <HeroStat label={t.averageImprovement} value={`${averageImprovement >= 0 ? "+" : ""}${averageImprovement} %`} color="#43AA8B" />
-          </div>
-        </div>
+      {/* KPI strip */}
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          icon={UsersRound}
+          label={t.totalPatients}
+          value={patients.length}
+          helper={t.patientsInProgram}
+          color="#577590"
+          accentBg="bg-blue-50"
+        />
+        <StatCard
+          icon={CalendarCheck}
+          label={t.assessmentsToday}
+          value={todaySessions}
+          helper={`${weekSessions} ${t.assessmentsThisWeek ?? "this week"}`}
+          color="#90BE6D"
+          accentBg="bg-emerald-50"
+        />
+        <StatCard
+          icon={Activity}
+          label={t.followUpQueue}
+          value={followUpCount}
+          helper={t.patientsToReview}
+          color="#F8961E"
+          accentBg="bg-orange-50"
+        />
+        <StatCard
+          icon={TrendingUp}
+          label={t.averageScore}
+          value={averageScore ? `${averageScore}/100` : "-"}
+          helper={`${averageImprovement >= 0 ? "+" : ""}${averageImprovement}% ${t.averageImprovement ?? "avg improvement"}`}
+          color="#43AA8B"
+          accentBg="bg-teal-50"
+        />
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {secondaryMetrics.map((metric) => (
-          <SecondaryMetric key={metric.label} {...metric} />
-        ))}
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-3">
-        {clinicalInsights.map((insight) => (
-          <ClinicalInsight key={insight.title} {...insight} />
-        ))}
-      </section>
-
-      <section className="grid gap-5 xl:grid-cols-[1.45fr_0.85fr]">
+      {/* Main content */}
+      <section className="grid gap-4 xl:grid-cols-[1.55fr_0.75fr]">
         <ClinicalCard className="p-5">
           <SectionHeader title={t.recentAssessments} description={t.recentAssessmentsDesc} />
-          <div className="mt-5">
+          <div className="mt-4">
             <ClinicalTable
               columns={[t.patient, t.date, t.test, t.conditions, t.score, t.status, t.action]}
               rows={latestSessions}
@@ -255,7 +157,7 @@ export function Dashboard({ t, patients, sessions, reports, dashboardSummary, on
                 <tr key={assessment.id} className="hover:bg-slate-50">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <div className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100 text-xs font-semibold text-rehab-blue">
+                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-slate-100 text-xs font-semibold text-rehab-blue">
                         {initials(assessment.patient)}
                       </div>
                       <div>
@@ -264,10 +166,12 @@ export function Dashboard({ t, patients, sessions, reports, dashboardSummary, on
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-rehab-muted">{assessment.date}</td>
-                  <td className="px-4 py-3 text-rehab-muted">{testTypeLabel(t, assessment.testType)}</td>
-                  <td className="px-4 py-3 text-rehab-muted">{conditionLabel(t, assessment.condition)}</td>
-                  <td className="px-4 py-3 font-semibold text-rehab-ink">{assessment.totalScore}/100</td>
+                  <td className="px-4 py-3 text-sm text-rehab-muted">{assessment.date}</td>
+                  <td className="px-4 py-3 text-sm text-rehab-muted">{testTypeLabel(t, assessment.testType)}</td>
+                  <td className="px-4 py-3 text-sm text-rehab-muted">{conditionLabel(t, assessment.condition)}</td>
+                  <td className="px-4 py-3">
+                    <ScoreChip score={assessment.totalScore} />
+                  </td>
                   <td className="px-4 py-3">
                     <StatusBadge tone={statusTone[assessment.status] ?? "neutral"}>{statusLabel(t, assessment.status)}</StatusBadge>
                   </td>
@@ -275,9 +179,9 @@ export function Dashboard({ t, patients, sessions, reports, dashboardSummary, on
                     <button
                       type="button"
                       onClick={() => onViewPatient ? onViewPatient(assessment.patientId) : onStartAssessment(assessment.patientId)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-rehab-line bg-white px-3 py-1.5 text-xs font-semibold text-rehab-blue transition hover:bg-slate-50"
+                      className="inline-flex items-center gap-1 rounded-lg border border-rehab-line bg-white px-2.5 py-1.5 text-xs font-semibold text-rehab-blue transition hover:bg-slate-50"
                     >
-                      {t.results} <ArrowRight size={13} />
+                      {t.results} <ArrowRight size={12} />
                     </button>
                   </td>
                 </tr>
@@ -288,8 +192,12 @@ export function Dashboard({ t, patients, sessions, reports, dashboardSummary, on
 
         <ClinicalCard className="p-5">
           <SectionHeader title={t.patientsRequiringAttention} description={t.attentionDesc} />
-          <div className="mt-5 space-y-3">
-            {followUpPatients.slice(0, 4).map((patient) => {
+          <div className="mt-4 space-y-2.5">
+            {followUpPatients.length === 0 ? (
+              <p className="rounded-lg bg-emerald-50 px-4 py-6 text-center text-sm font-semibold text-emerald-700">
+                {t.allPatientsStable ?? "All patients are stable"}
+              </p>
+            ) : followUpPatients.slice(0, 5).map((patient) => {
               const isDanger = patient.status === "Declining" || Number(patient.latestScore) < 65;
               const Icon = isDanger ? TrendingDown : Activity;
               return (
@@ -297,102 +205,34 @@ export function Dashboard({ t, patients, sessions, reports, dashboardSummary, on
                   type="button"
                   key={patient.id}
                   onClick={() => onStartAssessment(patient.id)}
-                  className={`w-full rounded-lg border p-4 text-left ${isDanger ? "border-rose-200 bg-rose-50" : "border-amber-200 bg-amber-50"}`}
+                  className={`w-full rounded-lg border p-3 text-left transition hover:shadow-sm ${isDanger ? "border-rose-200 bg-rose-50 hover:border-rose-300" : "border-amber-200 bg-amber-50 hover:border-amber-300"}`}
                 >
-                  <div className="flex items-start gap-3">
-                    <div className={`grid h-10 w-10 place-items-center rounded-lg ${isDanger ? "bg-rehab-red" : "bg-rehab-orange"} text-white`}>
-                      <Icon size={18} />
+                  <div className="flex items-center gap-3">
+                    <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white ${isDanger ? "bg-rehab-red" : "bg-rehab-orange"}`}>
+                      <Icon size={15} />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-semibold text-rehab-ink">{patient.fullName}</p>
-                          <p className="mt-0.5 text-sm font-medium text-rehab-muted">{patient.pathology}</p>
-                        </div>
-                        <StatusBadge tone={isDanger ? "danger" : "warning"} dot={false}>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-sm font-semibold text-rehab-ink">{patient.fullName}</p>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${isDanger ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"}`}>
                           {patient.latestScore ?? "-"}
-                        </StatusBadge>
+                        </span>
                       </div>
-                      <p className="mt-2 text-sm leading-5 text-rehab-muted">{statusLabel(t, patient.status)}</p>
+                      <p className="mt-0.5 truncate text-xs text-rehab-muted">{patient.pathology}</p>
                     </div>
                   </div>
                 </button>
               );
             })}
+            {followUpPatients.length > 5 ? (
+              <button type="button" onClick={onOpenPatients} className="w-full rounded-lg border border-rehab-line py-2 text-center text-xs font-semibold text-rehab-blue hover:bg-slate-50">
+                +{followUpPatients.length - 5} {t.more ?? "more"} →
+              </button>
+            ) : null}
           </div>
         </ClinicalCard>
       </section>
-
-      <section className="grid gap-5 xl:grid-cols-2">
-        <ChartPanel title={t.scoreEvolution} description={t.scoreEvolutionDesc}>
-          <MiniLineChart data={scoreTrend.length > 1 ? scoreTrend : [{ label: "S1", value: averageScore || 0 }, { label: "S2", value: averageScore || 0 }]} color="#577590" />
-        </ChartPanel>
-        <ChartPanel title={t.staticVsDynamic} description={t.staticVsDynamicDesc}>
-          <MiniBarChart data={[{ label: t.staticTest, value: staticAverage, color: "#90BE6D" }, { label: t.dynamicTest, value: dynamicAverage, color: "#577590" }]} />
-        </ChartPanel>
-        <ChartPanel title={t.eyesOpenVsClosed} description={t.eyesOpenVsClosedDesc}>
-          <MiniBarChart data={[{ label: t.eyesOpen, value: eyesOpenAverage, color: "#90BE6D" }, { label: t.eyesClosed, value: eyesClosedAverage, color: "#F8961E" }]} />
-        </ChartPanel>
-        <ChartPanel title={t.scoreDistribution} description={t.scoreDistributionDesc}>
-          <MiniBarChart data={distribution} max={Math.max(1, ...distribution.map((item) => item.value))} />
-        </ChartPanel>
-      </section>
-
-      <ClinicalCard className="p-5">
-        <SectionHeader title={t.recentReports} description={t.recentReportsDesc} />
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {recentReports.map((report) => (
-            <article key={report.id} className="flex items-center justify-between gap-3 rounded-lg border border-rehab-line bg-slate-50 p-4">
-              <div className="flex items-center gap-3">
-                <div className="grid h-10 w-10 place-items-center rounded-lg bg-white text-rehab-blue">
-                  <FileText size={18} />
-                </div>
-                <div>
-                  <p className="font-semibold text-rehab-ink">{report.patient}</p>
-                  <p className="text-sm text-rehab-muted">
-                    {report.id} - {report.generatedAt}
-                  </p>
-                </div>
-              </div>
-              <Button
-                variant="secondary"
-                className="px-3 py-1.5"
-                onClick={() => onDownloadReport?.({ sessionId: report.sessionId, patientId: report.patientId })}
-                disabled={!report.sessionId}
-              >
-                {t.export}
-              </Button>
-            </article>
-          ))}
-        </div>
-      </ClinicalCard>
     </div>
-  );
-}
-
-function HeroStat({ label, value, color }) {
-  return (
-    <div className="border-b border-slate-200 p-6 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0 xl:border-b xl:border-r-0">
-      <div className="mb-4 h-1.5 w-12 rounded-full" style={{ backgroundColor: color }} />
-      <p className="text-sm font-medium text-rehab-muted">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-rehab-ink">{value}</p>
-    </div>
-  );
-}
-
-function ClinicalInsight({ icon: Icon, title, body, color, bg, border }) {
-  return (
-    <article className={`rounded-xl border ${border} ${bg} p-4`}>
-      <div className="flex items-start gap-3">
-        <div className="grid h-10 w-10 place-items-center rounded-lg text-white" style={{ backgroundColor: color }}>
-          <Icon size={18} />
-        </div>
-        <div>
-          <p className="font-semibold text-rehab-ink">{title}</p>
-          <p className="mt-1 text-sm leading-5 text-rehab-muted">{body}</p>
-        </div>
-      </div>
-    </article>
   );
 }
 
@@ -427,11 +267,6 @@ function conditionLabel(t, condition) {
   return condition ?? "-";
 }
 
-function trendPoints(value) {
-  const end = Math.max(1, Number(value) || 1);
-  return [Math.max(1, end - 5), Math.max(1, end - 4), Math.max(1, end - 3), Math.max(1, end - 2), Math.max(1, end - 1), end];
-}
-
 function dashboardAssessmentFromApi(assessment) {
   return {
     id: `S-${assessment.id}`,
@@ -445,19 +280,6 @@ function dashboardAssessmentFromApi(assessment) {
     acquisitionMode: assessment.acquisition_mode,
     totalScore: assessment.total_score,
     status: assessment.status,
-  };
-}
-
-function dashboardReportFromApi(report) {
-  return {
-    id: report.report_id,
-    patientId: report.patient_id,
-    sessionId: report.session_id,
-    patient: report.patient || report.patient_code || report.report_id,
-    patientCode: report.patient_code,
-    generatedAt: formatDashboardDate(report.generated_at),
-    acquisitionMode: report.acquisition_mode,
-    summary: report.summary,
   };
 }
 

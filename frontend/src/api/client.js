@@ -58,6 +58,10 @@ export const api = {
     const patientLookup = new Map(patients.map((patient) => [patient.id, patient]));
     return sessionFromApi(await request(`/sessions/${sessionId}/compute`, { method: "POST" }), patientLookup);
   },
+  appendSensorSamples: async (sessionId, samples, patients = []) => {
+    const patientLookup = new Map(patients.map((patient) => [patient.id, patient]));
+    return sessionFromApi(await request(`/sessions/${sessionId}/sensor-samples`, { method: "POST", body: JSON.stringify({ samples }) }), patientLookup);
+  },
   movementFeatures: (sessionId) => request(`/sessions/${sessionId}/movement-features`),
   movementLabels: (sessionId) => request(`/sessions/${sessionId}/movement-labels`),
   createMovementLabel: (sessionId, label) => request(`/sessions/${sessionId}/movement-labels`, { method: "POST", body: JSON.stringify(label) }),

@@ -21,7 +21,7 @@ export function AppShell({
   return (
     <div className="min-h-screen bg-rehab-bg text-rehab-ink">
       {!focused ? (
-      <aside className="fixed inset-y-0 left-0 hidden w-72 border-r border-rehab-line bg-white px-5 py-6 lg:block">
+      <aside className="fixed inset-y-0 left-0 hidden w-60 border-r border-rehab-line bg-white px-4 py-5 lg:block">
         <div className="mb-8">
           <div className="flex items-center gap-3">
             <div className="grid h-11 w-11 place-items-center rounded-lg bg-rehab-teal text-white">
@@ -57,17 +57,14 @@ export function AppShell({
           })}
         </nav>
 
-        <div className="absolute inset-x-5 bottom-5 rounded-lg border border-rehab-line bg-slate-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.clinicalWorkspace}</p>
-          <p className="mt-2 text-sm font-semibold text-rehab-ink">{t.workspaceName}</p>
-          <p className="mt-2 text-xs leading-5 text-rehab-muted">
-            {t.appShellDescription}
-          </p>
+        <div className="absolute inset-x-4 bottom-4 rounded-lg border border-rehab-line bg-slate-50 px-3 py-3">
+          <p className="text-xs font-semibold text-rehab-muted">{t.clinicalWorkspace}</p>
+          <p className="mt-1 text-sm font-semibold text-rehab-ink">{t.workspaceName}</p>
         </div>
       </aside>
       ) : null}
 
-      <main className={focused ? "" : "lg:pl-72"}>
+      <main className={focused ? "" : "lg:pl-60"}>
         {!focused ? (
         <header className="sticky top-0 z-10 border-b border-rehab-line bg-white/90 px-5 py-4 backdrop-blur lg:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
