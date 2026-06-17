@@ -21,6 +21,8 @@ export function calculatePostureMetrics(input, t = {}) {
   const rightShoulder = poseLandmarks[landmarks.rightShoulder];
   const leftHip = poseLandmarks[landmarks.leftHip];
   const rightHip = poseLandmarks[landmarks.rightHip];
+  const leftEar = poseLandmarks[landmarks.leftEar];
+  const rightEar = poseLandmarks[landmarks.rightEar];
   const required = [leftShoulder, rightShoulder, leftHip, rightHip];
 
   if (required.some((point) => !point || point.visibility < 0.35)) return null;
@@ -34,6 +36,12 @@ export function calculatePostureMetrics(input, t = {}) {
   const trunkInclination = round1(Math.abs(signedTrunkInclination));
   const shoulderAsymmetry = round1(Math.abs(leftShoulder.y - rightShoulder.y) * 100);
   const hipAsymmetry = round1(Math.abs(leftHip.y - rightHip.y) * 100);
+  const pelvicTilt = round1(
+    Math.atan2(Math.abs(leftHip.y - rightHip.y), Math.max(0.001, Math.abs(leftHip.x - rightHip.x))) * (180 / Math.PI)
+  );
+  const headTilt = (isVisible(leftEar) && isVisible(rightEar))
+    ? round1(Math.atan2(Math.abs(leftEar.y - rightEar.y), Math.max(0.001, Math.abs(leftEar.x - rightEar.x))) * (180 / Math.PI))
+    : null;
   const bodyCenter = {
     x: (shoulderMid.x + hipMid.x) / 2,
     y: (shoulderMid.y + hipMid.y) / 2,
@@ -75,8 +83,8 @@ export function calculatePostureMetrics(input, t = {}) {
     handArmCompensation: armCompensation?.handArmCompensation ?? null,
     handCompensationSide: armCompensation?.side ?? null,
     trunkRotation: null,
-    pelvicTilt: null,
-    headTilt: null,
+    pelvicTilt,
+    headTilt,
     headRotation: null,
     headForwardPosture: null,
     chinDeviation: null,

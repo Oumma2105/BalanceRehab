@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, AlertTriangle, Camera, CheckCircle2, ClipboardCheck, Eye, EyeOff, Gauge, Save, Search, ShieldCheck, Target, Timer, UserRound, Waves } from "lucide-react";
 import {
   CartesianGrid,
@@ -616,26 +616,26 @@ function LiveStep({ t, elapsed, duration, countdown, assessmentPhase, assessment
   const liveMessage = liveAssessmentMessage({ t, isLoading, isCountingDown, isAssessing, isComplete, ready, poseState, isWebcamOnly });
 
   return (
-    <div className="min-h-screen bg-slate-950 p-2">
-      <section className="relative min-h-[calc(100vh-1rem)] overflow-hidden rounded-[1rem] border border-white/10 bg-slate-950 shadow-2xl shadow-slate-950/40">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_20%_0%,rgba(67,170,139,0.18),transparent_34%),linear-gradient(135deg,#f5fbf8_0%,#e8f2f6_50%,#eef7f0_100%)] p-2">
+      <section className="relative min-h-[calc(100vh-1rem)] overflow-hidden rounded-[1rem] border border-white/70 bg-[#edf7f3] shadow-2xl shadow-[#577590]/18">
         <div className="absolute inset-0">
           {isWebcamOnly && webcamStream ? (
             <WebcamPoseAssessment t={t} stream={webcamStream} frame={frame} onMetrics={onPoseMetrics} onState={onPoseState} mirrored={webcamMirrored} immersive />
           ) : (
-            <div className="grid h-full place-items-center bg-slate-950 text-white">
+            <div className="grid h-full place-items-center bg-[linear-gradient(135deg,#f3faf7,#dfeef4)] text-[#264653]">
               <div className="text-center">
                 <div className="mx-auto mb-5 h-44 w-32 rounded-full border-4 border-[#43AA8B]" />
                 <p className="text-xl font-semibold">{t.simulatedSkeleton}</p>
-                <p className="mt-2 text-sm text-slate-300">{isWebcamOnly ? t.webcamPosePrimary : t.liveAssessmentDesc}</p>
+                <p className="mt-2 text-sm text-[#577590]">{isWebcamOnly ? t.webcamPosePrimary : t.liveAssessmentDesc}</p>
               </div>
             </div>
           )}
         </div>
 
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-44 bg-gradient-to-b from-slate-950/58 to-transparent" />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-44 bg-gradient-to-t from-slate-950/58 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-44 bg-gradient-to-b from-[#16352f]/48 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-44 bg-gradient-to-t from-[#16352f]/48 to-transparent" />
 
-        <div className="absolute left-4 top-4 z-20 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-white/16 bg-slate-950/54 p-3 text-white shadow-xl shadow-slate-950/20 backdrop-blur-md">
+        <div className="absolute left-4 top-4 z-20 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-white/22 bg-[#16352f]/62 p-3 text-white shadow-xl shadow-[#16352f]/20 backdrop-blur-md">
           <div className="mb-2 flex flex-wrap items-center gap-1.5">
             <StatusDot label={t.cameraReady ?? "Camera ready"} active={cameraActive} />
             <StatusDot label={t.modelActive ?? "Model active"} active={modelActive} />
@@ -659,7 +659,7 @@ function LiveStep({ t, elapsed, duration, countdown, assessmentPhase, assessment
           </Button>
         </div>
 
-        <div className="absolute bottom-4 right-4 z-20 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-white/16 bg-slate-950/54 px-4 py-3 text-white shadow-xl shadow-slate-950/20 backdrop-blur-md">
+        <div className="absolute bottom-4 right-4 z-20 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-white/22 bg-[#16352f]/62 px-4 py-3 text-white shadow-xl shadow-[#16352f]/20 backdrop-blur-md">
           <div className="flex items-center justify-between gap-3 text-xs font-semibold text-white/70">
             <span>{isComplete ? t.assessmentComplete ?? "Assessment complete" : t.assessmentProgress}</span>
             <span>{elapsed}s / {duration}s</span>
@@ -828,280 +828,6 @@ function TroubleshootingList({ t, overlay = false }) {
         <li key={tip} className={`rounded-full px-3 py-1.5 ${overlay ? "bg-white/12" : "bg-white"}`}>- {tip}</li>
       ))}
     </ul>
-  );
-}
-
-function LegacyLiveTrackingPanel({ t, poseState, detectionStatus, isWebcamOnly, webcamStream }) {
-  const tracking = poseState?.tracking ?? {};
-  const cameraActive = isCameraStreamActive(webcamStream);
-  const modelActive = Boolean(poseState?.engineMode || poseState?.processingStatus);
-  const items = isWebcamOnly
-    ? [
-        [t.cameraActive ?? "Camera active", cameraActive],
-        [t.modelActive ?? "Model active", modelActive],
-        [t.bodyDetected ?? "Body detected", Boolean(tracking.bodyDetected)],
-        [t.faceDetected ?? "Face detected", Boolean(tracking.faceDetected)],
-        [t.leftHandDetected ?? "Left hand detected", Boolean(tracking.leftHandDetected)],
-        [t.rightHandDetected ?? "Right hand detected", Boolean(tracking.rightHandDetected)],
-      ]
-    : [[t.demoModeActive, true]];
-
-  const cleanStatus =
-    isWebcamOnly && cameraActive && !tracking.bodyDetected && !poseState?.error
-      ? t.cameraActiveWaitingFullBody ?? "Camera active, waiting for full-body pose detection."
-      : detectionStatus;
-
-  return (
-    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.trackingStatus ?? "Tracking status"}</p>
-          <p className="mt-1 text-sm font-semibold leading-5 text-rehab-ink">{cleanStatus}</p>
-        </div>
-        {isWebcamOnly ? (
-          <span className="shrink-0 rounded-full bg-[#577590]/10 px-2.5 py-1 text-xs font-semibold text-[#577590]">
-            {poseState?.fps ?? 0} FPS
-          </span>
-        ) : null}
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-2">
-        {items.map(([label, active]) => (
-          <LegacyTrackingRow key={label} label={label} active={active} t={t} />
-        ))}
-      </div>
-
-      {poseState?.error && !cameraActive ? (
-        <div className="mt-3 rounded-xl border border-[#F8961E]/25 bg-[#F8961E]/10 px-3 py-2 text-sm font-semibold text-[#8A4A00]">
-          {poseState.error}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function LegacyTrackingRow({ label, active }) {
-  return (
-    <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${active ? "border-[#90BE6D]/30 bg-[#90BE6D]/15 text-[#2F7D67]" : "border-slate-200 bg-white text-rehab-muted"}`}>
-      <span className={`h-2 w-2 rounded-full ${active ? "bg-[#43AA8B]" : "bg-slate-300"}`} />
-      <span>{label}</span>
-    </div>
-  );
-}
-
-function LegacyCalibrationPanel({ t, poseState, webcamStream }) {
-  const readiness = poseState?.readiness;
-  const tracking = poseState?.tracking ?? {};
-  const cameraActive = isCameraStreamActive(webcamStream);
-  const bodyDetected = Boolean(tracking.bodyDetected || readiness?.personDetected);
-  const checks = [
-    [t.cameraReady, cameraActive],
-    [t.bodyDetected ?? t.personDetected, bodyDetected],
-    [t.fullBodyVisible, Boolean(readiness?.fullBodyVisible)],
-  ];
-  const guidance = bodyDetected
-    ? readiness?.moveHint || readiness?.feedback || t.standInMarkedArea
-    : t.cameraActiveWaitingFullBody ?? "Camera active, waiting for full-body pose detection.";
-
-  return (
-    <div className="rounded-2xl border border-[#F9C74F]/20 bg-[#F9C74F]/10 p-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.positioningCalibration}</p>
-          <p className="mt-1 text-sm font-semibold leading-5 text-rehab-ink">{bodyDetected ? guidance : t.moveBackwardUntilVisible}</p>
-        </div>
-        <div className="flex flex-wrap gap-2 sm:justify-end">
-        {checks.map(([label, ok]) => (
-            <div key={label} className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${ok ? "border-[#90BE6D]/30 bg-white text-[#2F7D67]" : "border-[#F8961E]/30 bg-white text-[#8A6400]"}`}>
-              <span className={`h-2 w-2 rounded-full ${ok ? "bg-[#43AA8B]" : "bg-[#F8961E]"}`} />
-              <span>{label}</span>
-          </div>
-        ))}
-        </div>
-      </div>
-      {!bodyDetected ? <LegacyTroubleshootingList t={t} /> : null}
-    </div>
-  );
-}
-
-function LegacyTroubleshootingList({ t }) {
-  const tips = [
-    t.troubleshootStepBack ?? "Step back from the camera.",
-    t.troubleshootFullBody ?? "Make sure your full body is visible.",
-    t.troubleshootLighting ?? "Improve lighting.",
-    t.troubleshootHandsClear ?? "Remove hands from blocking the face or body.",
-    t.troubleshootCameraHeight ?? "Place the camera at chest height or farther away.",
-  ];
-
-  return (
-    <ul className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-[#705600]">
-      {tips.map((tip) => (
-        <li key={tip} className="rounded-full bg-white px-3 py-1.5">- {tip}</li>
-      ))}
-    </ul>
-  );
-}
-
-function VeryLegacyCalibrationPanel({ t, poseState }) {
-  const readiness = poseState?.readiness;
-  const checks = [
-    [t.cameraReady, true],
-    [t.personDetected, Boolean(readiness?.personDetected)],
-    [t.fullBodyVisible, Boolean(readiness?.fullBodyVisible)],
-  ];
-
-  return (
-    <div className="absolute left-5 top-28 z-20 max-w-sm rounded-2xl border border-white/20 bg-white/92 p-4 shadow-xl shadow-slate-950/10 backdrop-blur-md">
-      <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.positioningCalibration}</p>
-      <div className="mt-4 space-y-2">
-        {checks.map(([label, ok]) => (
-          <div key={label} className={`flex items-center gap-2 text-sm font-semibold ${ok ? "text-[#2F7D67]" : "text-[#A14F00]"}`}>
-            <span>{ok ? "OK" : "!"}</span>
-            <span>{label}</span>
-          </div>
-        ))}
-      </div>
-      <p className="mt-4 rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-rehab-muted">
-        {readiness?.moveHint || readiness?.feedback || t.standInMarkedArea}
-      </p>
-    </div>
-  );
-}
-
-function DuplicateLiveTrackingPanel({ t, poseState, detectionStatus, isWebcamOnly, webcamStream }) {
-  const tracking = poseState?.tracking ?? {};
-  const cameraActive = isCameraStreamActive(webcamStream);
-  const modelActive = Boolean(poseState?.engineMode || poseState?.processingStatus);
-  const items = isWebcamOnly
-    ? [
-        [t.cameraActive ?? "Camera active", cameraActive],
-        [t.modelActive ?? "Model active", modelActive],
-        [t.bodyDetected ?? "Body detected", Boolean(tracking.bodyDetected)],
-        [t.faceDetected ?? "Face detected", Boolean(tracking.faceDetected)],
-        [t.leftHandDetected ?? "Left hand detected", Boolean(tracking.leftHandDetected)],
-        [t.rightHandDetected ?? "Right hand detected", Boolean(tracking.rightHandDetected)],
-      ]
-    : [[t.demoModeActive, true]];
-
-  const cleanStatus =
-    isWebcamOnly && cameraActive && !tracking.bodyDetected && !poseState?.error
-      ? t.cameraActiveWaitingFullBody ?? "Camera active, waiting for full-body pose detection."
-      : detectionStatus;
-
-  return (
-    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.trackingStatus ?? "Tracking status"}</p>
-          <p className="mt-1 text-sm font-semibold leading-5 text-rehab-ink">{cleanStatus}</p>
-        </div>
-        {isWebcamOnly ? (
-          <span className="shrink-0 rounded-full bg-[#577590]/10 px-2.5 py-1 text-xs font-semibold text-[#577590]">
-            {poseState?.fps ?? 0} FPS
-          </span>
-        ) : null}
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-2">
-        {items.map(([label, active]) => (
-          <TrackingRow key={label} label={label} active={active} t={t} />
-        ))}
-      </div>
-
-      {poseState?.error && !cameraActive ? (
-        <div className="mt-3 rounded-xl border border-[#F8961E]/25 bg-[#F8961E]/10 px-3 py-2 text-sm font-semibold text-[#8A4A00]">
-          {poseState.error}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function DuplicateTrackingRow({ label, active, t }) {
-  return (
-    <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${active ? "border-[#90BE6D]/30 bg-[#90BE6D]/15 text-[#2F7D67]" : "border-slate-200 bg-white text-rehab-muted"}`}>
-      <span className={`h-2 w-2 rounded-full ${active ? "bg-[#43AA8B]" : "bg-slate-300"}`} />
-      <span>{label}</span>
-    </div>
-  );
-}
-
-function DuplicateCalibrationPanel({ t, poseState, webcamStream }) {
-  const readiness = poseState?.readiness;
-  const tracking = poseState?.tracking ?? {};
-  const cameraActive = isCameraStreamActive(webcamStream);
-  const bodyDetected = Boolean(tracking.bodyDetected || readiness?.personDetected);
-  const checks = [
-    [t.cameraReady, cameraActive],
-    [t.bodyDetected ?? t.personDetected, bodyDetected],
-    [t.fullBodyVisible, Boolean(readiness?.fullBodyVisible)],
-  ];
-  const guidance = bodyDetected
-    ? readiness?.moveHint || readiness?.feedback || t.standInMarkedArea
-    : t.cameraActiveWaitingFullBody ?? "Camera active, waiting for full-body pose detection.";
-
-  return (
-    <div className="rounded-2xl border border-[#F9C74F]/20 bg-[#F9C74F]/10 p-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.positioningCalibration}</p>
-          <p className="mt-1 text-sm font-semibold leading-5 text-rehab-ink">{bodyDetected ? guidance : t.moveBackwardUntilVisible}</p>
-        </div>
-        <div className="flex flex-wrap gap-2 sm:justify-end">
-        {checks.map(([label, ok]) => (
-            <div key={label} className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${ok ? "border-[#90BE6D]/30 bg-white text-[#2F7D67]" : "border-[#F8961E]/30 bg-white text-[#8A6400]"}`}>
-              <span className={`h-2 w-2 rounded-full ${ok ? "bg-[#43AA8B]" : "bg-[#F8961E]"}`} />
-              <span>{label}</span>
-          </div>
-        ))}
-        </div>
-      </div>
-      {!bodyDetected ? <TroubleshootingList t={t} /> : null}
-    </div>
-  );
-}
-
-function DuplicateTroubleshootingList({ t }) {
-  const tips = [
-    t.troubleshootStepBack ?? "Step back from the camera.",
-    t.troubleshootFullBody ?? "Make sure your full body is visible.",
-    t.troubleshootLighting ?? "Improve lighting.",
-    t.troubleshootHandsClear ?? "Remove hands from blocking the face or body.",
-    t.troubleshootCameraHeight ?? "Place the camera at chest height or farther away.",
-  ];
-
-  return (
-    <ul className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-[#705600]">
-      {tips.map((tip) => (
-        <li key={tip} className="rounded-full bg-white px-3 py-1.5">- {tip}</li>
-      ))}
-    </ul>
-  );
-}
-
-function DuplicateLegacyCalibrationPanel({ t, poseState }) {
-  const readiness = poseState?.readiness;
-  const checks = [
-    [t.cameraReady, true],
-    [t.personDetected, Boolean(readiness?.personDetected)],
-    [t.fullBodyVisible, Boolean(readiness?.fullBodyVisible)],
-  ];
-
-  return (
-    <div className="absolute left-5 top-28 z-20 max-w-sm rounded-2xl border border-white/20 bg-white/92 p-4 shadow-xl shadow-slate-950/10 backdrop-blur-md">
-      <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.positioningCalibration}</p>
-      <div className="mt-4 space-y-2">
-        {checks.map(([label, ok]) => (
-          <div key={label} className={`flex items-center gap-2 text-sm font-semibold ${ok ? "text-[#2F7D67]" : "text-[#A14F00]"}`}>
-            <span>{ok ? "✓" : "⚠"}</span>
-            <span>{label}</span>
-          </div>
-        ))}
-      </div>
-      <p className="mt-4 rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-rehab-muted">
-        {readiness?.moveHint || readiness?.feedback || t.standInMarkedArea}
-      </p>
-    </div>
   );
 }
 

@@ -249,7 +249,7 @@ export function useMediaPipePose({ videoRef, canvasRef, active, onMetrics, onSta
               personDetected: false,
               fullBodyVisible: false,
               bodyBlockedByHands: false,
-              missingBodyLandmarks: ["shoulders", "hips", "knees", "ankles"],
+              missingBodyLandmarks: ["shoulders", "hips"],
               level: "warning",
               feedback: t.moveBackwardUntilVisible ?? "Move back until your full body is visible.",
               moveHint: t.moveBackwardUntilVisible ?? "Move back until your full body is visible.",
@@ -323,30 +323,34 @@ function firstLandmarkSet(collection) {
 }
 
 function evaluateFullBodyVisibility(poseLandmarks) {
-  const groups = [
+  const required = [
     ["shoulders", [11, 12]],
     ["hips", [23, 24]],
+  ];
+  const optional = [
     ["knees", [25, 26]],
     ["ankles", [27, 28]],
   ];
   const missing = [];
-  if (!Array.isArray(poseLandmarks) || poseLandmarks.length < 29) {
-    return { visible: false, missing: groups.map(([name]) => name) };
+
+  if (!Array.isArray(poseLandmarks) || poseLandmarks.length < 25) {
+    return { visible: false, missing: [...required, ...optional].map(([name]) => name) };
   }
 
-  groups.forEach(([name, indexes]) => {
+  required.forEach(([name, indexes]) => {
     if (!indexes.every((index) => isGoodBodyLandmark(poseLandmarks[index]))) {
       missing.push(name);
     }
   });
 
-  const footIndexes = [29, 30, 31, 32].filter((index) => poseLandmarks[index]);
-  if (footIndexes.length > 0 && !footIndexes.some((index) => isUsableBodyLandmark(poseLandmarks[index]))) {
-    missing.push("feet");
-  }
+  optional.forEach(([name, indexes]) => {
+    if (poseLandmarks.length >= Math.max(...indexes) + 1 && !indexes.every((index) => isGoodBodyLandmark(poseLandmarks[index]))) {
+      missing.push(name);
+    }
+  });
 
   return {
-    visible: missing.length === 0,
+    visible: required.every(([name]) => !missing.includes(name)),
     missing,
   };
 }

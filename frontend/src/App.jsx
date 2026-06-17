@@ -174,6 +174,10 @@ export default function App() {
             }
             setActivePage("balanceAssessment");
           }}
+          onViewPatient={(patientId) => {
+            setPatientProfileRequest({ patientId, tab: "sessions", requestedAt: Date.now() });
+            setActivePage("patients");
+          }}
           onAddPatient={() => {
             setPatientAddRequest((current) => current + 1);
             setActivePage("patients");

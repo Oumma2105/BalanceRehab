@@ -72,7 +72,7 @@ function SecondaryMetric({ icon: Icon, label, value, helper, trend, color, bg, p
   );
 }
 
-export function Dashboard({ t, patients, sessions, reports, dashboardSummary, onDownloadReport, onStartAssessment, onAddPatient, onOpenPatients }) {
+export function Dashboard({ t, patients, sessions, reports, dashboardSummary, onDownloadReport, onStartAssessment, onViewPatient, onAddPatient, onOpenPatients }) {
   const today = new Date().toISOString().slice(0, 10);
   const weekStart = new Date();
   weekStart.setDate(weekStart.getDate() - 6);
@@ -91,8 +91,20 @@ export function Dashboard({ t, patients, sessions, reports, dashboardSummary, on
   const followUpCount = dashboardSummary?.follow_up_queue ?? followUpPatients.length;
   const latestSessions = dashboardSummary?.recent_assessments?.length ? dashboardSummary.recent_assessments.map(dashboardAssessmentFromApi) : sessions.slice(0, 5);
   const recentReports = dashboardSummary?.recent_reports?.length ? dashboardSummary.recent_reports.map(dashboardReportFromApi) : reports.slice(0, 4);
-  const improvementValues = patients.map((patient) => Number(patient.improvement ?? 0));
-  const averageImprovement = improvementValues.length ? Math.round((improvementValues.reduce((a, b) => a + b, 0) / improvementValues.length) * 10) / 10 : 0;
+  const patientImprovements = patients.map((patient) => {
+    const patientSessions = sessions
+      .filter((s) => s.patientId === patient.id)
+      .sort((a, b) => String(a.dateISO ?? "").localeCompare(String(b.dateISO ?? "")));
+    if (patientSessions.length < 2) return null;
+    const first = Number(patientSessions[0].totalScore ?? 0);
+    const last = Number(patientSessions[patientSessions.length - 1].totalScore ?? 0);
+    return last - first;
+  }).filter((v) => v !== null);
+  const averageImprovement = dashboardSummary?.average_improvement != null
+    ? Math.round(Number(dashboardSummary.average_improvement) * 10) / 10
+    : patientImprovements.length
+      ? Math.round((patientImprovements.reduce((a, b) => a + b, 0) / patientImprovements.length) * 10) / 10
+      : 0;
 
   const scoreTrend = dashboardSummary?.score_trend?.length
     ? dashboardSummary.score_trend.map((point) => ({ label: point.label, value: point.value ?? 0 }))
@@ -262,7 +274,7 @@ export function Dashboard({ t, patients, sessions, reports, dashboardSummary, on
                   <td className="px-4 py-3">
                     <button
                       type="button"
-                      onClick={() => onStartAssessment(assessment.patientId)}
+                      onClick={() => onViewPatient ? onViewPatient(assessment.patientId) : onStartAssessment(assessment.patientId)}
                       className="inline-flex items-center gap-1 rounded-lg border border-rehab-line bg-white px-3 py-1.5 text-xs font-semibold text-rehab-blue transition hover:bg-slate-50"
                     >
                       {t.results} <ArrowRight size={13} />
