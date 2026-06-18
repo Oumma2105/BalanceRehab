@@ -8,7 +8,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.database import SessionLocal
 from app.models import SensorSample
 from app.models import Session as AssessmentSession
-from app.services.board_metrics import sway_from_corner_loads, stability_from_sway
+from app.services.board_metrics import compute_board_metrics, sway_from_corner_loads, stability_from_sway
 
 router = APIRouter(tags=["board"])
 
@@ -116,20 +116,59 @@ def _process_packet(session_id: int, packet: dict) -> dict:
 
     with SessionLocal() as db:
         session = db.get(AssessmentSession, session_id)
-        if session is not None:
-            sample = SensorSample(
-                session_id=session_id,
-                timestamp_ms=packet["timestamp_ms"],
-                front_left=packet["front_left"] or 0,
-                front_right=packet["front_right"] or 0,
-                rear_left=packet["rear_left"] or 0,
-                rear_right=packet["rear_right"] or 0,
-                anterior_posterior_sway=round(ap, 3) if ap is not None else None,
-                medial_lateral_sway=round(ml, 3) if ml is not None else None,
-                stability_score=round(stability, 1) if stability is not None else None,
-            )
-            db.add(sample)
-            db.commit()
+        if session is None:
+            return {
+                "session_id": session_id,
+                "timestamp_ms": packet["timestamp_ms"],
+                "ap": round(ap, 3) if ap is not None else None,
+                "ml": round(ml, 3) if ml is not None else None,
+                "stability": round(stability, 1) if stability is not None else None,
+                "persisted": False,
+                "error": "session not found",
+            }
+
+        if session.acquisition_mode == "webcam":
+            return {
+                "session_id": session_id,
+                "timestamp_ms": packet["timestamp_ms"],
+                "ap": round(ap, 3) if ap is not None else None,
+                "ml": round(ml, 3) if ml is not None else None,
+                "stability": round(stability, 1) if stability is not None else None,
+                "persisted": False,
+                "error": "webcam-only sessions cannot include board samples",
+            }
+
+        sample = SensorSample(
+            session_id=session_id,
+            timestamp_ms=packet["timestamp_ms"],
+            front_left=packet["front_left"] or 0,
+            front_right=packet["front_right"] or 0,
+            rear_left=packet["rear_left"] or 0,
+            rear_right=packet["rear_right"] or 0,
+            anterior_posterior_sway=round(ap, 3) if ap is not None else None,
+            medial_lateral_sway=round(ml, 3) if ml is not None else None,
+            stability_score=round(stability, 1) if stability is not None else None,
+        )
+        db.add(sample)
+        db.flush()
+        _update_session_metrics(session)
+        session_metrics = {
+            "total_balance_score": session.total_balance_score,
+            "board_stability_score": session.board_stability_score,
+            "mean_sway_ap": session.mean_sway_ap,
+            "mean_sway_ml": session.mean_sway_ml,
+            "max_sway_ap": session.max_sway_ap,
+            "max_sway_ml": session.max_sway_ml,
+            "mean_resultant_sway": session.mean_resultant_sway,
+            "max_resultant_sway": session.max_resultant_sway,
+            "rms_sway": session.rms_sway,
+            "path_length": session.path_length,
+            "sensor_quality": session.sensor_quality,
+            "sway_velocity": session.sway_velocity,
+            "instability_events": session.instability_events,
+            "status": session.status,
+        }
+        db.commit()
 
     return {
         "session_id": session_id,
@@ -137,7 +176,33 @@ def _process_packet(session_id: int, packet: dict) -> dict:
         "ap": round(ap, 3) if ap is not None else None,
         "ml": round(ml, 3) if ml is not None else None,
         "stability": round(stability, 1) if stability is not None else None,
+        "persisted": True,
+        "session_metrics": session_metrics,
     }
+
+
+def _update_session_metrics(session: AssessmentSession) -> None:
+    metrics = compute_board_metrics(session.sensor_samples)
+    for field, value in metrics.items():
+        setattr(session, field, value)
+
+    board_score = session.board_stability_score
+    posture_score = session.posture_stability_score
+    if session.acquisition_mode in {"combined", "combined_future"} and board_score is not None and posture_score is not None:
+        session.total_balance_score = round((board_score * 0.6) + (posture_score * 0.4), 1)
+    else:
+        session.total_balance_score = board_score
+    session.status = _status_from_score(session.total_balance_score)
+
+
+def _status_from_score(score: float | None) -> str | None:
+    if score is None:
+        return None
+    if score >= 80:
+        return "Stable"
+    if score >= 65:
+        return "Follow-up"
+    return "Declining"
 
 
 class _CornersProxy:

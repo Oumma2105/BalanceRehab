@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BrainCircuit, Camera, Database, FileText, Globe2, MonitorCog, RotateCcw, Server, ToggleLeft, Wifi } from "lucide-react";
+import { BrainCircuit, Camera, Database, FileText, Globe2, MonitorCog, PlugZap, RotateCcw, Server, ToggleLeft, Usb, Wifi } from "lucide-react";
 
 import { api } from "../api/client.js";
 import { Button } from "../components/clinical/Button";
@@ -44,8 +44,8 @@ function SegmentedControl({ options, active, onChange }) {
           key={option.value ?? option}
           type="button"
           onClick={() => onChange?.(option.value ?? option)}
-          className={`rounded-md px-3 py-1.5 text-sm font-semibold ${
-            (option.value ?? option) === active ? "bg-rehab-blue text-white" : "text-rehab-muted hover:bg-slate-50"
+          className={`rounded-md px-3 py-1.5 text-sm font-semibold transition ${
+            (option.value ?? option) === active ? "bg-rehab-blue text-white shadow-sm" : "bg-slate-200 text-rehab-muted hover:bg-slate-300 hover:text-rehab-ink"
           }`}
         >
           {option.label ?? option}
@@ -71,6 +71,13 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetState, setResetState] = useState("idle");
   const [movementAi, setMovementAi] = useState({ readiness: null, model: null, state: "idle" });
+  const [esp32, setEsp32] = useState({
+    ports: [],
+    selectedPort: window.localStorage.getItem("balancerehab_esp32_port") ?? "",
+    baudRate: Number(window.localStorage.getItem("balancerehab_esp32_baud") ?? 115200),
+    status: null,
+    state: "idle",
+  });
 
   const refreshMovementAi = async () => {
     setMovementAi((current) => ({ ...current, state: "loading" }));
@@ -88,7 +95,70 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
 
   useEffect(() => {
     refreshMovementAi();
+    refreshEsp32Status();
+    const timer = window.setInterval(refreshEsp32Status, 1500);
+    return () => window.clearInterval(timer);
   }, []);
+
+  const refreshEsp32Status = async () => {
+    try {
+      const serialStatus = await api.esp32Status();
+      setEsp32((current) => ({
+        ...current,
+        status: serialStatus,
+        selectedPort: current.selectedPort || serialStatus.port || "",
+        baudRate: serialStatus.baud_rate || current.baudRate,
+      }));
+    } catch (error) {
+      console.warn("ESP32 serial status could not be loaded.", error);
+      setEsp32((current) => ({ ...current, state: "error" }));
+    }
+  };
+
+  const scanEsp32Ports = async () => {
+    setEsp32((current) => ({ ...current, state: "scanning" }));
+    try {
+      const response = await api.esp32Ports();
+      setEsp32((current) => ({
+        ...current,
+        ports: response.ports ?? [],
+        selectedPort: current.selectedPort || response.ports?.[0]?.device || "",
+        state: "idle",
+      }));
+    } catch (error) {
+      console.warn("ESP32 port scan failed.", error);
+      setEsp32((current) => ({ ...current, state: "error" }));
+    }
+  };
+
+  const connectEsp32 = async () => {
+    setEsp32((current) => ({ ...current, state: "connecting" }));
+    try {
+      window.localStorage.setItem("balancerehab_esp32_port", esp32.selectedPort);
+      window.localStorage.setItem("balancerehab_esp32_baud", String(esp32.baudRate));
+      const serialStatus = await api.esp32Connect({ port: esp32.selectedPort, baudRate: Number(esp32.baudRate) || 115200 });
+      setEsp32((current) => ({ ...current, status: serialStatus, state: "idle" }));
+    } catch (error) {
+      console.warn("ESP32 connect failed.", error);
+      setEsp32((current) => ({ ...current, state: "error" }));
+    }
+  };
+
+  const disconnectEsp32 = async () => {
+    setEsp32((current) => ({ ...current, state: "disconnecting" }));
+    const serialStatus = await api.esp32Disconnect();
+    setEsp32((current) => ({ ...current, status: serialStatus, state: "idle" }));
+  };
+
+  const calibrateEsp32 = async () => {
+    const serialStatus = await api.esp32Calibrate(4);
+    setEsp32((current) => ({ ...current, status: serialStatus }));
+  };
+
+  const zeroEsp32 = async () => {
+    const serialStatus = await api.esp32Zero();
+    setEsp32((current) => ({ ...current, status: serialStatus }));
+  };
 
   const handleReset = async () => {
     setResetState("loading");
@@ -131,8 +201,8 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
                   key={option}
                   type="button"
                   onClick={() => onLanguageChange(option)}
-                  className={`rounded-md px-3 py-1.5 text-sm font-semibold ${
-                    language === option ? "bg-rehab-blue text-white" : "text-rehab-muted hover:bg-slate-50"
+                  className={`rounded-md px-3 py-1.5 text-sm font-semibold transition ${
+                    language === option ? "bg-rehab-blue text-white shadow-sm" : "bg-slate-200 text-rehab-muted hover:bg-slate-300 hover:text-rehab-ink"
                   }`}
                 >
                   {option.toUpperCase()}
@@ -291,7 +361,7 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
           </SettingRow>
 
           <SettingRow icon={Wifi} title={t.connectionMode} description={t.connectionModeDesc}>
-            <SegmentedControl options={[t.demoConnection, t.usbSerial, t.wifiLater]} active={t.demoConnection} />
+            <SegmentedControl options={[t.usbSerial, t.demoConnection, t.wifiLater]} active={t.usbSerial} />
           </SettingRow>
         </div>
 
@@ -299,8 +369,96 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
           <Button>{t.saveSettings}</Button>
         </div>
       </ClinicalCard>
+
+      <ClinicalCard className="p-5">
+        <SectionHeader title={t.esp32SerialConnection ?? "ESP32 USB serial"} description={t.esp32SerialConnectionDesc ?? "Connect the ultrasonic board over USB before running ESP32 serial assessments."} />
+        <div className="mt-5 grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="rounded-lg border border-rehab-line bg-white p-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="min-w-52 flex-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.comPort ?? "COM port"}</span>
+                <select
+                  value={esp32.selectedPort}
+                  onChange={(event) => setEsp32((current) => ({ ...current, selectedPort: event.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-rehab-line bg-white px-3 py-2 text-sm font-semibold text-rehab-ink outline-none focus:border-rehab-teal"
+                >
+                  {esp32.selectedPort ? <option value={esp32.selectedPort}>{esp32.selectedPort}</option> : <option value="">Select port</option>}
+                  {esp32.ports.map((port) => (
+                    <option key={port.device} value={port.device}>{port.device} · {port.description}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="w-36">
+                <span className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.baudRate ?? "Baud rate"}</span>
+                <input
+                  value={esp32.baudRate}
+                  onChange={(event) => setEsp32((current) => ({ ...current, baudRate: event.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-rehab-line px-3 py-2 text-sm font-semibold text-rehab-ink outline-none focus:border-rehab-teal"
+                />
+              </label>
+              <Button variant="secondary" onClick={scanEsp32Ports} disabled={esp32.state === "scanning"}>
+                <Usb size={16} /> {esp32.state === "scanning" ? (t.scanning ?? "Scanning...") : (t.scanPorts ?? "Scan ports")}
+              </Button>
+              {esp32.status?.connected ? (
+                <Button variant="secondary" onClick={disconnectEsp32}>
+                  {t.disconnect ?? "Disconnect"}
+                </Button>
+              ) : (
+                <Button onClick={connectEsp32} disabled={!esp32.selectedPort || esp32.state === "connecting"}>
+                  <PlugZap size={16} /> {esp32.state === "connecting" ? (t.connecting ?? "Connecting...") : (t.connect ?? "Connect")}
+                </Button>
+              )}
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={calibrateEsp32} disabled={!esp32.status?.connected}>
+                {esp32.status?.calibration?.active ? (t.calibrating ?? "Calibrating...") : (t.startCalibration ?? "Start calibration")}
+              </Button>
+              <Button variant="secondary" onClick={zeroEsp32} disabled={!esp32.status?.connected || !esp32.status?.latest_packet}>
+                {t.zeroBaseline ?? "Zero baseline"}
+              </Button>
+            </div>
+
+            {esp32.status?.error ? (
+              <p className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{esp32.status.error}</p>
+            ) : (
+              <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold text-rehab-muted">
+                {esp32.status?.connected ? (t.esp32UsbReady ?? "USB serial connected. ESP32 sessions will use this board first.") : (t.esp32UsbFallback ?? "No ESP32 connected. Demo and webcam modes remain available.")}
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-rehab-line bg-slate-50 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="font-semibold text-rehab-ink">{t.latestPacket ?? "Latest packet"}</p>
+              <StatusBadge tone={esp32.status?.connected ? "connected" : "warning"}>{esp32.status?.status ?? "disconnected"}</StatusBadge>
+            </div>
+            <pre className="mt-3 max-h-32 overflow-auto rounded-lg bg-white p-3 text-xs text-rehab-muted">{JSON.stringify(esp32.status?.latest_packet ?? {}, null, 2)}</pre>
+            <div className="mt-4 grid grid-cols-4 gap-2">
+              {sensorHealthKeys(esp32.status?.sensor_health).map((key) => (
+                <div key={key} className="rounded-lg bg-white p-2 text-center">
+                  <p className="text-xs font-semibold uppercase text-rehab-muted">{sensorShortName(key)}</p>
+                  <p className={`mt-1 text-sm font-semibold ${esp32.status?.sensor_health?.[key] === "ok" ? "text-emerald-700" : "text-amber-700"}`}>
+                    {esp32.status?.sensor_health?.[key] ?? "unknown"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </ClinicalCard>
     </div>
   );
+}
+
+function sensorShortName(key) {
+  return { front_left: "FL", front_right: "FR", rear_left: "RL", rear_right: "RR", front: "Front", rear: "Rear", left: "Left", right: "Right" }[key] ?? key;
+}
+
+function sensorHealthKeys(health = {}) {
+  const keys = Object.keys(health);
+  if (["front", "rear", "left", "right"].every((key) => keys.includes(key))) return ["front", "rear", "left", "right"];
+  return ["front_left", "front_right", "rear_left", "rear_right"];
 }
 
 function AiStat({ label, value }) {

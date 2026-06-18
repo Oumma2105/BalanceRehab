@@ -9,7 +9,7 @@ from app.models import PostureSample
 from app.models import Recommendation
 from app.models import SensorSample
 from app.models import Session as AssessmentSession
-from app.schemas import MovementFeaturesRead, MovementLabelCreate, MovementLabelRead, SensorSamplesAppend, SessionCreate, SessionRead, SessionReportData
+from app.schemas import MovementFeaturesRead, MovementLabelCreate, MovementLabelRead, SensorSamplesAppend, SessionCreate, SessionRead, SessionReportData, SessionUpdate
 from app.services.board_metrics import compute_board_metrics, normalize_board_samples
 from app.services.movement_features import build_movement_feature_payload
 
@@ -21,6 +21,11 @@ BOARD_METRIC_FIELDS = [
     "mean_sway_ml",
     "max_sway_ap",
     "max_sway_ml",
+    "mean_resultant_sway",
+    "max_resultant_sway",
+    "rms_sway",
+    "path_length",
+    "sensor_quality",
     "sway_velocity",
     "instability_events",
 ]
@@ -50,7 +55,8 @@ def create_session(payload: SessionCreate, db: Session = Depends(get_db)) -> Ass
     apply_board_computation(payload.sensor_samples, data)
 
     if data.get("status") is None:
-        data["status"] = status_from_score(data.get("total_balance_score"))
+        previous = _latest_session_score(payload.patient_id, db)
+        data["status"] = status_with_trend(data.get("total_balance_score"), previous)
 
     session = AssessmentSession(**data)
     session.sensor_samples = [SensorSample(**sensor_sample_data(sample)) for sample in payload.sensor_samples]
@@ -167,6 +173,15 @@ def recompute_session(session_id: int, db: Session = Depends(get_db)) -> Assessm
             )
         )
 
+    db.commit()
+    return load_session(session.id, db)
+
+
+@router.patch("/{session_id}", response_model=SessionRead)
+def update_session(session_id: int, payload: SessionUpdate, db: Session = Depends(get_db)) -> AssessmentSession:
+    session = load_session(session_id, db)
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(session, field, value)
     db.commit()
     return load_session(session.id, db)
 
@@ -307,6 +322,11 @@ def apply_session_metric_data(session: AssessmentSession, data: dict) -> None:
         "mean_sway_ml",
         "max_sway_ap",
         "max_sway_ml",
+        "mean_resultant_sway",
+        "max_resultant_sway",
+        "rms_sway",
+        "path_length",
+        "sensor_quality",
         "sway_velocity",
         "instability_events",
         "trunk_deviation",
@@ -334,6 +354,11 @@ def session_to_metric_data(session: AssessmentSession) -> dict:
         "mean_sway_ml": session.mean_sway_ml,
         "max_sway_ap": session.max_sway_ap,
         "max_sway_ml": session.max_sway_ml,
+        "mean_resultant_sway": session.mean_resultant_sway,
+        "max_resultant_sway": session.max_resultant_sway,
+        "rms_sway": session.rms_sway,
+        "path_length": session.path_length,
+        "sensor_quality": session.sensor_quality,
         "sway_velocity": session.sway_velocity,
         "instability_events": session.instability_events,
         "trunk_deviation": session.trunk_deviation,
@@ -439,6 +464,28 @@ def generate_recommendations(data: dict) -> list[dict[str, str]]:
             }
         )
     return recommendations
+
+
+def _latest_session_score(patient_id: int, db: Session) -> float | None:
+    last = db.scalars(
+        select(AssessmentSession)
+        .where(AssessmentSession.patient_id == patient_id)
+        .order_by(AssessmentSession.created_at.desc())
+        .limit(1)
+    ).first()
+    return last.total_balance_score if last else None
+
+
+def status_with_trend(score: float | None, previous_score: float | None) -> str | None:
+    base = status_from_score(score)
+    if (
+        base in {"Stable", "Follow-up"}
+        and score is not None
+        and previous_score is not None
+        and score >= previous_score + 5
+    ):
+        return "Improving"
+    return base
 
 
 def status_from_score(score: float | None) -> str | None:

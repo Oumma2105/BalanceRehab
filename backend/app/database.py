@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from sqlalchemy import create_engine
@@ -9,7 +10,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
-DATABASE_URL = f"sqlite:///{DATA_DIR / 'balancerehab.db'}"
+DATABASE_URL = os.getenv("BALANCEREHAB_DATABASE_URL", f"sqlite:///{DATA_DIR / 'balancerehab.db'}")
 
 engine = create_engine(
     DATABASE_URL,
@@ -47,6 +48,11 @@ def ensure_sqlite_columns() -> None:
         "sessions": {
             "status": "VARCHAR(32)",
             "body_center_deviation": "FLOAT",
+            "mean_resultant_sway": "FLOAT",
+            "max_resultant_sway": "FLOAT",
+            "rms_sway": "FLOAT",
+            "path_length": "FLOAT",
+            "sensor_quality": "FLOAT",
         },
         "posture_samples": {
             "stability_score": "FLOAT",

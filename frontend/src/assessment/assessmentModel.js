@@ -2,14 +2,14 @@ export const acquisitionModes = {
   webcam: "webcam",
   demo: "demo",
   combined: "combined_future",
-  board: "board_future",
+  board: "board",
 };
 
 export const acquisitionModeLabels = {
   [acquisitionModes.webcam]: "Webcam-Based Assessment",
   [acquisitionModes.demo]: "Demo Assessment",
   [acquisitionModes.combined]: "Webcam + Board Sensors (future)",
-  [acquisitionModes.board]: "Board Sensors Only (future)",
+  [acquisitionModes.board]: "ESP32 USB Serial",
 };
 
 export const metricAvailability = {
@@ -48,6 +48,11 @@ export function normalizeAssessmentResults(results) {
     meanSwayMl: results.meanSwayMl ?? null,
     maxSwayAp: results.maxSwayAp ?? null,
     maxSwayMl: results.maxSwayMl ?? null,
+    meanResultantSway: results.meanResultantSway ?? null,
+    maxResultantSway: results.maxResultantSway ?? null,
+    rmsSway: results.rmsSway ?? null,
+    pathLength: results.pathLength ?? null,
+    sensorQuality: results.sensorQuality ?? null,
     swayVelocity: results.swayVelocity ?? null,
     instabilityEvents: results.instabilityEvents ?? null,
     trunkDeviation: results.trunkDeviation ?? results.trunkInclination ?? null,

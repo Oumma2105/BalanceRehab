@@ -22,18 +22,17 @@ import {
 
 import { Button } from "../components/clinical/Button";
 import { ClinicalCard } from "../components/clinical/ClinicalCard";
-import { ClinicalTable } from "../components/clinical/ClinicalTable";
 import { ContextStrip } from "../components/clinical/ContextStrip";
 import { EmptyState } from "../components/clinical/EmptyState";
 import { SectionHeader } from "../components/clinical/SectionHeader";
 import { StatusBadge } from "../components/clinical/StatusBadge";
 import { api } from "../api/client.js";
 import { acquisitionModes, createAssessmentSource, getAssessmentSourceOptions } from "../assessment/sources/index.js";
-import { buildSession } from "../utils/assessment";
+import { buildSession, statusText } from "../utils/assessment";
 import { WebcamPoseAssessment } from "../webcam/WebcamPoseAssessment.jsx";
 
 export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, onSaveReport, onDownloadSessionReport, preselectedPatientId, onClearPreselectedPatient, onReturnToPatientProfile, onWorkflowFocusChange, webcamMirrored = true }) {
-  const [workflowOpen, setWorkflowOpen] = useState(false);
+  const [workflowOpen, setWorkflowOpen] = useState(true);
   const [step, setStep] = useState(0);
   const [selectedPatientId, setSelectedPatientId] = useState(preselectedPatientId ?? null);
   const [config, setConfig] = useState({
@@ -64,7 +63,8 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
 
   const selectedPatient = patients.find((patient) => patient.id === selectedPatientId);
   const steps = [t.setup ?? "Setup", t.record ?? "Record", t.review ?? "Review"];
-  const activeSource = useMemo(() => createAssessmentSource({ mode: config.acquisitionMode, config, t }), [config, t]);
+  const sourceConfig = useMemo(() => ({ ...config, patientId: selectedPatientId }), [config, selectedPatientId]);
+  const activeSource = useMemo(() => createAssessmentSource({ mode: sourceConfig.acquisitionMode, config: sourceConfig, t }), [sourceConfig, t]);
   const countdownIntervalRef = useRef(null);
   const countdownLostTimeoutRef = useRef(null);
   const completionTimeoutRef = useRef(null);
@@ -141,14 +141,20 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
 
   useEffect(() => {
     if (!workflowOpen || step !== 1 || results || assessmentPhase !== "positioning") return;
-    const calibrationReady = config.acquisitionMode === acquisitionModes.demo || poseState?.readiness?.ready;
+    const boardReady = ![acquisitionModes.board, acquisitionModes.combined].includes(config.acquisitionMode) || (liveFrame.boardStatus === "connected" && Number(liveFrame.boardSampleCount ?? 0) > 0);
+    const webcamReady = ![acquisitionModes.webcam, acquisitionModes.combined].includes(config.acquisitionMode) || Boolean(poseState?.readiness?.ready);
+    const calibrationReady = config.acquisitionMode === acquisitionModes.demo || (webcamReady && boardReady);
     if (calibrationReady) {
       startCalibrationCountdown();
     }
-  }, [workflowOpen, step, config.acquisitionMode, results, assessmentPhase, poseState]);
+  }, [workflowOpen, step, config.acquisitionMode, results, assessmentPhase, poseState, liveFrame.boardStatus, liveFrame.boardSampleCount]);
 
   useEffect(() => {
-    if (step !== 1 || assessmentPhase !== "countdown" || config.acquisitionMode !== acquisitionModes.webcam) return;
+    if (
+      step !== 1 ||
+      assessmentPhase !== "countdown" ||
+      ![acquisitionModes.webcam, acquisitionModes.combined].includes(config.acquisitionMode)
+    ) return;
 
     if (poseState?.readiness?.ready) {
       if (countdownLostTimeoutRef.current) {
@@ -189,6 +195,14 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
   }, [workflowOpen, step, config, results, activeSource, assessmentPhase, assessmentRunning]);
 
   useEffect(() => {
+    if (!workflowOpen || step !== 1 || results || config.acquisitionMode !== acquisitionModes.combined) return;
+    const timer = window.setInterval(() => {
+      setLiveFrame(activeSource.getFrame(elapsed));
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [workflowOpen, step, results, config.acquisitionMode, activeSource, elapsed]);
+
+  useEffect(() => {
     return () => {
       clearCountdownInterval();
       if (completionTimeoutRef.current) {
@@ -198,54 +212,6 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
       activeSource.stop();
     };
   }, [activeSource]);
-
-  const recentSessions = sessions.slice(0, 6);
-
-  if (!workflowOpen) {
-    return (
-      <div className="space-y-5">
-        <section className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-sm text-rehab-muted">{t.balanceAssessmentDesc}</p>
-          </div>
-          <Button onClick={() => setWorkflowOpen(true)}>{t.startNewAssessment}</Button>
-        </section>
-
-        <ClinicalCard className="p-5">
-          <SectionHeader title={t.recentAssessments} description={t.savedSessionsDesc} />
-          <div className="mt-5">
-            {recentSessions.length === 0 ? (
-              <EmptyState
-                title={t.performFirstAssessment}
-                description={t.completedSessionsAppear}
-                actionLabel={t.startAssessment}
-                onAction={() => setWorkflowOpen(true)}
-              />
-            ) : (
-              <ClinicalTable
-                columns={[t.patient, t.date, t.test, t.conditions, t.score, t.status]}
-                rows={recentSessions}
-                renderRow={(session) => (
-                  <tr key={session.id}>
-                    <td className="px-4 py-3 font-semibold">{session.patient}</td>
-                    <td className="px-4 py-3 text-rehab-muted">{session.date}</td>
-                    <td className="px-4 py-3">{testTypeLabel(t, session.testType)}</td>
-                    <td className="px-4 py-3">{conditionLabel(t, session.condition)}</td>
-                    <td className="px-4 py-3 font-semibold">{session.totalScore}/100</td>
-                    <td className="px-4 py-3">
-                      <StatusBadge tone={session.status === "Declining" ? "danger" : session.status === "Follow-up" ? "warning" : "connected"}>
-                        {statusLabel(t, session.status)}
-                      </StatusBadge>
-                    </td>
-                  </tr>
-                )}
-              />
-            )}
-          </div>
-        </ClinicalCard>
-      </div>
-    );
-  }
 
   const canStart =
     config.acquisitionMode === acquisitionModes.webcam
@@ -303,11 +269,12 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
   };
 
   const handleDone = () => {
-    setWorkflowOpen(false);
     setStep(0);
+    setSelectedPatientId(null);
     setResults(null);
     clearCountdownInterval();
     setCountdown(null);
+    setElapsed(0);
     setAssessmentPhase("positioning");
     setAssessmentRunning(false);
     setSavedSession(null);
@@ -600,24 +567,30 @@ function SetupStep({ t, patients, selectedPatientId, onSelectPatient, config, on
 }
 
 function LiveStep({ t, elapsed, duration, countdown, assessmentPhase, assessmentRunning, frame, config, webcamStream, webcamMirrored, poseState, onPoseState, onPoseMetrics, onEnd }) {
+  const hasWebcam = config.acquisitionMode === acquisitionModes.webcam || config.acquisitionMode === acquisitionModes.combined;
+  const boardEnabled = config.acquisitionMode === acquisitionModes.board || config.acquisitionMode === acquisitionModes.combined;
   const isWebcamOnly = config.acquisitionMode === acquisitionModes.webcam;
   const isCountingDown = countdown != null;
   const progress = Math.min(100, (elapsed / duration) * 100);
-  const cameraActive = !isWebcamOnly || isCameraStreamActive(webcamStream);
-  const modelActive = !isWebcamOnly || Boolean(poseState?.readiness?.modelActive || poseState?.engineMode || poseState?.processingStatus);
-  const bodyDetected = !isWebcamOnly || Boolean(poseState?.readiness?.personDetected || poseState?.tracking?.bodyDetected);
-  const fullBodyVisible = !isWebcamOnly || Boolean(poseState?.readiness?.fullBodyVisible);
-  const ready = !isWebcamOnly || (cameraActive && modelActive && fullBodyVisible);
+  const cameraActive = !hasWebcam || isCameraStreamActive(webcamStream);
+  const modelActive = !hasWebcam || Boolean(poseState?.readiness?.modelActive || poseState?.engineMode || poseState?.processingStatus);
+  const bodyDetected = !hasWebcam || Boolean(poseState?.readiness?.personDetected || poseState?.tracking?.bodyDetected);
+  const fullBodyVisible = !hasWebcam || Boolean(poseState?.readiness?.fullBodyVisible);
+  const feetVisible = !hasWebcam || Boolean(poseState?.readiness?.feetVisible);
+  const stanceStable = !hasWebcam || Boolean(poseState?.readiness?.stanceStable);
+  const boardReady = !boardEnabled || (frame.boardStatus === "connected" && Number(frame.boardSampleCount ?? 0) > 0);
+  const ready = (!hasWebcam || (cameraActive && modelActive && fullBodyVisible && feetVisible && stanceStable)) && boardReady;
   const isComplete = assessmentPhase === "complete";
   const isAssessing = assessmentPhase === "assessing" && assessmentRunning;
-  const isLoading = isWebcamOnly && (!cameraActive || !modelActive);
-  const liveMessage = liveAssessmentMessage({ t, isLoading, isCountingDown, isAssessing, isComplete, ready, poseState, isWebcamOnly });
+  const isLoading = hasWebcam && (!cameraActive || !modelActive);
+  const liveMessage = liveAssessmentMessage({ t, isLoading, isCountingDown, isAssessing, isComplete, ready, poseState, isWebcamOnly: hasWebcam });
+  const lightPanels = !hasWebcam;
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_20%_0%,rgba(67,170,139,0.18),transparent_34%),linear-gradient(135deg,#f5fbf8_0%,#e8f2f6_50%,#eef7f0_100%)] p-2">
       <section className="relative min-h-[calc(100vh-1rem)] overflow-hidden rounded-[1rem] border border-white/70 bg-[#edf7f3] shadow-2xl shadow-[#577590]/18">
         <div className="absolute inset-0">
-          {isWebcamOnly && webcamStream ? (
+          {hasWebcam && webcamStream ? (
             <WebcamPoseAssessment t={t} stream={webcamStream} frame={frame} onMetrics={onPoseMetrics} onState={onPoseState} mirrored={webcamMirrored} immersive />
           ) : (
             <div className="grid h-full place-items-center bg-[linear-gradient(135deg,#f3faf7,#dfeef4)] text-[#264653]">
@@ -630,26 +603,33 @@ function LiveStep({ t, elapsed, duration, countdown, assessmentPhase, assessment
           )}
         </div>
 
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-44 bg-gradient-to-b from-[#16352f]/48 to-transparent" />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-44 bg-gradient-to-t from-[#16352f]/48 to-transparent" />
+        {lightPanels ? null : (
+          <>
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-44 bg-gradient-to-b from-[#16352f]/48 to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-44 bg-gradient-to-t from-[#16352f]/48 to-transparent" />
+          </>
+        )}
 
-        <div className="absolute left-4 top-4 z-20 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-white/22 bg-[#16352f]/62 p-3 text-white shadow-xl shadow-[#16352f]/20 backdrop-blur-md">
-          <div className="mb-2 flex flex-wrap items-center gap-1.5">
-            <StatusDot label={t.cameraReady ?? "Camera ready"} active={cameraActive} />
-            <StatusDot label={t.modelActive ?? "Model active"} active={modelActive} />
-            <StatusDot label={t.bodyDetected ?? "Body detected"} active={bodyDetected} />
-            <StatusDot label={t.fullBodyVisible ?? "Full body visible"} active={fullBodyVisible} />
-          </div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/58">{liveMessage.label}</p>
-          <div className="mt-1 flex items-center gap-3">
-            {isCountingDown ? (
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-[#43AA8B] text-lg font-semibold text-white shadow-lg shadow-slate-950/25">
-                {countdown}
-              </span>
-            ) : null}
-            <p className="text-sm font-semibold leading-5">{liveMessage.text}</p>
-          </div>
-        </div>
+        <LiveVitalsPanel
+          t={t}
+          frame={frame}
+          liveMessage={liveMessage}
+          elapsed={elapsed}
+          duration={duration}
+          isAssessing={isAssessing}
+          isComplete={isComplete}
+          ready={ready}
+          hasWebcam={hasWebcam}
+          boardEnabled={boardEnabled}
+          cameraActive={cameraActive}
+          modelActive={modelActive}
+          bodyDetected={bodyDetected}
+          fullBodyVisible={fullBodyVisible}
+          feetVisible={feetVisible}
+          stanceStable={stanceStable}
+          boardReady={boardReady}
+          light={lightPanels}
+        />
 
         <div className="absolute right-4 top-4 z-20">
           <Button variant="secondary" className="border-white/20 bg-white/92 shadow-xl shadow-slate-950/15 backdrop-blur-md" onClick={onEnd}>
@@ -657,21 +637,126 @@ function LiveStep({ t, elapsed, duration, countdown, assessmentPhase, assessment
           </Button>
         </div>
 
-        <div className="absolute bottom-4 right-4 z-20 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-white/22 bg-[#16352f]/62 px-4 py-3 text-white shadow-xl shadow-[#16352f]/20 backdrop-blur-md">
-          <div className="flex items-center justify-between gap-3 text-xs font-semibold text-white/70">
+        {isCountingDown ? <CalibrationOverlay t={t} value={countdown} /> : null}
+
+        {boardEnabled ? (
+          <LiveBoardPanel t={t} frame={frame} light={lightPanels} />
+        ) : null}
+
+        <div className={`absolute bottom-4 right-4 z-20 w-[min(24rem,calc(100vw-2rem))] rounded-xl px-4 py-3 shadow-xl backdrop-blur-md ${
+          lightPanels
+            ? "border border-slate-200 bg-white text-rehab-ink shadow-slate-200/80"
+            : "border border-white/22 bg-[#16352f]/62 text-white shadow-[#16352f]/20"
+        }`}>
+          <div className={`flex items-center justify-between gap-3 text-xs font-semibold ${lightPanels ? "text-rehab-muted" : "text-white/70"}`}>
             <span>{isComplete ? t.assessmentComplete ?? "Assessment complete" : t.assessmentProgress}</span>
             <span>{elapsed}s / {duration}s</span>
           </div>
-          <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/18">
+          <div className={`mt-2 h-2 overflow-hidden rounded-full ${lightPanels ? "bg-slate-100" : "bg-white/18"}`}>
             <div className="h-full rounded-full bg-[#43AA8B] transition-all" style={{ width: `${isComplete ? 100 : progress}%` }} />
           </div>
           {!isAssessing && !isComplete ? (
-            <div className="mt-2 text-[11px] font-semibold leading-4 text-white/66">
+            <div className={`mt-2 text-[11px] font-semibold leading-4 ${lightPanels ? "text-rehab-muted" : "text-white/66"}`}>
               {ready ? t.stablePosture ?? "Stable posture" : t.positioningCalibrationHelp}
             </div>
           ) : null}
         </div>
       </section>
+    </div>
+  );
+}
+
+function LiveVitalsPanel({
+  t,
+  frame,
+  liveMessage,
+  elapsed,
+  duration,
+  isAssessing,
+  isComplete,
+  ready,
+  hasWebcam,
+  boardEnabled,
+  cameraActive,
+  modelActive,
+  bodyDetected,
+  fullBodyVisible,
+  feetVisible,
+  stanceStable,
+  boardReady,
+  light = false,
+}) {
+  const total = frame.stability ?? frame.totalBalanceScore;
+  const posture = frame.posture;
+  const board = frame.boardStability;
+  const syncItems = [
+    hasWebcam ? [t.cameraReady ?? "Camera", cameraActive] : null,
+    hasWebcam ? [t.modelActive ?? "Model", modelActive] : null,
+    hasWebcam ? [t.fullBodyVisible ?? "Full body", bodyDetected && fullBodyVisible] : null,
+    hasWebcam ? [t.feetVisible ?? "Feet visible", feetVisible] : null,
+    hasWebcam ? [t.stanceStable ?? "Stance stable", stanceStable] : null,
+    boardEnabled ? [t.esp32Status ?? "ESP32", boardReady] : null,
+  ].filter(Boolean);
+  const phaseLabel = isComplete
+    ? (t.assessmentComplete ?? "Assessment complete")
+    : isAssessing
+      ? (t.recording ?? "Recording")
+      : ready
+        ? (t.readyToStart ?? "Ready to record")
+        : (t.positioningCalibration ?? "Positioning and calibration");
+
+  return (
+    <div className={`absolute left-4 right-[8.5rem] top-4 z-20 rounded-xl p-3 shadow-xl backdrop-blur-md max-lg:right-4 max-lg:top-[4.6rem] ${
+      light
+        ? "border border-slate-200 bg-white text-rehab-ink shadow-slate-200/80"
+        : "border border-white/20 bg-[#102924]/66 text-white shadow-[#102924]/20"
+    }`}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${isAssessing ? "bg-[#F94144]" : ready ? "bg-[#43AA8B]" : "bg-[#F9C74F] text-[#463500]"}`}>
+            {isAssessing ? <span className="h-3 w-3 animate-pulse rounded-full bg-white" /> : <Gauge size={18} />}
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-bold">{phaseLabel}</p>
+            <p className={`mt-0.5 text-xs font-semibold ${light ? "text-rehab-muted" : "text-white/58"}`}>
+              {liveMessage?.text ?? ""} · {elapsed}s / {duration}s · {Math.max(0, duration - elapsed)}s remaining
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 lg:min-w-[31rem]">
+          <LiveVital label={t.totalBalanceScore ?? "Total"} value={total} suffix="/100" color="#43AA8B" light={light} />
+          <LiveVital label={t.posture ?? "Posture"} value={posture} suffix="/100" color="#90BE6D" light={light} />
+          <LiveVital label={t.boardStability ?? "Board"} value={board} suffix="/100" color="#F9C74F" light={light} />
+          <LiveVital label={t.apSway ?? "AP sway"} value={frame.apSway} color="#F8961E" light={light} />
+          <LiveVital label={t.mlSway ?? "ML sway"} value={frame.mlSway} color="#277DA1" light={light} />
+        </div>
+      </div>
+
+      <div className={`mt-3 flex flex-wrap gap-2 border-t pt-3 ${light ? "border-slate-100" : "border-white/10"}`}>
+        {syncItems.map(([label, active]) => (
+          <span key={label} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${
+            active
+              ? light ? "bg-emerald-50 text-emerald-700" : "bg-[#90BE6D]/18 text-white"
+              : light ? "bg-slate-100 text-rehab-muted" : "bg-white/10 text-white/58"
+          }`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-[#90BE6D]" : light ? "bg-slate-300" : "bg-white/30"}`} />
+            {label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LiveVital({ label, value, suffix = "", color, light = false }) {
+  const numeric = Number(value);
+  const display = Number.isFinite(numeric) ? `${Math.round(numeric * 10) / 10}${suffix}` : "-";
+  return (
+    <div className={`rounded-lg px-3 py-2 ${light ? "border border-slate-100 bg-slate-50" : "bg-white/10"}`}>
+      <div className="mb-1 h-1 rounded-full" style={{ backgroundColor: color }} />
+      <p className={`truncate text-[10px] font-bold uppercase tracking-wide ${light ? "text-rehab-muted" : "text-white/52"}`}>{label}</p>
+      <p className={`mt-0.5 text-base font-black leading-none ${light ? "text-rehab-ink" : "text-white"}`}>{display}</p>
     </div>
   );
 }
@@ -694,6 +779,116 @@ function StatusDot({ label, active }) {
       <span className={`h-1.5 w-1.5 rounded-full ${active ? "bg-[#90BE6D]" : "bg-white/30"}`} />
       {label}
     </span>
+  );
+}
+
+function LiveBoardPanel({ t, frame, light = false }) {
+  const samples = Array.isArray(frame.boardSamples) ? frame.boardSamples : [];
+  const chartData = samples.slice(-80).map((sample) => ({
+    t: Number(sample.t ?? 0),
+    ap: Number(sample.ap ?? 0),
+    ml: Number(sample.ml ?? 0),
+    stability: sample.stability == null ? null : Number(sample.stability),
+  }));
+  const connected = frame.boardStatus === "connected";
+  const latest = chartData[chartData.length - 1] ?? null;
+
+  return (
+    <div className={`absolute bottom-4 left-4 z-20 w-[min(30rem,calc(100vw-2rem))] rounded-xl p-4 shadow-xl backdrop-blur-md ${
+      light
+        ? "border border-slate-200 bg-white text-rehab-ink shadow-slate-200/80"
+        : "border border-white/22 bg-[#16352f]/68 text-white shadow-[#16352f]/20"
+    }`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className={`text-[11px] font-semibold uppercase tracking-[0.16em] ${light ? "text-rehab-muted" : "text-white/58"}`}>
+            {t.boardStability ?? "Board stability"}
+          </p>
+          <p className="mt-1 text-sm font-semibold">
+            {connected
+              ? `${samples.length} ${t.recordedSamples ?? "recorded samples"}${frame.boardSessionId ? ` · S-${frame.boardSessionId}` : ""}`
+              : frame.boardError || t.waitingForBoardStream || "Waiting for ESP32 board stream"}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <LiveBoardMetric label="AP" value={frame.apSway} light={light} />
+          <LiveBoardMetric label="ML" value={frame.mlSway} light={light} />
+          <LiveBoardMetric label={t.stability ?? "Stability"} value={frame.boardStability} suffix="/100" light={light} />
+        </div>
+      </div>
+
+      <div className="mt-3 h-36">
+        {chartData.length ? (
+          <LiveCopMiniPlot samples={chartData} light={light} />
+        ) : (
+          <div className={`grid h-full place-items-center rounded-lg border border-dashed text-center text-xs font-semibold ${light ? "border-slate-200 text-rehab-muted" : "border-white/18 text-white/62"}`}>
+            {t.waitingForBoardStream ?? "Waiting for ESP32 board stream"}
+          </div>
+        )}
+      </div>
+
+      <div className={`mt-2 flex items-center gap-4 text-[11px] font-semibold ${light ? "text-rehab-muted" : "text-white/68"}`}>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#F9C74F]" /> AP sway</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#43AA8B]" /> ML sway</span>
+        {latest?.stability != null ? <span>{t.stability ?? "Stability"} {Math.round(latest.stability)}/100</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function LiveCopMiniPlot({ samples, light = false }) {
+  const width = 420;
+  const height = 150;
+  const cx = width / 2;
+  const cy = height / 2;
+  const radius = 58;
+  const originAp = Number(samples[0]?.ap ?? 0);
+  const originMl = Number(samples[0]?.ml ?? 0);
+  const displaySamples = samples.map((sample) => ({
+    ...sample,
+    displayAp: sample.ap - originAp,
+    displayMl: sample.ml - originMl,
+  }));
+  const maxAxis = Math.max(1, ...displaySamples.flatMap((sample) => [Math.abs(sample.displayAp), Math.abs(sample.displayMl)]));
+  const scale = radius / Math.max(6, maxAxis * 1.25);
+  const points = displaySamples.map((sample) => ({ x: cx + sample.displayMl * scale, y: cy - sample.displayAp * scale }));
+  const path = points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
+  const end = points[points.length - 1];
+  const axis = light ? "#94A3B8" : "rgba(255,255,255,0.42)";
+  const grid = light ? "#E2E8F0" : "rgba(255,255,255,0.14)";
+  const text = light ? "#577590" : "rgba(255,255,255,0.72)";
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full rounded-lg" role="img" aria-label="Live COP-style estimated sway path">
+      <rect x="1" y="1" width={width - 2} height={height - 2} rx="12" fill={light ? "#F8FAFC" : "rgba(255,255,255,0.06)"} stroke={light ? "#E2E8F0" : "rgba(255,255,255,0.16)"} />
+      {[-2, -1, 1, 2].map((step) => (
+        <g key={step}>
+          <line x1={cx + step * 32} y1="16" x2={cx + step * 32} y2={height - 16} stroke={grid} strokeWidth="1" />
+          <line x1="20" y1={cy + step * 22} x2={width - 20} y2={cy + step * 22} stroke={grid} strokeWidth="1" />
+        </g>
+      ))}
+      <circle cx={cx} cy={cy} r={radius} fill="none" stroke={grid} strokeWidth="2" />
+      <circle cx={cx} cy={cy} r={radius * 0.55} fill="none" stroke={grid} strokeWidth="1.5" strokeDasharray="5 4" />
+      <line x1={cx} y1="16" x2={cx} y2={height - 16} stroke={axis} strokeWidth="1.5" strokeDasharray="4 4" />
+      <line x1="20" y1={cy} x2={width - 20} y2={cy} stroke={axis} strokeWidth="1.5" strokeDasharray="4 4" />
+      <text x={cx} y="13" textAnchor="middle" fill={text} fontSize="10" fontWeight="700">AP</text>
+      <text x={width - 20} y={cy - 6} textAnchor="end" fill={text} fontSize="10" fontWeight="700">ML</text>
+      {path ? <path d={path} fill="none" stroke="#43AA8B" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /> : null}
+      {points.map((point, index) => (
+        <circle key={`${point.x}-${point.y}-${index}`} cx={point.x} cy={point.y} r="2" fill="#277DA1" opacity="0.25" />
+      ))}
+      {end ? <circle cx={end.x} cy={end.y} r="5.5" fill="#F94144" stroke="#fff" strokeWidth="2" /> : null}
+    </svg>
+  );
+}
+
+function LiveBoardMetric({ label, value, suffix = "", light = false }) {
+  const display = value == null || Number.isNaN(Number(value)) ? "-" : `${Math.round(Number(value) * 10) / 10}${suffix}`;
+  return (
+    <div className={`min-w-14 rounded-lg px-2.5 py-1.5 text-right ${light ? "border border-slate-100 bg-slate-50" : "bg-white/12"}`}>
+      <p className={`text-[10px] font-semibold uppercase tracking-wide ${light ? "text-rehab-muted" : "text-white/54"}`}>{label}</p>
+      <p className={`text-sm font-bold ${light ? "text-rehab-ink" : "text-white"}`}>{display}</p>
+    </div>
   );
 }
 
@@ -998,6 +1193,8 @@ function ReviewStep({ t, patient, config, results, patientSessions, savedSession
 
       <ResultsAnalyticsGrid analytics={analytics} t={t} sampleCount={(results.samples ?? []).length} />
 
+      {boardAvailable ? <BoardSwayReportPanel t={t} results={results} /> : null}
+
       <FullBodyAnalysisPanel t={t} results={results} analytics={analytics} />
 
       <MovementIntelligencePanel
@@ -1199,6 +1396,175 @@ function ResultsAnalyticsGrid({ analytics, t, sampleCount }) {
       </div>
     </section>
   );
+}
+
+function BoardSwayReportPanel({ t, results }) {
+  const samples = (results.sensorSamples?.length ? results.sensorSamples : results.samples ?? [])
+    .filter((sample) => sample.ap != null && sample.ml != null)
+    .map((sample, index) => ({
+      ...sample,
+      t: Number(sample.t ?? index),
+      ap: Number(sample.ap),
+      ml: Number(sample.ml),
+      resultant: Number.isFinite(Number(sample.resultant)) ? Number(sample.resultant) : Math.hypot(Number(sample.ap), Number(sample.ml)),
+    }));
+  const density = buildSwayDensity(samples);
+  const classification = statusText(results.status, t);
+
+  return (
+    <section className="space-y-4">
+      <AnalyticsSectionHeader title={t.estimatedBoardSway ?? "Estimated board sway"} subtitle={t.estimatedUltrasonicNotice ?? "Estimated indicators from ultrasonic sensors; not equivalent to a medical force platform."} />
+      <div className="grid gap-4 md:grid-cols-4">
+        <MiniOutcome label={t.stabilityClassification ?? "Classification"} value={classification} score={results.totalBalanceScore} />
+        <MiniOutcome label={t.pathLength ?? "Path length"} value={formatMetricValue(results.pathLength, "cm")} score={100 - finite(results.pathLength)} />
+        <MiniOutcome label={t.rmsSway ?? "RMS sway"} value={formatMetricValue(results.rmsSway, "cm")} score={100 - finite(results.rmsSway) * 4} />
+        <MiniOutcome label={t.sensorQuality ?? "Sensor quality"} value={formatMetricValue(results.sensorQuality, "%")} score={results.sensorQuality} />
+      </div>
+      <div className="grid gap-5 lg:grid-cols-2">
+        <AnalyticsChartCard title={t.copStyleTrajectory ?? "COP-style estimated sway trajectory"} size="medium">
+          <CopStyleSwayPlot samples={samples} t={t} />
+        </AnalyticsChartCard>
+        <AnalyticsChartCard title={t.swayDensityMap ?? "Sway distribution density"} size="medium">
+          <div className="grid h-full grid-cols-7 grid-rows-7 gap-1 rounded-lg border border-rehab-line bg-white p-3">
+            {density.map((cell) => (
+              <div
+                key={`${cell.x}-${cell.y}`}
+                className="rounded"
+                style={{ backgroundColor: `rgba(67,170,139,${0.08 + cell.intensity * 0.82})` }}
+                title={`${cell.count} samples`}
+              />
+            ))}
+          </div>
+        </AnalyticsChartCard>
+        <AnalyticsChartCard title={t.apStabilogram ?? "AP stabilogram over time"} size="medium">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={samples} margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
+              <CartesianGrid stroke="#D9E4EA" strokeDasharray="3 3" />
+              <XAxis dataKey="t" stroke="#577590" tick={{ fontSize: 12 }} />
+              <YAxis stroke="#577590" tick={{ fontSize: 12 }} />
+              <ReferenceLine y={0} stroke="#577590" strokeDasharray="4 4" />
+              <Line type="monotone" dataKey="ap" stroke="#F8961E" strokeWidth={3} dot={false} isAnimationActive={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </AnalyticsChartCard>
+        <AnalyticsChartCard title={t.mlStabilogram ?? "ML stabilogram over time"} size="medium">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={samples} margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
+              <CartesianGrid stroke="#D9E4EA" strokeDasharray="3 3" />
+              <XAxis dataKey="t" stroke="#577590" tick={{ fontSize: 12 }} />
+              <YAxis stroke="#577590" tick={{ fontSize: 12 }} />
+              <ReferenceLine y={0} stroke="#577590" strokeDasharray="4 4" />
+              <Line type="monotone" dataKey="ml" stroke="#277DA1" strokeWidth={3} dot={false} isAnimationActive={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </AnalyticsChartCard>
+        <AnalyticsChartCard title={t.resultantSwayOverTime ?? "Resultant sway over time"} size="medium">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={samples} margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
+              <CartesianGrid stroke="#D9E4EA" strokeDasharray="3 3" />
+              <XAxis dataKey="t" stroke="#577590" tick={{ fontSize: 12 }} />
+              <YAxis stroke="#577590" tick={{ fontSize: 12 }} />
+              <Line type="monotone" dataKey="resultant" stroke="#F94144" strokeWidth={3} dot={false} isAnimationActive={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </AnalyticsChartCard>
+        <AnalyticsChartCard title={t.scoreComparisonCards ?? "Score comparison"} size="medium">
+          <div className="grid h-full content-center gap-3 sm:grid-cols-2">
+            <Metric label={t.apSway ?? "AP sway"} value={formatMetricValue(results.meanSwayAp, "cm")} score={100 - finite(results.meanSwayAp) * 5} icon={Waves} />
+            <Metric label={t.mlSway ?? "ML sway"} value={formatMetricValue(results.meanSwayMl, "cm")} score={100 - finite(results.meanSwayMl) * 5} icon={Waves} />
+            <Metric label={t.maxSway ?? "Max sway"} value={formatMetricValue(results.maxResultantSway, "cm")} score={100 - finite(results.maxResultantSway) * 4} icon={Target} />
+            <Metric label={t.instabilityEvents ?? "Instability events"} value={results.instabilityEvents ?? 0} score={100 - finite(results.instabilityEvents) * 12} icon={AlertTriangle} />
+          </div>
+        </AnalyticsChartCard>
+      </div>
+    </section>
+  );
+}
+
+function CopStyleSwayPlot({ samples, t = {} }) {
+  const width = 520;
+  const height = 360;
+  const cx = width / 2;
+  const cy = height / 2;
+  const plotRadius = 138;
+  const originAp = Number(samples[0]?.ap ?? 0);
+  const originMl = Number(samples[0]?.ml ?? 0);
+  const displaySamples = samples.map((sample) => ({
+    ...sample,
+    displayAp: sample.ap - originAp,
+    displayMl: sample.ml - originMl,
+  }));
+  const maxAxis = Math.max(1, ...displaySamples.flatMap((sample) => [Math.abs(sample.displayAp), Math.abs(sample.displayMl)]));
+  const scale = plotRadius / Math.max(6, maxAxis * 1.25);
+  const points = displaySamples.map((sample) => ({
+    x: cx + sample.displayMl * scale,
+    y: cy - sample.displayAp * scale,
+    ap: sample.ap,
+    ml: sample.ml,
+  }));
+  const path = points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
+  const start = points[0];
+  const end = points[points.length - 1];
+  const envelope = Math.min(plotRadius, Math.max(20, (maxAxis || 1) * scale));
+
+  return (
+    <div className="flex h-full min-h-[19rem] flex-col rounded-lg border border-rehab-line bg-[#FBFDFD] p-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">
+          {t.estimatedCopNotice ?? "Estimated board sway, not medical force-plate CoP"}
+        </p>
+        <div className="flex gap-2 text-[11px] font-semibold text-rehab-muted">
+          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#2F7D67]" /> Start</span>
+          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#F94144]" /> End</span>
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="min-h-0 flex-1" role="img" aria-label="COP-style estimated sway trajectory">
+        <defs>
+          <pattern id="cop-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+            <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#E2E8F0" strokeWidth="1" />
+          </pattern>
+          <linearGradient id="cop-trace" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#43AA8B" />
+            <stop offset="100%" stopColor="#277DA1" />
+          </linearGradient>
+        </defs>
+
+        <rect x="76" y="26" width="368" height="286" rx="14" fill="url(#cop-grid)" stroke="#CBD5E1" strokeWidth="1.5" />
+        <ellipse cx={cx - 62} cy={cy} rx="44" ry="118" fill="#F8FAFC" stroke="#D9E4EA" strokeWidth="2" />
+        <ellipse cx={cx + 62} cy={cy} rx="44" ry="118" fill="#F8FAFC" stroke="#D9E4EA" strokeWidth="2" />
+        <circle cx={cx} cy={cy} r={plotRadius} fill="none" stroke="#D9E4EA" strokeWidth="2" />
+        <circle cx={cx} cy={cy} r={plotRadius * 0.62} fill="none" stroke="#E2E8F0" strokeWidth="2" strokeDasharray="6 5" />
+        <circle cx={cx} cy={cy} r={Math.max(10, envelope)} fill="#43AA8B" opacity="0.08" stroke="#43AA8B" strokeWidth="1.5" />
+
+        <line x1={cx} y1="34" x2={cx} y2="306" stroke="#577590" strokeWidth="1.5" strokeDasharray="5 5" />
+        <line x1="88" y1={cy} x2="432" y2={cy} stroke="#577590" strokeWidth="1.5" strokeDasharray="5 5" />
+        <text x={cx} y="20" textAnchor="middle" fill="#264653" fontSize="13" fontWeight="700">Anterior</text>
+        <text x={cx} y="338" textAnchor="middle" fill="#264653" fontSize="13" fontWeight="700">Posterior</text>
+        <text x="38" y={cy + 4} textAnchor="middle" fill="#264653" fontSize="13" fontWeight="700">Left</text>
+        <text x="482" y={cy + 4} textAnchor="middle" fill="#264653" fontSize="13" fontWeight="700">Right</text>
+
+        {path ? <path d={path} fill="none" stroke="url(#cop-trace)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" opacity="0.95" /> : null}
+        {points.map((point, index) => (
+          <circle key={`${point.x}-${point.y}-${index}`} cx={point.x} cy={point.y} r={index === points.length - 1 ? 0 : 2.2} fill="#277DA1" opacity="0.26" />
+        ))}
+        {start ? <circle cx={start.x} cy={start.y} r="6" fill="#2F7D67" stroke="#FFFFFF" strokeWidth="2" /> : null}
+        {end ? <circle cx={end.x} cy={end.y} r="7" fill="#F94144" stroke="#FFFFFF" strokeWidth="2" /> : null}
+      </svg>
+    </div>
+  );
+}
+
+function buildSwayDensity(samples) {
+  const size = 7;
+  const cells = Array.from({ length: size * size }, (_, index) => ({ x: index % size, y: Math.floor(index / size), count: 0, intensity: 0 }));
+  const maxAxis = Math.max(1, ...samples.flatMap((sample) => [Math.abs(sample.ap), Math.abs(sample.ml)]));
+  samples.forEach((sample) => {
+    const x = Math.max(0, Math.min(size - 1, Math.floor(((sample.ml / maxAxis + 1) / 2) * size)));
+    const y = Math.max(0, Math.min(size - 1, Math.floor(((sample.ap / maxAxis + 1) / 2) * size)));
+    cells[y * size + x].count += 1;
+  });
+  const maxCount = Math.max(1, ...cells.map((cell) => cell.count));
+  return cells.map((cell) => ({ ...cell, intensity: cell.count / maxCount }));
 }
 
 function FullBodyAnalysisPanel({ t, results, analytics }) {

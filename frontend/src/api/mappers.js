@@ -84,6 +84,11 @@ export function sessionFromApi(session, patientLookup = new Map()) {
       meanSwayMl: session.mean_sway_ml,
       maxSwayAp: session.max_sway_ap,
       maxSwayMl: session.max_sway_ml,
+      meanResultantSway: session.mean_resultant_sway,
+      maxResultantSway: session.max_resultant_sway,
+      rmsSway: session.rms_sway,
+      pathLength: session.path_length,
+      sensorQuality: session.sensor_quality,
       swayVelocity: session.sway_velocity,
       instabilityEvents: session.instability_events,
       trunkDeviation: session.trunk_deviation,
@@ -94,7 +99,20 @@ export function sessionFromApi(session, patientLookup = new Map()) {
       status: apiStatusToResultStatus(session.status),
       interpretation: session.interpretation,
       recommendations,
-      samples: (session.posture_samples ?? []).map((sample, index) => ({
+      samples: mergeApiSamples(session.posture_samples ?? [], session.sensor_samples ?? []),
+      sensorSamples: (session.sensor_samples ?? []).map((sample, index) => ({
+        t: Math.round((sample.timestamp_ms ?? index * 1000) / 1000),
+        timestampMs: sample.timestamp_ms,
+        fl: sample.front_left,
+        fr: sample.front_right,
+        rl: sample.rear_left,
+        rr: sample.rear_right,
+        ap: sample.anterior_posterior_sway,
+        ml: sample.medial_lateral_sway,
+        resultant: resultant(sample.anterior_posterior_sway, sample.medial_lateral_sway),
+        stability: sample.stability_score,
+      })),
+      postureSamples: (session.posture_samples ?? []).map((sample, index) => ({
         t: Math.round((sample.timestamp_ms ?? index * 1000) / 1000),
         ap: null,
         ml: null,
@@ -144,6 +162,11 @@ export function sessionToApi(session) {
     mean_sway_ml: results.meanSwayMl ?? null,
     max_sway_ap: results.maxSwayAp ?? null,
     max_sway_ml: results.maxSwayMl ?? null,
+    mean_resultant_sway: results.meanResultantSway ?? null,
+    max_resultant_sway: results.maxResultantSway ?? null,
+    rms_sway: results.rmsSway ?? null,
+    path_length: results.pathLength ?? null,
+    sensor_quality: results.sensorQuality ?? null,
     sway_velocity: results.swayVelocity ?? null,
     instability_events: results.instabilityEvents ?? null,
     trunk_deviation: results.trunkDeviation ?? results.trunkInclination ?? null,
@@ -151,28 +174,42 @@ export function sessionToApi(session) {
     hip_asymmetry: results.hipAsymmetry ?? null,
     body_center_deviation: results.bodyCenterDeviation ?? null,
     interpretation: session.interpretation ?? session.clinician_impression ?? results.interpretation ?? null,
-    posture_samples: (results.samples ?? []).map((sample, index) => ({
-      timestamp_ms: Math.round((sample.t ?? index) * 1000),
-      trunk_inclination: sample.trunkInclination ?? sample.trunkDeviation ?? results.trunkDeviation ?? results.trunkInclination ?? null,
-      shoulder_asymmetry: sample.shoulderAsymmetry ?? results.shoulderAsymmetry ?? null,
-      hip_asymmetry: sample.hipAsymmetry ?? results.hipAsymmetry ?? null,
-      body_center_deviation: sample.bodyCenterDeviation ?? results.bodyCenterDeviation ?? null,
-      posture_score: sample.posture ?? sample.postureScore ?? session.postureScore ?? null,
-      stability_score: sample.stability ?? sample.stabilityScore ?? results.stabilityScore ?? null,
-      body_center_x: sample.bodyCenterX ?? null,
-      body_center_y: sample.bodyCenterY ?? null,
-      shoulder_center_x: sample.shoulderCenterX ?? null,
-      shoulder_center_y: sample.shoulderCenterY ?? null,
-      hip_center_x: sample.hipCenterX ?? null,
-      hip_center_y: sample.hipCenterY ?? null,
-      head_center_x: sample.headCenterX ?? null,
-      head_center_y: sample.headCenterY ?? null,
-      estimated_body_sway: sample.estimatedBodySway ?? null,
-      hand_arm_compensation: sample.handArmCompensation ?? null,
-      movement_label: sample.movementLabel ?? null,
-      movement_intent: sample.movementIntent ?? null,
-      label_confidence: sample.labelConfidence ?? null,
-      raw_landmarks_json: sample.rawLandmarks ? JSON.stringify(sample.rawLandmarks) : null,
+    posture_samples: (results.samples ?? [])
+      .filter((sample) => sample.posture != null || sample.postureScore != null || sample.trunkInclination != null || sample.trunkDeviation != null || sample.bodyCenterX != null)
+      .map((sample, index) => ({
+        timestamp_ms: Math.round((sample.t ?? index) * 1000),
+        trunk_inclination: sample.trunkInclination ?? sample.trunkDeviation ?? results.trunkDeviation ?? results.trunkInclination ?? null,
+        shoulder_asymmetry: sample.shoulderAsymmetry ?? results.shoulderAsymmetry ?? null,
+        hip_asymmetry: sample.hipAsymmetry ?? results.hipAsymmetry ?? null,
+        body_center_deviation: sample.bodyCenterDeviation ?? results.bodyCenterDeviation ?? null,
+        posture_score: sample.posture ?? sample.postureScore ?? session.postureScore ?? null,
+        stability_score: sample.stability ?? sample.stabilityScore ?? results.stabilityScore ?? null,
+        body_center_x: sample.bodyCenterX ?? null,
+        body_center_y: sample.bodyCenterY ?? null,
+        shoulder_center_x: sample.shoulderCenterX ?? null,
+        shoulder_center_y: sample.shoulderCenterY ?? null,
+        hip_center_x: sample.hipCenterX ?? null,
+        hip_center_y: sample.hipCenterY ?? null,
+        head_center_x: sample.headCenterX ?? null,
+        head_center_y: sample.headCenterY ?? null,
+        estimated_body_sway: sample.estimatedBodySway ?? null,
+        hand_arm_compensation: sample.handArmCompensation ?? null,
+        movement_label: sample.movementLabel ?? null,
+        movement_intent: sample.movementIntent ?? null,
+        label_confidence: sample.labelConfidence ?? null,
+        raw_landmarks_json: sample.rawLandmarks ? JSON.stringify(sample.rawLandmarks) : null,
+      })),
+    sensor_samples: (results.samples ?? [])
+      .filter((sample) => sample.ap != null || sample.ml != null || sample.stability != null)
+      .map((sample, index) => ({
+        timestamp_ms: Math.round((sample.t ?? index) * 1000),
+        anterior_posterior_sway: sample.ap ?? null,
+        medial_lateral_sway: sample.ml ?? null,
+      stability_score: sample.stability ?? null,
+      front_left: sample.fl ?? sample.frontLeft ?? null,
+      front_right: sample.fr ?? sample.frontRight ?? null,
+      rear_left: sample.rl ?? sample.rearLeft ?? null,
+      rear_right: sample.rr ?? sample.rearRight ?? null,
     })),
     recommendations: (results.recommendations ?? []).map((text) => ({
       category: "rehabilitation",
@@ -228,6 +265,59 @@ function apiStatusToResultStatus(status) {
   if (status === "Follow-up") return "Moderate instability";
   if (status === "Declining") return "High instability";
   return status ?? "Stable";
+}
+
+function mergeApiSamples(postureSamples, sensorSamples) {
+  const merged = new Map();
+  postureSamples.forEach((sample, index) => {
+    const second = Math.round((sample.timestamp_ms ?? index * 1000) / 1000);
+    merged.set(second, {
+      t: second,
+      ap: null,
+      ml: null,
+      posture: sample.posture_score,
+      stability: sample.stability_score,
+      trunkInclination: sample.trunk_inclination,
+      trunkDeviation: sample.trunk_inclination,
+      shoulderAsymmetry: sample.shoulder_asymmetry,
+      hipAsymmetry: sample.hip_asymmetry,
+      bodyCenterDeviation: sample.body_center_deviation,
+      bodyCenterX: sample.body_center_x,
+      bodyCenterY: sample.body_center_y,
+      shoulderCenterX: sample.shoulder_center_x,
+      shoulderCenterY: sample.shoulder_center_y,
+      hipCenterX: sample.hip_center_x,
+      hipCenterY: sample.hip_center_y,
+      headCenterX: sample.head_center_x,
+      headCenterY: sample.head_center_y,
+      estimatedBodySway: sample.estimated_body_sway,
+      handArmCompensation: sample.hand_arm_compensation,
+      movementLabel: sample.movement_label,
+      movementIntent: sample.movement_intent,
+      labelConfidence: sample.label_confidence,
+    });
+  });
+  sensorSamples.forEach((sample, index) => {
+    const second = Math.round((sample.timestamp_ms ?? index * 1000) / 1000);
+    merged.set(second, {
+      ...(merged.get(second) ?? { t: second, posture: null }),
+      fl: sample.front_left,
+      fr: sample.front_right,
+      rl: sample.rear_left,
+      rr: sample.rear_right,
+      ap: sample.anterior_posterior_sway,
+      ml: sample.medial_lateral_sway,
+      resultant: resultant(sample.anterior_posterior_sway, sample.medial_lateral_sway),
+      stability: sample.stability_score ?? merged.get(second)?.stability,
+    });
+  });
+  return [...merged.values()].sort((a, b) => Number(a.t) - Number(b.t));
+}
+
+function resultant(ap, ml) {
+  const a = Number(ap);
+  const m = Number(ml);
+  return Number.isFinite(a) && Number.isFinite(m) ? Math.round(Math.hypot(a, m) * 10) / 10 : null;
 }
 
 function titleCase(value) {

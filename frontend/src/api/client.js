@@ -9,7 +9,8 @@ import {
   sessionToApi,
 } from "./mappers.js";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8010/api";
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8010/api";
+export const API_WS_BASE_URL = import.meta.env.VITE_API_WS_BASE_URL ?? API_BASE_URL.replace(/^http/, "ws").replace(/\/api$/, "");
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -54,6 +55,10 @@ export const api = {
     const patientLookup = new Map(patients.map((patient) => [patient.id, patient]));
     return sessionFromApi(await request("/sessions", { method: "POST", body: JSON.stringify(sessionToApi(session)) }), patientLookup);
   },
+  updateSession: async (sessionId, payload, patients = []) => {
+    const patientLookup = new Map(patients.map((patient) => [patient.id, patient]));
+    return sessionFromApi(await request(`/sessions/${sessionId}`, { method: "PATCH", body: JSON.stringify(payload) }), patientLookup);
+  },
   computeSession: async (sessionId, patients = []) => {
     const patientLookup = new Map(patients.map((patient) => [patient.id, patient]));
     return sessionFromApi(await request(`/sessions/${sessionId}/compute`, { method: "POST" }), patientLookup);
@@ -69,6 +74,13 @@ export const api = {
   movementTrainingDataset: () => request("/ml/movement-training/dataset"),
   movementModelStatus: () => request("/ml/movement-training/model"),
   trainMovementModel: () => request("/ml/movement-training/train", { method: "POST" }),
+  esp32Ports: () => request("/esp32/ports"),
+  esp32Status: () => request("/esp32/status"),
+  esp32Connect: ({ port, baudRate = 115200, sessionId = null }) => request("/esp32/connect", { method: "POST", body: JSON.stringify({ port, baud_rate: baudRate, session_id: sessionId }) }),
+  esp32Disconnect: () => request("/esp32/disconnect", { method: "POST" }),
+  esp32AttachSession: (sessionId = null) => request("/esp32/session", { method: "POST", body: JSON.stringify({ session_id: sessionId }) }),
+  esp32Calibrate: (durationSeconds = 4) => request("/esp32/calibrate", { method: "POST", body: JSON.stringify({ duration_seconds: durationSeconds }) }),
+  esp32Zero: () => request("/esp32/zero", { method: "POST" }),
   reports: async () => (await request("/reports")).map(reportFromApi),
   createReport: async (report) => reportFromApi(await request("/reports", { method: "POST", body: JSON.stringify(reportToApi(report)) })),
 };

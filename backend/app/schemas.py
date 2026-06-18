@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 AcquisitionMode = Literal["webcam", "demo", "board", "combined", "board_future", "combined_future"]
@@ -38,12 +38,14 @@ class SystemStatus(BaseModel):
 
 
 class PatientBase(BaseModel):
-    patient_code: str | None = None
-    full_name: str
-    age: int | None = None
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    patient_code: str | None = Field(default=None, min_length=1, max_length=32)
+    full_name: str = Field(min_length=1, max_length=160)
+    age: int | None = Field(default=None, ge=0, le=120)
     sex: str | None = None
-    height_cm: float | None = None
-    weight_kg: float | None = None
+    height_cm: float | None = Field(default=None, gt=0, le=260)
+    weight_kg: float | None = Field(default=None, gt=0, le=350)
     dominant_side: str | None = None
     pathology: str | None = None
     clinical_goal: str | None = None
@@ -55,11 +57,13 @@ class PatientCreate(PatientBase):
 
 
 class PatientUpdate(BaseModel):
-    full_name: str | None = None
-    age: int | None = None
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    full_name: str | None = Field(default=None, min_length=1, max_length=160)
+    age: int | None = Field(default=None, ge=0, le=120)
     sex: str | None = None
-    height_cm: float | None = None
-    weight_kg: float | None = None
+    height_cm: float | None = Field(default=None, gt=0, le=260)
+    weight_kg: float | None = Field(default=None, gt=0, le=350)
     dominant_side: str | None = None
     pathology: str | None = None
     clinical_goal: str | None = None
@@ -79,7 +83,7 @@ class PatientRead(PatientBase):
 
 
 class SensorSampleBase(BaseModel):
-    timestamp_ms: int
+    timestamp_ms: int = Field(ge=0)
     front_left: float | None = None
     front_right: float | None = None
     rear_left: float | None = None
@@ -97,13 +101,13 @@ class SensorSampleRead(SensorSampleBase):
 
 
 class PostureSampleBase(BaseModel):
-    timestamp_ms: int
-    trunk_inclination: float | None = None
-    shoulder_asymmetry: float | None = None
-    hip_asymmetry: float | None = None
-    body_center_deviation: float | None = None
-    posture_score: float | None = None
-    stability_score: float | None = None
+    timestamp_ms: int = Field(ge=0)
+    trunk_inclination: float | None = Field(default=None, ge=0)
+    shoulder_asymmetry: float | None = Field(default=None, ge=0)
+    hip_asymmetry: float | None = Field(default=None, ge=0)
+    body_center_deviation: float | None = Field(default=None, ge=0)
+    posture_score: float | None = Field(default=None, ge=0, le=100)
+    stability_score: float | None = Field(default=None, ge=0, le=100)
     body_center_x: float | None = None
     body_center_y: float | None = None
     shoulder_center_x: float | None = None
@@ -112,8 +116,8 @@ class PostureSampleBase(BaseModel):
     hip_center_y: float | None = None
     head_center_x: float | None = None
     head_center_y: float | None = None
-    estimated_body_sway: float | None = None
-    hand_arm_compensation: float | None = None
+    estimated_body_sway: float | None = Field(default=None, ge=0)
+    hand_arm_compensation: float | None = Field(default=None, ge=0)
     movement_label: MovementLabelName | None = None
     movement_intent: MovementIntent | None = None
     label_confidence: float | None = None
@@ -128,8 +132,10 @@ class PostureSampleRead(PostureSampleBase):
 
 
 class RecommendationBase(BaseModel):
-    category: str
-    recommendation_en: str
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    category: str = Field(min_length=1, max_length=80)
+    recommendation_en: str = Field(min_length=1)
     recommendation_fr: str | None = None
     priority: RecommendationPriority = "medium"
 
@@ -142,12 +148,20 @@ class RecommendationRead(RecommendationBase):
 
 
 class MovementLabelBase(BaseModel):
-    start_ms: int
-    end_ms: int
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(ge=0)
     label: MovementLabelName
     intent: MovementIntent | None = None
     confidence: float | None = Field(default=None, ge=0, le=1)
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def validate_time_range(self):
+        if self.end_ms < self.start_ms:
+            raise ValueError("end_ms must be greater than or equal to start_ms")
+        return self
 
 
 class MovementLabelCreate(MovementLabelBase):
@@ -216,30 +230,43 @@ class SessionBase(BaseModel):
     test_type: TestType
     support_ring: SupportRing
     visual_condition: VisualCondition
-    duration_seconds: int = 30
+    duration_seconds: int = Field(default=30, gt=0, le=600)
     notes: str | None = None
     status: SessionStatus | None = None
-    total_balance_score: float | None = None
-    board_stability_score: float | None = None
-    posture_stability_score: float | None = None
-    mean_sway_ap: float | None = None
-    mean_sway_ml: float | None = None
-    max_sway_ap: float | None = None
-    max_sway_ml: float | None = None
-    sway_velocity: float | None = None
-    instability_events: int | None = None
-    trunk_deviation: float | None = None
-    shoulder_asymmetry: float | None = None
-    hip_asymmetry: float | None = None
-    body_center_deviation: float | None = None
+    total_balance_score: float | None = Field(default=None, ge=0, le=100)
+    board_stability_score: float | None = Field(default=None, ge=0, le=100)
+    posture_stability_score: float | None = Field(default=None, ge=0, le=100)
+    mean_sway_ap: float | None = Field(default=None, ge=0)
+    mean_sway_ml: float | None = Field(default=None, ge=0)
+    max_sway_ap: float | None = Field(default=None, ge=0)
+    max_sway_ml: float | None = Field(default=None, ge=0)
+    mean_resultant_sway: float | None = Field(default=None, ge=0)
+    max_resultant_sway: float | None = Field(default=None, ge=0)
+    rms_sway: float | None = Field(default=None, ge=0)
+    path_length: float | None = Field(default=None, ge=0)
+    sensor_quality: float | None = Field(default=None, ge=0, le=100)
+    sway_velocity: float | None = Field(default=None, ge=0)
+    instability_events: int | None = Field(default=None, ge=0)
+    trunk_deviation: float | None = Field(default=None, ge=0)
+    shoulder_asymmetry: float | None = Field(default=None, ge=0)
+    hip_asymmetry: float | None = Field(default=None, ge=0)
+    body_center_deviation: float | None = Field(default=None, ge=0)
     interpretation: str | None = None
 
 
 class SessionCreate(SessionBase):
-    sensor_samples: list[SensorSampleBase] = []
-    posture_samples: list[PostureSampleBase] = []
-    recommendations: list[RecommendationBase] = []
-    movement_labels: list[MovementLabelCreate] = []
+    sensor_samples: list[SensorSampleBase] = Field(default_factory=list)
+    posture_samples: list[PostureSampleBase] = Field(default_factory=list)
+    recommendations: list[RecommendationBase] = Field(default_factory=list)
+    movement_labels: list[MovementLabelCreate] = Field(default_factory=list)
+
+
+class SessionUpdate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    notes: str | None = None
+    interpretation: str | None = None
+    status: SessionStatus | None = None
 
 
 class SensorSamplesAppend(BaseModel):
@@ -252,10 +279,10 @@ class SessionRead(SessionBase):
     id: int
     created_at: datetime
     updated_at: datetime
-    sensor_samples: list[SensorSampleRead] = []
-    posture_samples: list[PostureSampleRead] = []
-    recommendations: list[RecommendationRead] = []
-    movement_labels: list[MovementLabelRead] = []
+    sensor_samples: list[SensorSampleRead] = Field(default_factory=list)
+    posture_samples: list[PostureSampleRead] = Field(default_factory=list)
+    recommendations: list[RecommendationRead] = Field(default_factory=list)
+    movement_labels: list[MovementLabelRead] = Field(default_factory=list)
 
 
 class ReportBase(BaseModel):

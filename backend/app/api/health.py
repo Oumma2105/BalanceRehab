@@ -1,5 +1,9 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
+from app.database import get_db
 from app.schemas import HealthResponse, SystemStatus
 
 router = APIRouter(tags=["health"])
@@ -10,23 +14,38 @@ def _get_board_manager():
     return manager
 
 
+def _get_serial_service():
+    from app.services.serial_acquisition import serial_service
+    return serial_service
+
+
 @router.get("/health", response_model=HealthResponse)
-def health_check() -> HealthResponse:
+def health_check(db: Session = Depends(get_db)) -> HealthResponse:
+    database_status = database_health(db)
     return HealthResponse(
-        status="ok",
+        status="ok" if database_status == "active" else "degraded",
         app="BalanceRehab API",
-        database="active",
+        database=database_status,
         default_mode="webcam",
     )
 
 
 @router.get("/settings/status", response_model=SystemStatus)
-def system_status() -> SystemStatus:
+def system_status(db: Session = Depends(get_db)) -> SystemStatus:
     board_connected = _get_board_manager().has_clients()
+    serial_connected = _get_serial_service().status()["connected"]
     return SystemStatus(
-        database="active",
-        demo_mode=True,
+        database=database_health(db),
+        demo_mode=False,
         webcam="available",
-        esp32="connected" if board_connected else "not_connected",
+        esp32="connected" if board_connected or serial_connected else "not_connected",
         acquisition_modes=["webcam", "demo", "board", "combined"],
     )
+
+
+def database_health(db: Session) -> str:
+    try:
+        db.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        return "unavailable"
+    return "active"

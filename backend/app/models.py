@@ -1,4 +1,8 @@
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _now():
+    return datetime.now(timezone.utc)
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -20,12 +24,8 @@ class Patient(Base):
     pathology: Mapped[str | None] = mapped_column(String(240), nullable=True)
     clinical_goal: Mapped[str | None] = mapped_column(String(240), nullable=True)
     clinical_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
     sessions: Mapped[list["Session"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
 
@@ -50,6 +50,11 @@ class Session(Base):
     mean_sway_ml: Mapped[float | None] = mapped_column(Float, nullable=True)
     max_sway_ap: Mapped[float | None] = mapped_column(Float, nullable=True)
     max_sway_ml: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mean_resultant_sway: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_resultant_sway: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rms_sway: Mapped[float | None] = mapped_column(Float, nullable=True)
+    path_length: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sensor_quality: Mapped[float | None] = mapped_column(Float, nullable=True)
     sway_velocity: Mapped[float | None] = mapped_column(Float, nullable=True)
     instability_events: Mapped[int | None] = mapped_column(Integer, nullable=True)
     trunk_deviation: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -57,12 +62,8 @@ class Session(Base):
     hip_asymmetry: Mapped[float | None] = mapped_column(Float, nullable=True)
     body_center_deviation: Mapped[float | None] = mapped_column(Float, nullable=True)
     interpretation: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
     patient: Mapped["Patient"] = relationship(back_populates="sessions")
     sensor_samples: Mapped[list["SensorSample"]] = relationship(back_populates="session", cascade="all, delete-orphan")
@@ -130,7 +131,7 @@ class MovementLabel(Base):
     intent: Mapped[str | None] = mapped_column(String(64), nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     session: Mapped["Session"] = relationship(back_populates="movement_labels")
 
@@ -147,7 +148,7 @@ class Report(Base):
     acquisition_mode: Mapped[str] = mapped_column(String(16), default="demo")
     downloadable: Mapped[bool] = mapped_column(Boolean, default=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    generated_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     session: Mapped["Session"] = relationship(back_populates="reports")
 

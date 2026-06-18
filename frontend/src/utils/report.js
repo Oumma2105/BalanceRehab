@@ -148,16 +148,18 @@ function drawResultsPage(doc, { patient, session, results, t }) {
     y = sectionTitle(doc, t.swayMetrics ?? "Sway Metrics", y);
     y = drawTable(doc, {
       y,
-      columns: [t.pdfApSwayMean ?? "AP Sway Mean", t.pdfMlSwayMean ?? "ML Sway Mean", t.pdfApSwayMax ?? "AP Sway Max", t.pdfMlSwayMax ?? "ML Sway Max", t.swayVelocity ?? "Sway Velocity"],
+      columns: [t.pdfApSwayMean ?? "AP Mean", t.pdfMlSwayMean ?? "ML Mean", t.pathLength ?? "Path length", t.rmsSway ?? "RMS", t.swayVelocity ?? "Velocity"],
       widths: [36, 36, 36, 36, 36],
       rows: [[
-        `${valueOrDash(results.meanSwayAp)} mm`,
-        `${valueOrDash(results.meanSwayMl)} mm`,
-        `${valueOrDash(results.maxSwayAp)} mm`,
-        `${valueOrDash(results.maxSwayMl)} mm`,
-        `${valueOrDash(results.swayVelocity)} mm/s`,
+        `${valueOrDash(results.meanSwayAp)} cm`,
+        `${valueOrDash(results.meanSwayMl)} cm`,
+        `${valueOrDash(results.pathLength)} cm`,
+        `${valueOrDash(results.rmsSway)} cm`,
+        `${valueOrDash(results.swayVelocity)} cm/s`,
       ]],
     });
+    y += 8;
+    y = drawUltrasonicDisclaimer(doc, y);
   } else {
     y += 12;
     doc.setFillColor(255, 247, 237);
@@ -203,9 +205,9 @@ function drawInterpretationPage(doc, { session, results, recommendations, t }) {
 function drawTrendAppendixPage(doc, { results, t }) {
   doc.addPage();
   let y = 32;
-  y = sectionTitle(doc, t.pdfTrendSummary ?? "Assessment Trend Summary", y);
+  y = sectionTitle(doc, results.availableMetrics?.board ? (t.pdfPosturographySummary ?? "Estimated Board Sway Graphs") : (t.pdfTrendSummary ?? "Assessment Trend Summary"), y);
 
-  const samples = results.samples ?? [];
+  const samples = results.sensorSamples?.length ? results.sensorSamples : results.samples ?? [];
   if (!samples.length) {
     drawTextBlock(doc, t.pdfNoSamples ?? "Time-series posture samples were not recorded for this session.", y);
     return;
@@ -214,24 +216,28 @@ function drawTrendAppendixPage(doc, { results, t }) {
   doc.setTextColor(...MUTED);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
-  doc.text(t.pdfSamplesCaptured ?? "Posture stability samples captured during the assessment.", MARGIN, y);
+  doc.text(results.availableMetrics?.board ? (t.pdfBoardSamplesCaptured ?? "ESP32 ultrasonic board samples captured during the assessment.") : (t.pdfSamplesCaptured ?? "Posture stability samples captured during the assessment."), MARGIN, y);
   y += 12;
 
-  drawMiniLineChart(doc, samples, {
-    x: MARGIN,
-    y,
-    width: CONTENT_W,
-    height: 72,
-    key: "posture",
-    min: 0,
-    max: 100,
-    color: PRIMARY,
-    label: t.pdfPostureOverTime ?? "Posture Stability Over Time",
-  });
-
   if (results.availableMetrics?.board) {
-    drawSwayScatter(doc, samples, MARGIN, y + 94, CONTENT_W, 72, t);
+    y = drawUltrasonicDisclaimer(doc, y);
+    drawSwayScatter(doc, samples, MARGIN, y + 2, CONTENT_W, 62, t);
+    drawSwayStabilogram(doc, samples, MARGIN, y + 82, 86, 48, "ap", ORANGE, t.apStabilogram ?? "AP stabilogram");
+    drawSwayStabilogram(doc, samples, MARGIN + 94, y + 82, 86, 48, "ml", [39, 125, 161], t.mlStabilogram ?? "ML stabilogram");
+    drawSwayStabilogram(doc, samples.map((sample) => ({ ...sample, resultant: resultant(sample.ap, sample.ml) })), MARGIN, y + 150, CONTENT_W, 48, "resultant", RED, t.resultantSwayOverTime ?? "Resultant sway over time");
+    drawSwayDensity(doc, samples, MARGIN + 126, y + 2, 54, 54, t);
   } else {
+    drawMiniLineChart(doc, samples, {
+      x: MARGIN,
+      y,
+      width: CONTENT_W,
+      height: 72,
+      key: "posture",
+      min: 0,
+      max: 100,
+      color: PRIMARY,
+      label: t.pdfPostureOverTime ?? "Posture Stability Over Time",
+    });
     doc.setFillColor(248, 250, 252);
     doc.setDrawColor(...LINE);
     doc.roundedRect(MARGIN, y + 94, CONTENT_W, 34, 3, 3, "FD");
@@ -240,6 +246,18 @@ function drawTrendAppendixPage(doc, { results, t }) {
     doc.setFontSize(10);
     doc.text(t.swayPathAvailableBoard ?? "Sway path available with ESP32 balance board.", MARGIN + 5, y + 114);
   }
+}
+
+function drawUltrasonicDisclaimer(doc, y) {
+  const text = "Indicateurs estimés à partir de capteurs ultrasoniques, non équivalents à une plateforme de force médicale.";
+  doc.setFillColor(239, 246, 255);
+  doc.setDrawColor(191, 219, 254);
+  doc.roundedRect(MARGIN, y, CONTENT_W, 16, 3, 3, "FD");
+  doc.setTextColor(30, 64, 175);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  doc.text(text, MARGIN + 4, y + 10, { maxWidth: CONTENT_W - 8 });
+  return y + 22;
 }
 
 function drawSignaturePage(doc, { generatedAt, clinicianName, clinicianRole, t }) {
@@ -427,7 +445,7 @@ function drawSwayScatter(doc, samples, x, y, width, height, t) {
   doc.setTextColor(...TEXT);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.text(t.estimatedMovementPath ?? "Estimated movement path", x, y - 4);
+  doc.text(t.estimatedMovementPath ?? "Estimated board sway trace", x, y - 4);
   doc.setDrawColor(...LINE);
   doc.rect(x, y, width, height, "S");
   doc.setDrawColor(...ORANGE);
@@ -437,10 +455,73 @@ function drawSwayScatter(doc, samples, x, y, width, height, t) {
   samples
     .filter((sample) => sample.ap != null && sample.ml != null)
     .forEach((sample) => {
-      const px = x + width / 2 + Number(sample.ml);
-      const py = y + height / 2 - Number(sample.ap);
+      const scale = swayScale(samples, Math.min(width, height) * 0.42);
+      const px = x + width / 2 + Number(sample.ml) * scale;
+      const py = y + height / 2 - Number(sample.ap) * scale;
       doc.circle(Math.max(x + 2, Math.min(x + width - 2, px)), Math.max(y + 2, Math.min(y + height - 2, py)), 0.8, "F");
     });
+}
+
+function drawSwayStabilogram(doc, samples, x, y, width, height, key, color, label) {
+  doc.setTextColor(...TEXT);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text(label, x, y - 3);
+  doc.setDrawColor(...LINE);
+  doc.rect(x, y, width, height, "S");
+  const values = samples.map((sample) => Number(sample[key])).filter(Number.isFinite);
+  const maxAbs = Math.max(1, ...values.map(Math.abs));
+  doc.setDrawColor(226, 232, 240);
+  doc.line(x, y + height / 2, x + width, y + height / 2);
+  doc.setDrawColor(...color);
+  doc.setLineWidth(0.45);
+  samples.forEach((sample, index) => {
+    if (index === 0) return;
+    const prev = samples[index - 1];
+    if (!Number.isFinite(Number(prev[key])) || !Number.isFinite(Number(sample[key]))) return;
+    const x1 = x + ((index - 1) / Math.max(1, samples.length - 1)) * width;
+    const x2 = x + (index / Math.max(1, samples.length - 1)) * width;
+    const y1 = y + height / 2 - (Number(prev[key]) / maxAbs) * (height * 0.42);
+    const y2 = y + height / 2 - (Number(sample[key]) / maxAbs) * (height * 0.42);
+    doc.line(x1, y1, x2, y2);
+  });
+  doc.setLineWidth(0.2);
+}
+
+function drawSwayDensity(doc, samples, x, y, width, height, t) {
+  doc.setTextColor(...TEXT);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text(t.swayDensityMap ?? "Density map", x, y - 4);
+  const size = 7;
+  const cellW = width / size;
+  const cellH = height / size;
+  const cells = Array.from({ length: size * size }, () => 0);
+  const maxAxis = Math.max(1, ...samples.flatMap((sample) => [Math.abs(Number(sample.ap) || 0), Math.abs(Number(sample.ml) || 0)]));
+  samples.forEach((sample) => {
+    const cx = Math.max(0, Math.min(size - 1, Math.floor((((Number(sample.ml) || 0) / maxAxis + 1) / 2) * size)));
+    const cy = Math.max(0, Math.min(size - 1, Math.floor((((Number(sample.ap) || 0) / maxAxis + 1) / 2) * size)));
+    cells[cy * size + cx] += 1;
+  });
+  const maxCount = Math.max(1, ...cells);
+  cells.forEach((count, index) => {
+    const intensity = count / maxCount;
+    doc.setFillColor(232 - intensity * 160, 248 - intensity * 78, 240 - intensity * 101);
+    doc.rect(x + (index % size) * cellW, y + Math.floor(index / size) * cellH, cellW - 0.5, cellH - 0.5, "F");
+  });
+  doc.setDrawColor(...LINE);
+  doc.rect(x, y, width, height, "S");
+}
+
+function swayScale(samples, radius) {
+  const maxAxis = Math.max(1, ...samples.flatMap((sample) => [Math.abs(Number(sample.ap) || 0), Math.abs(Number(sample.ml) || 0)]));
+  return radius / maxAxis;
+}
+
+function resultant(ap, ml) {
+  const a = Number(ap);
+  const m = Number(ml);
+  return Number.isFinite(a) && Number.isFinite(m) ? Math.hypot(a, m) : null;
 }
 
 function getSeverity(score = 0, t = {}) {
