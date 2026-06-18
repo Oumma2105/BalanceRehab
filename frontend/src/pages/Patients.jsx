@@ -40,10 +40,12 @@ export function PatientsPage({
   onLoadPatientSessions,
   onDownloadSessionReport,
   addRequest,
+  onAddRequestHandled,
   profileRequest,
   onProfileRequestHandled,
 }) {
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [selectedId, setSelectedId] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editingPatient, setEditingPatient] = useState(null);
@@ -54,8 +56,9 @@ export function PatientsPage({
     if (addRequest) {
       setEditingPatient(null);
       setFormOpen(true);
+      onAddRequestHandled?.();
     }
-  }, [addRequest]);
+  }, [addRequest, onAddRequestHandled]);
 
   useEffect(() => {
     if (profileRequest?.patientId) {
@@ -77,11 +80,12 @@ export function PatientsPage({
   const selectedPatient = patients.find((patient) => patient.id === selectedId);
   const filteredPatients = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return patients;
-    return patients.filter((patient) =>
+    let list = statusFilter !== "all" ? patients.filter((p) => p.status === statusFilter) : patients;
+    if (!normalized) return list;
+    return list.filter((patient) =>
       [patient.fullName, patient.patientCode].join(" ").toLowerCase().includes(normalized),
     );
-  }, [patients, query]);
+  }, [patients, query, statusFilter]);
   const activePatients = patients.filter((patient) => patient.status !== "No sessions").length;
   const followUpPatients = patients.filter((patient) => patient.status === "Follow-up" || patient.status === "Declining" || Number(patient.latestScore) < 70).length;
   const averageScore = averageScoreValue(patients.map((patient) => patient.latestScore));
@@ -113,32 +117,53 @@ export function PatientsPage({
     <div className="space-y-5">
       <section className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-semibold text-rehab-ink">{t.patients}</h1>
-          <p className="mt-2 text-sm text-rehab-muted">{t.searchAddOpenPatients}</p>
+          <p className="text-sm text-rehab-muted">{t.searchAddOpenPatients}</p>
         </div>
         <Button onClick={() => setFormOpen(true)}>
           <Plus size={17} /> {t.addPatient}
         </Button>
       </section>
 
+      {/* KPI strip */}
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <PatientKpi icon={UsersRound} label={t.totalPatients} value={patients.length} helper={t.patientsInProgram ?? "in program"} color="#277DA1" />
+        <PatientKpi icon={Activity} label={t.activePatients} value={activePatients} helper={t.withRecentActivity ?? "with recent activity"} color="#43AA8B" />
+        <PatientKpi icon={AlertTriangle} label={t.followUpQueue} value={followUpPatients} helper={t.patientsToReview ?? "need review"} color="#F8961E" />
+        <PatientKpi icon={Target} label={t.averageScore} value={averageScore ? `${averageScore}/100` : "-"} helper={t.acrossAllPatients ?? "across all patients"} color="#90BE6D" />
+      </section>
+
       <ClinicalCard className="p-5">
-        <div className="mb-5 grid gap-3 md:grid-cols-4">
-          <PatientKpi icon={UsersRound} label={t.totalPatients} value={patients.length} color="#577590" bg="bg-blue-50" />
-          <PatientKpi icon={Activity} label={t.activePatients} value={activePatients} color="#43AA8B" bg="bg-teal-50" />
-          <PatientKpi icon={AlertTriangle} label={t.followUpQueue} value={followUpPatients} color="#F8961E" bg="bg-orange-50" />
-          <PatientKpi icon={Target} label={t.averageScore} value={averageScore ? `${averageScore}/100` : "-"} color="#90BE6D" bg="bg-emerald-50" />
+        {/* Search + filter row */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-rehab-muted" size={16} />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t.searchPatientNameId}
+              className="w-full rounded-lg border border-rehab-line bg-white py-2.5 pl-9 pr-3 text-sm outline-none transition focus:border-rehab-teal focus:ring-2 focus:ring-rehab-teal/10"
+            />
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {["all", "Stable", "Improving", "Follow-up", "Declining"].map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setStatusFilter(f)}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                  statusFilter === f
+                    ? "text-white shadow-sm"
+                    : "bg-slate-100 text-rehab-muted hover:bg-slate-200"
+                }`}
+                style={statusFilter === f ? { backgroundColor: filterPillColor(f) } : {}}
+              >
+                {f === "all" ? (t.all ?? "All") : statusLabel(t, f)}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="relative rounded-xl border border-rehab-line bg-slate-50/70 p-1">
-          <Search className="absolute left-3 top-3 text-rehab-muted" size={18} />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t.searchPatientNameId}
-            className="w-full rounded-lg border border-transparent bg-white py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-rehab-teal focus:ring-2 focus:ring-rehab-teal/10"
-          />
-        </div>
-
+        {/* Patient card grid */}
         <div className="mt-5">
           {filteredPatients.length === 0 ? (
             <EmptyState
@@ -148,38 +173,57 @@ export function PatientsPage({
               onAction={() => setFormOpen(true)}
             />
           ) : (
-            <ClinicalTable
-              columns={[t.patient, t.pathology, t.latestScore, t.lastAssessment, t.status, t.action]}
-              rows={filteredPatients}
-              renderRow={(patient) => (
-                <tr key={patient.id} className={`${patientRowClass(patient)} transition hover:bg-slate-50`}>
-                  <td className="px-4 py-3">
-                    <button type="button" onClick={() => setSelectedId(patient.id)} className="flex items-center gap-3 text-left">
-                      <span className="grid h-10 w-10 place-items-center rounded-xl bg-rehab-blue/10 text-xs font-semibold text-rehab-blue">
-                        {initials(patient.fullName)}
-                      </span>
-                      <span>
-                        <p className="font-semibold text-rehab-ink">{patient.fullName}</p>
-                        <p className="text-xs text-rehab-muted">{patient.patientCode}</p>
-                      </span>
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 text-rehab-muted">{patient.pathology || "-"}</td>
-                  <td className="px-4 py-3">
-                    <ScoreIndicator score={patient.latestScore} />
-                  </td>
-                  <td className="px-4 py-3 text-rehab-muted">{patient.lastAssessmentDate ?? "-"}</td>
-                  <td className="px-4 py-3">
-                    <StatusBadge tone={statusTone[patient.status] ?? "neutral"}>{statusLabel(t, patient.status)}</StatusBadge>
-                  </td>
-                  <td className="px-4 py-3">
-                    <Button variant="secondary" className="px-3 py-1.5 shadow-sm" onClick={() => setSelectedId(patient.id)}>
-                      {t.viewProfile}
-                    </Button>
-                  </td>
-                </tr>
-              )}
-            />
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {filteredPatients.map((patient) => {
+                const sc = statusColor(patient);
+                return (
+                  <button
+                    key={patient.id}
+                    type="button"
+                    onClick={() => setSelectedId(patient.id)}
+                    className="group relative flex items-start gap-4 overflow-hidden rounded-xl border border-rehab-line bg-white p-4 text-left shadow-card transition hover:border-rehab-teal/40 hover:shadow-md"
+                  >
+                    {/* Status accent strip */}
+                    <span className="absolute inset-y-0 left-0 w-1 rounded-l-xl" style={{ backgroundColor: sc }} />
+                    {/* Avatar */}
+                    <span
+                      className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-xl text-sm font-bold text-white"
+                      style={{ backgroundColor: sc }}
+                    >
+                      {initials(patient.fullName)}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-rehab-ink">{patient.fullName}</p>
+                          <p className="text-xs text-rehab-muted">{patient.patientCode}</p>
+                        </div>
+                        <StatusBadge tone={statusTone[patient.status] ?? "neutral"}>
+                          {statusLabel(t, patient.status)}
+                        </StatusBadge>
+                      </div>
+                      <p className="mt-1.5 truncate text-xs text-rehab-muted">{patient.pathology || "-"}</p>
+                      {patient.latestScore != null ? (
+                        <div className="mt-2">
+                          <div className="mb-1 flex items-center justify-between gap-2">
+                            <span className="text-xs font-semibold text-rehab-ink">{patient.latestScore}/100</span>
+                            <span className="text-xs text-rehab-muted">{patient.lastAssessmentDate ?? "-"}</span>
+                          </div>
+                          <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{ width: `${Math.min(100, Math.max(0, Number(patient.latestScore)))}%`, backgroundColor: sc }}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-xs text-rehab-muted">{t.noSessionsYet ?? "No assessments yet"}</p>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
       </ClinicalCard>
@@ -839,19 +883,30 @@ function preparePatientPayload(form) {
   };
 }
 
-function PatientKpi({ icon: Icon, label, value, color, bg }) {
+function PatientKpi({ icon: Icon, label, value, helper, color }) {
   return (
-    <div className={`rounded-xl border border-white p-4 ${bg}`}>
-      <div className="flex items-center justify-between gap-3">
-        <span className="grid h-9 w-9 place-items-center rounded-lg text-white" style={{ backgroundColor: color }}>
-          <Icon size={17} />
-        </span>
-        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+    <div className="rounded-xl p-5 text-white shadow-card" style={{ backgroundColor: color }}>
+      <div className="grid h-10 w-10 place-items-center rounded-xl bg-white/20">
+        <Icon size={18} />
       </div>
-      <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-rehab-muted">{label}</p>
-      <p className="mt-1 text-2xl font-semibold text-rehab-ink">{value}</p>
+      <p className="mt-4 text-sm font-medium text-white/75">{label}</p>
+      <p className="mt-1 text-3xl font-bold">{value}</p>
+      <p className="mt-2 text-xs text-white/60">{helper}</p>
     </div>
   );
+}
+
+function statusColor(patient) {
+  if (patient.status === "Declining" || Number(patient.latestScore) < 45) return "#F94144";
+  if (patient.status === "Follow-up" || Number(patient.latestScore) < 60) return "#F8961E";
+  if (patient.status === "Stable" || Number(patient.latestScore) >= 80) return "#43AA8B";
+  if (patient.status === "Improving") return "#90BE6D";
+  return "#577590";
+}
+
+function filterPillColor(f) {
+  const map = { all: "#277DA1", Stable: "#43AA8B", Improving: "#90BE6D", "Follow-up": "#F8961E", Declining: "#F94144" };
+  return map[f] ?? "#277DA1";
 }
 
 function ScoreIndicator({ score }) {
@@ -874,11 +929,6 @@ function ScoreIndicator({ score }) {
   );
 }
 
-function patientRowClass(patient) {
-  if (patient.status === "Declining" || Number(patient.latestScore) < 65) return "bg-rose-50/45";
-  if (patient.status === "Follow-up" || Number(patient.latestScore) < 72) return "bg-amber-50/45";
-  return "bg-white";
-}
 
 function statusLabel(t, status) {
   const labels = {

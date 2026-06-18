@@ -242,6 +242,7 @@ export default function App() {
           onLoadPatientSessions={backendReady ? loadPatientSessions : null}
           onDownloadSessionReport={downloadReportForSession}
           addRequest={patientAddRequest}
+          onAddRequestHandled={() => setPatientAddRequest(0)}
           profileRequest={patientProfileRequest}
           onProfileRequestHandled={() => setPatientProfileRequest(null)}
         />

@@ -63,7 +63,7 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
   const [report, setReport] = useState(null);
 
   const selectedPatient = patients.find((patient) => patient.id === selectedPatientId);
-  const steps = [t.selectPatient, t.configureTest, t.preparation, t.liveAssessment, t.results, t.reportStep];
+  const steps = [t.setup ?? "Setup", t.record ?? "Record", t.review ?? "Review"];
   const activeSource = useMemo(() => createAssessmentSource({ mode: config.acquisitionMode, config, t }), [config, t]);
   const countdownIntervalRef = useRef(null);
   const countdownLostTimeoutRef = useRef(null);
@@ -73,13 +73,13 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
     if (preselectedPatientId) {
       setSelectedPatientId(preselectedPatientId);
       setWorkflowOpen(true);
-      setStep(1);
+      setStep(0);
       onClearPreselectedPatient();
     }
   }, [preselectedPatientId, onClearPreselectedPatient]);
 
   useEffect(() => {
-    onWorkflowFocusChange?.(workflowOpen && step === 3);
+    onWorkflowFocusChange?.(workflowOpen && step === 1);
     return () => onWorkflowFocusChange?.(false);
   }, [workflowOpen, step, onWorkflowFocusChange]);
 
@@ -107,7 +107,7 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
       activeSource.stop();
       setWebcamStream(null);
       setResults(finalResults);
-      setStep(4);
+      setStep(2);
       completionTimeoutRef.current = null;
     }, 900);
   };
@@ -140,7 +140,7 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
   };
 
   useEffect(() => {
-    if (!workflowOpen || step !== 3 || results || assessmentPhase !== "positioning") return;
+    if (!workflowOpen || step !== 1 || results || assessmentPhase !== "positioning") return;
     const calibrationReady = config.acquisitionMode === acquisitionModes.demo || poseState?.readiness?.ready;
     if (calibrationReady) {
       startCalibrationCountdown();
@@ -148,7 +148,7 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
   }, [workflowOpen, step, config.acquisitionMode, results, assessmentPhase, poseState]);
 
   useEffect(() => {
-    if (step !== 3 || assessmentPhase !== "countdown" || config.acquisitionMode !== acquisitionModes.webcam) return;
+    if (step !== 1 || assessmentPhase !== "countdown" || config.acquisitionMode !== acquisitionModes.webcam) return;
 
     if (poseState?.readiness?.ready) {
       if (countdownLostTimeoutRef.current) {
@@ -170,7 +170,7 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
   }, [step, assessmentPhase, config.acquisitionMode, poseState]);
 
   useEffect(() => {
-    if (!workflowOpen || step !== 3 || results || assessmentPhase !== "assessing" || !assessmentRunning) return;
+    if (!workflowOpen || step !== 1 || results || assessmentPhase !== "assessing" || !assessmentRunning) return;
 
     const timer = window.setInterval(() => {
       setElapsed((current) => {
@@ -206,8 +206,7 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
       <div className="space-y-5">
         <section className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-semibold text-rehab-ink">{t.balanceAssessment}</h1>
-            <p className="mt-2 text-sm text-rehab-muted">{t.balanceAssessmentDesc}</p>
+            <p className="text-sm text-rehab-muted">{t.balanceAssessmentDesc}</p>
           </div>
           <Button onClick={() => setWorkflowOpen(true)}>{t.startNewAssessment}</Button>
         </section>
@@ -254,27 +253,85 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
       : config.acquisitionMode === acquisitionModes.demo
         ? checklist.webcam && checklist.supervision
       : Object.values(checklist).every(Boolean);
-  const currentStepLabel = template(t.stepOfTotal, { current: step + 1, total: 6, step: steps[step] });
+  const currentStepLabel = template(t.stepOfTotal, { current: step + 1, total: 3, step: steps[step] });
+
+  const handleStartRecording = async () => {
+    clearCountdownInterval();
+    setElapsed(0);
+    setResults(null);
+    setSourceError("");
+    setPoseState(null);
+    setCountdown(null);
+    setAssessmentPhase("positioning");
+    setAssessmentRunning(false);
+    try {
+      await activeSource.start();
+      const sourceStream = activeSource.getStream?.() ?? null;
+      setWebcamStream(sourceStream || null);
+      setLiveFrame(activeSource.getFrame(0));
+      setStep(1);
+    } catch (error) {
+      console.warn("Webcam acquisition could not start.", error);
+      setSourceError(t.webcamPermissionDenied);
+    }
+  };
+
+  const handleGenerateReport = async () => {
+    const reportId = `R-${Date.now().toString().slice(-5)}`;
+    const newReport = {
+      id: reportId,
+      reportId,
+      patientId: selectedPatient.id,
+      patientCode: selectedPatient.patientCode,
+      sessionId: savedSession.id,
+      patient: selectedPatient.fullName,
+      createdAt: new Date().toISOString(),
+      generatedAt: new Date().toLocaleString(),
+      downloadable: true,
+      language: "FR",
+      acquisitionMode: savedSession.acquisitionMode,
+      acquisitionModeKey: savedSession.acquisitionModeKey,
+      summary: template(t.reportSummaryTemplate, {
+        test: testTypeLabel(t, savedSession.testType),
+        condition: conditionLabel(t, savedSession.condition),
+        score: savedSession.totalScore,
+        status: statusLabel(t, savedSession.status),
+      }),
+    };
+    const saved = await onSaveReport(newReport);
+    setReport(saved ?? newReport);
+  };
+
+  const handleDone = () => {
+    setWorkflowOpen(false);
+    setStep(0);
+    setResults(null);
+    clearCountdownInterval();
+    setCountdown(null);
+    setAssessmentPhase("positioning");
+    setAssessmentRunning(false);
+    setSavedSession(null);
+    setReport(null);
+  };
 
   return (
     <div className="space-y-5">
-      {step !== 3 ? (
+      {step !== 1 ? (
         <>
           <ContextStrip
             patient={selectedPatient}
             status={results ? "Completed" : "Draft"}
             step={currentStepLabel}
-            nextAction={step < 5 ? steps[Math.min(step + 1, 5)] : t.downloadReport}
+            nextAction={step < 2 ? steps[Math.min(step + 1, 2)] : t.downloadReport}
           />
 
           <ClinicalCard className="overflow-hidden p-0">
-            <div className="grid gap-2 md:grid-cols-6">
+            <div className="grid md:grid-cols-3">
               {steps.map((item, index) => (
-                <div key={item} className={`px-3 py-3 text-sm font-semibold ${index === step ? "bg-rehab-teal text-white" : index < step ? "bg-emerald-50 text-emerald-700" : "bg-slate-50 text-rehab-muted"}`}>
-                  <span className={`mr-2 inline-grid h-6 w-6 place-items-center rounded-full text-xs ${index === step ? "bg-white/20" : index < step ? "bg-emerald-100" : "bg-white"}`}>
+                <div key={item} className={`flex items-center gap-3 px-5 py-4 text-sm font-semibold ${index === step ? "bg-rehab-teal text-white" : index < step ? "bg-emerald-50 text-emerald-700" : "bg-slate-50 text-rehab-muted"}`}>
+                  <span className={`inline-grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-bold ${index === step ? "bg-white/20" : index < step ? "bg-emerald-100 text-emerald-700" : "bg-white text-rehab-muted"}`}>
                     {index + 1}
                   </span>
-                  {" "}
                   {item}
                 </div>
               ))}
@@ -284,46 +341,22 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
       ) : null}
 
       {step === 0 ? (
-        <SelectPatientStep t={t} patients={patients} selectedPatientId={selectedPatientId} onSelect={setSelectedPatientId} onContinue={() => setStep(1)} />
-      ) : null}
-
-      {step === 1 ? (
-        <ConfigureStep t={t} config={config} onChange={setConfig} onBack={() => setStep(0)} onContinue={() => setStep(2)} />
-      ) : null}
-
-      {step === 2 ? (
-        <PreparationStep
+        <SetupStep
           t={t}
-          checklist={checklist}
+          patients={patients}
+          selectedPatientId={selectedPatientId}
+          onSelectPatient={setSelectedPatientId}
           config={config}
-          sourceError={sourceError}
-          onChange={setChecklist}
+          onChangeConfig={setConfig}
+          checklist={checklist}
+          onChangeChecklist={setChecklist}
           canStart={canStart}
-          onBack={() => setStep(1)}
-          onStart={async () => {
-            clearCountdownInterval();
-            setElapsed(0);
-            setResults(null);
-            setSourceError("");
-            setPoseState(null);
-            setCountdown(null);
-            setAssessmentPhase("positioning");
-            setAssessmentRunning(false);
-            try {
-              const stream = await activeSource.start();
-              const sourceStream = activeSource.getStream?.() ?? null;
-              setWebcamStream(sourceStream || null);
-              setLiveFrame(activeSource.getFrame(0));
-              setStep(3);
-            } catch (error) {
-              console.warn("Webcam acquisition could not start.", error);
-              setSourceError(t.webcamPermissionDenied);
-            }
-          }}
+          sourceError={sourceError}
+          onStart={handleStartRecording}
         />
       ) : null}
 
-      {step === 3 ? (
+      {step === 1 ? (
         <LiveStep
           t={t}
           elapsed={elapsed}
@@ -353,251 +386,216 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
         />
       ) : null}
 
-      {step === 4 && results ? (
-        <ResultsStep
+      {step === 2 && results ? (
+        <ReviewStep
           patient={selectedPatient}
           t={t}
           config={config}
           results={results}
           patientSessions={sessions.filter((session) => session.patientId === selectedPatient.id)}
           savedSession={savedSession}
+          report={report}
           onSave={async (clinicalImpression) => {
             const session = buildSession({ patient: selectedPatient, config, results, clinician_impression: clinicalImpression });
             const saved = await onSaveSession(session);
             setSavedSession(saved ?? session);
           }}
-          onReport={() => setStep(5)}
-          onReturnToProfile={() => onReturnToPatientProfile(selectedPatient.id, "sessions")}
-        />
-      ) : null}
-
-      {step === 5 && savedSession ? (
-        <ReportStep
-          patient={selectedPatient}
-          t={t}
-          session={savedSession}
-          report={report}
-          onGenerate={async () => {
-            const reportId = `R-${Date.now().toString().slice(-5)}`;
-            const newReport = {
-              id: reportId,
-              reportId,
-              patientId: selectedPatient.id,
-              patientCode: selectedPatient.patientCode,
-              sessionId: savedSession.id,
-              patient: selectedPatient.fullName,
-              createdAt: new Date().toISOString(),
-              generatedAt: new Date().toLocaleString(),
-              downloadable: true,
-              language: "FR",
-              acquisitionMode: savedSession.acquisitionMode,
-              acquisitionModeKey: savedSession.acquisitionModeKey,
-              summary: template(t.reportSummaryTemplate, {
-                test: testTypeLabel(t, savedSession.testType),
-                condition: conditionLabel(t, savedSession.condition),
-                score: savedSession.totalScore,
-                status: statusLabel(t, savedSession.status),
-              }),
-            };
-            const saved = await onSaveReport(newReport);
-            setReport(saved ?? newReport);
-          }}
+          onGenerateReport={handleGenerateReport}
           onDownload={() => onDownloadSessionReport({ patient: selectedPatient, session: savedSession })}
-          onReturnToProfile={() => onReturnToPatientProfile(selectedPatient.id, "reports")}
-          onDone={() => {
-            setWorkflowOpen(false);
-            setStep(0);
-            setResults(null);
-            clearCountdownInterval();
-            setCountdown(null);
-            setAssessmentPhase("positioning");
-            setAssessmentRunning(false);
-            setSavedSession(null);
-            setReport(null);
-          }}
+          onReturnToProfile={() => onReturnToPatientProfile(selectedPatient.id, "sessions")}
+          onReturnToReports={() => onReturnToPatientProfile(selectedPatient.id, "reports")}
+          onDone={handleDone}
         />
       ) : null}
     </div>
   );
 }
 
-function SelectPatientStep({ t, patients, selectedPatientId, onSelect, onContinue }) {
+function SetupStep({ t, patients, selectedPatientId, onSelectPatient, config, onChangeConfig, checklist, onChangeChecklist, canStart, sourceError, onStart }) {
   const [query, setQuery] = useState("");
-  const selectedPatient = patients.find((patient) => patient.id === selectedPatientId);
+  const selectedPatient = patients.find((p) => p.id === selectedPatientId);
+  const sourceOptions = getAssessmentSourceOptions(t);
+
   const filtered = useMemo(() => {
     const normalized = query.toLowerCase();
-    return patients.filter((patient) => `${patient.fullName} ${patient.patientCode} ${patient.pathology}`.toLowerCase().includes(normalized));
+    return patients.filter((p) => `${p.fullName} ${p.patientCode} ${p.pathology}`.toLowerCase().includes(normalized));
   }, [patients, query]);
 
+  const checklistItems =
+    config.acquisitionMode === acquisitionModes.webcam
+      ? [["webcam", t.webcamReadyPrimary], ["supervision", t.supervisionConfirmed]]
+      : config.acquisitionMode === acquisitionModes.demo
+        ? [["webcam", t.demoDataSourceActive], ["supervision", t.supervisionConfirmed]]
+        : [
+            ["board", t.boardPositioned],
+            ["ring", t.ringConfirmed],
+            ["webcam", t.webcamReady],
+            ["esp32", t.esp32Ready],
+            ["supervision", t.supervisionConfirmed],
+          ];
+
   return (
-    <ClinicalCard className="p-5">
-      <SectionHeader title={t.stepSelectPatient} description={t.choosePatientBeforeConfig} />
-      <div className={`sticky top-24 z-10 mt-5 rounded-xl border p-4 shadow-sm backdrop-blur ${selectedPatient ? "border-teal-200 bg-teal-50/95" : "border-rehab-line bg-white/95"}`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="space-y-4">
+      {/* ── 1. Patient selection ── */}
+      <ClinicalCard className="p-5">
+        <SectionHeader title={t.stepSelectPatient} description={t.choosePatientBeforeConfig} />
+
+        <div className={`mt-5 rounded-xl border p-4 shadow-sm ${selectedPatient ? "border-teal-200 bg-teal-50" : "border-rehab-line bg-white"}`}>
           <div className="flex items-center gap-3">
-            <span className={`grid h-11 w-11 place-items-center rounded-xl ${selectedPatient ? "bg-rehab-teal text-white" : "bg-slate-100 text-rehab-muted"}`}>
+            <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${selectedPatient ? "bg-rehab-teal text-white" : "bg-slate-100 text-rehab-muted"}`}>
               <UserRound size={20} />
             </span>
             <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.selectedPatient}</p>
-            {selectedPatient ? (
-              <p className="mt-1 text-sm font-semibold text-rehab-ink">
-                {selectedPatient.fullName} / {selectedPatient.patientCode}
-                <span className="ml-2 font-normal text-rehab-muted">{selectedPatient.pathology}</span>
-              </p>
-            ) : (
-              <p className="mt-1 text-sm text-rehab-muted">{t.choosePatientToContinue}</p>
-            )}
+              <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.selectedPatient}</p>
+              {selectedPatient ? (
+                <p className="mt-0.5 text-sm font-semibold text-rehab-ink">
+                  {selectedPatient.fullName}
+                  <span className="ml-2 font-normal text-rehab-muted">/ {selectedPatient.patientCode} — {selectedPatient.pathology}</span>
+                </p>
+              ) : (
+                <p className="mt-0.5 text-sm text-rehab-muted">{t.choosePatientToContinue}</p>
+              )}
             </div>
           </div>
-          <Button disabled={!selectedPatientId} onClick={onContinue}>{t.continueToConfigureTest}</Button>
         </div>
-      </div>
-      <div className="relative mt-5">
-        <Search className="absolute left-3 top-3 text-rehab-muted" size={18} />
-        <input value={query} onChange={(event) => setQuery(event.target.value)} className="w-full rounded-lg border border-rehab-line py-2.5 pl-10 pr-3" placeholder={t.searchPatient} />
-      </div>
-      <div className="mt-5 grid gap-3 md:grid-cols-2">
-        {filtered.map((patient) => (
-          <button key={patient.id} type="button" onClick={() => onSelect(patient.id)} className={`rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-clinical ${selectedPatientId === patient.id ? "border-rehab-teal bg-teal-50 ring-2 ring-rehab-teal/15" : "border-rehab-line bg-white"}`}>
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <span className="grid h-11 w-11 place-items-center rounded-xl bg-rehab-blue/10 text-xs font-semibold text-rehab-blue">
-                  {initials(patient.fullName)}
-                </span>
-                <div>
-                <p className="font-semibold">{patient.fullName}</p>
-                <p className="text-sm text-rehab-muted">{patient.patientCode} - {patient.age} {t.years} - {patient.pathology}</p>
-                </div>
-              </div>
-              <StatusBadge tone={patient.status === "Declining" ? "danger" : patient.status === "Follow-up" ? "warning" : "connected"}>
-                {statusLabel(t, patient.status)}
-              </StatusBadge>
-            </div>
-            <div className="mt-3 grid gap-2 text-sm text-rehab-muted sm:grid-cols-2">
-              <p><span className="font-semibold text-rehab-ink">{t.clinicalGoal}:</span> {patient.clinicalGoal || "-"}</p>
-              <p><span className="font-semibold text-rehab-ink">{t.dominantSide}:</span> {patient.dominantSide || "-"}</p>
-            </div>
-            {patient.latestScore ? <ScoreBar label={t.latestScore} score={patient.latestScore} /> : null}
-          </button>
-        ))}
-      </div>
-    </ClinicalCard>
-  );
-}
 
-function ConfigureStep({ t, config, onChange, onBack, onContinue }) {
-  const sourceOptions = getAssessmentSourceOptions(t);
-  const activeOption = sourceOptions.find((option) => option.mode === config.acquisitionMode);
+        <div className="relative mt-4">
+          <Search className="absolute left-3 top-3 text-rehab-muted" size={18} />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} className="w-full rounded-lg border border-rehab-line py-2.5 pl-10 pr-3 text-sm outline-none focus:border-rehab-teal" placeholder={t.searchPatient} />
+        </div>
 
-  return (
-    <ClinicalCard className="p-5">
-      <SectionHeader title={t.stepConfigureTest} description={t.configureTestDesc} />
-      <div className="mt-5">
-        <p className="mb-3 text-sm font-semibold text-rehab-ink">{t.acquisitionMode}</p>
+        <div className="mt-4 max-h-72 overflow-y-auto rounded-lg pr-0.5">
         <div className="grid gap-3 md:grid-cols-2">
-          {sourceOptions.map((option) => (
+          {filtered.map((patient) => (
             <button
-              key={option.mode}
+              key={patient.id}
               type="button"
-              disabled={!option.availableNow}
-              onClick={() => option.availableNow && onChange({ ...config, acquisitionMode: option.mode })}
-              className={`rounded-xl border p-4 text-left transition hover:shadow-clinical disabled:cursor-not-allowed disabled:opacity-60 ${
-                config.acquisitionMode === option.mode ? "border-rehab-teal bg-teal-50 ring-2 ring-rehab-teal/15" : "border-rehab-line bg-white"
-              }`}
+              onClick={() => onSelectPatient(patient.id)}
+              className={`rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-clinical ${selectedPatientId === patient.id ? "border-rehab-teal bg-teal-50 ring-2 ring-rehab-teal/15" : "border-rehab-line bg-white"}`}
             >
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="flex items-start gap-3">
-                  <span className={`grid h-10 w-10 place-items-center rounded-lg ${config.acquisitionMode === option.mode ? "bg-rehab-teal text-white" : "bg-slate-100 text-rehab-blue"}`}>
-                    {option.mode === acquisitionModes.webcam ? <Camera size={18} /> : option.mode === acquisitionModes.demo ? <Activity size={18} /> : <Waves size={18} />}
+                  <span className={`grid h-11 w-11 place-items-center rounded-xl text-xs font-semibold ${selectedPatientId === patient.id ? "bg-rehab-teal text-white" : "bg-rehab-blue/10 text-rehab-blue"}`}>
+                    {initials(patient.fullName)}
                   </span>
-                  <span>
-                  <p className="font-semibold">{option.label}</p>
-                  <p className="mt-1 text-sm text-rehab-muted">{option.description}</p>
-                  </span>
+                  <div>
+                    <p className="font-semibold text-rehab-ink">{patient.fullName}</p>
+                    <p className="text-sm text-rehab-muted">{patient.patientCode} · {patient.age} {t.years} · {patient.pathology}</p>
+                  </div>
                 </div>
-                {!option.availableNow ? <StatusBadge tone="neutral">{t.later}</StatusBadge> : null}
+                <StatusBadge tone={patient.status === "Declining" ? "danger" : patient.status === "Follow-up" ? "warning" : "connected"}>
+                  {statusLabel(t, patient.status)}
+                </StatusBadge>
               </div>
+              <div className="mt-3 grid gap-2 text-sm text-rehab-muted sm:grid-cols-2">
+                <p><span className="font-semibold text-rehab-ink">{t.clinicalGoal}:</span> {patient.clinicalGoal || "-"}</p>
+                <p><span className="font-semibold text-rehab-ink">{t.dominantSide}:</span> {patient.dominantSide || "-"}</p>
+              </div>
+              {patient.latestScore ? <ScoreBar label={t.latestScore} score={patient.latestScore} /> : null}
             </button>
           ))}
         </div>
-        {activeOption ? <p className="mt-3 text-sm text-rehab-muted">{activeOption.description}</p> : null}
-      </div>
-      <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <Option icon={ShieldCheck} selected={config.testType === "static"} title={t.staticTest} description={t.staticTestDesc} onClick={() => onChange({ ...config, testType: "static" })} />
-        <Option icon={Waves} selected={config.testType === "dynamic"} title={t.dynamicTest} description={t.dynamicTestDesc} onClick={() => onChange({ ...config, testType: "dynamic" })} />
-        <Option icon={Eye} selected={config.visualCondition === "eyes_open"} title={t.eyesOpen} description={t.eyesOpenDesc} onClick={() => onChange({ ...config, visualCondition: "eyes_open" })} />
-        <Option icon={EyeOff} selected={config.visualCondition === "eyes_closed"} title={t.eyesClosed} description={t.eyesClosedDesc} onClick={() => onChange({ ...config, visualCondition: "eyes_closed" })} />
-      </div>
-      <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <label className="text-sm font-semibold">
-          {t.duration}
-          <select value={config.durationSeconds} onChange={(event) => onChange({ ...config, durationSeconds: Number(event.target.value) })} className="mt-1 w-full rounded-lg border border-rehab-line px-3 py-2 font-normal">
-            <option value={10}>{t.tenSecondDemo}</option>
-            <option value={30}>{t.thirtySeconds}</option>
-            <option value={60}>{t.sixtySeconds}</option>
-          </select>
-        </label>
-        <label className="text-sm font-semibold">
-          {t.notes}
-          <input value={config.notes} onChange={(event) => onChange({ ...config, notes: event.target.value })} className="mt-1 w-full rounded-lg border border-rehab-line px-3 py-2 font-normal" />
-        </label>
-      </div>
-      <Footer t={t} onBack={onBack} onNext={onContinue} nextLabel={t.continueToPreparation} />
-    </ClinicalCard>
-  );
-}
-
-function PreparationStep({ t, checklist, config, sourceError, onChange, canStart, onBack, onStart }) {
-  const items =
-    config.acquisitionMode === acquisitionModes.webcam
-      ? [
-          ["webcam", t.webcamReadyPrimary],
-          ["supervision", t.supervisionConfirmed],
-        ]
-      : config.acquisitionMode === acquisitionModes.demo
-        ? [
-            ["webcam", t.demoDataSourceActive],
-            ["supervision", t.supervisionConfirmed],
-          ]
-      : [
-          ["board", t.boardPositioned],
-          ["ring", t.ringConfirmed],
-          ["webcam", t.webcamReady],
-          ["esp32", config.acquisitionMode === acquisitionModes.demo ? t.esp32Optional : t.esp32Ready],
-          ["supervision", t.supervisionConfirmed],
-        ];
-  return (
-    <ClinicalCard className="p-5">
-      <SectionHeader
-        title={t.stepPreparation}
-        description={config.acquisitionMode === acquisitionModes.webcam ? t.webcamModeActiveData : t.demoModeActiveData}
-      />
-      <div className="mt-5 grid gap-3 md:grid-cols-4">
-        <SetupChip icon={Camera} label={t.acquisitionMode} value={config.acquisitionMode === acquisitionModes.webcam ? t.webcamBasedAssessment : config.acquisitionMode === acquisitionModes.demo ? t.demoAssessmentMode : config.acquisitionMode} />
-        <SetupChip icon={ShieldCheck} label={t.test} value={config.testType === "static" ? t.staticTest : t.dynamicTest} />
-        <SetupChip icon={Eye} label={t.conditions} value={config.visualCondition === "eyes_open" ? t.eyesOpen : t.eyesClosed} />
-        <SetupChip icon={Timer} label={t.duration} value={`${config.durationSeconds}s`} />
-      </div>
-      <div className="mt-5 grid gap-3">
-        {items.map(([key, label]) => (
-          <label key={key} className={`flex items-center gap-3 rounded-xl border p-3 transition ${checklist[key] ? "border-emerald-200 bg-emerald-50" : "border-rehab-line bg-white"}`}>
-            <input type="checkbox" checked={checklist[key]} onChange={(event) => onChange({ ...checklist, [key]: event.target.checked })} className="h-4 w-4 accent-rehab-teal" />
-            <span className={`grid h-8 w-8 place-items-center rounded-lg ${checklist[key] ? "bg-rehab-green text-white" : "bg-slate-100 text-rehab-muted"}`}>
-              <ClipboardCheck size={16} />
-            </span>
-            <span className="font-medium">{label}</span>
-          </label>
-        ))}
-      </div>
-      {sourceError ? (
-        <div className="mt-4 flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">
-          <AlertTriangle size={18} />
-          <span>{t.webcamPermissionDenied}</span>
         </div>
-      ) : null}
-      <Footer t={t} onBack={onBack} onNext={onStart} nextLabel={t.startAssessment} disabled={!canStart} />
-    </ClinicalCard>
+      </ClinicalCard>
+
+      {/* ── 2. Test configuration ── */}
+      <ClinicalCard className={`p-5 transition-opacity ${!selectedPatientId ? "pointer-events-none opacity-40" : ""}`}>
+        <SectionHeader title={t.stepConfigureTest} description={t.configureTestDesc} />
+
+        <div className="mt-5">
+          <p className="mb-3 text-sm font-semibold text-rehab-ink">{t.acquisitionMode}</p>
+          <div className="grid gap-3 md:grid-cols-2">
+            {sourceOptions.map((option) => (
+              <button
+                key={option.mode}
+                type="button"
+                disabled={!option.availableNow}
+                onClick={() => option.availableNow && onChangeConfig({ ...config, acquisitionMode: option.mode })}
+                className={`rounded-xl border p-4 text-left transition hover:shadow-clinical disabled:cursor-not-allowed disabled:opacity-60 ${config.acquisitionMode === option.mode ? "border-rehab-teal bg-teal-50 ring-2 ring-rehab-teal/15" : "border-rehab-line bg-white"}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <span className={`grid h-10 w-10 place-items-center rounded-lg ${config.acquisitionMode === option.mode ? "bg-rehab-teal text-white" : "bg-slate-100 text-rehab-blue"}`}>
+                      {option.mode === acquisitionModes.webcam ? <Camera size={18} /> : option.mode === acquisitionModes.demo ? <Activity size={18} /> : <Waves size={18} />}
+                    </span>
+                    <span>
+                      <p className="font-semibold">{option.label}</p>
+                      <p className="mt-1 text-sm text-rehab-muted">{option.description}</p>
+                    </span>
+                  </div>
+                  {!option.availableNow ? <StatusBadge tone="neutral">{t.later}</StatusBadge> : null}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <Option icon={ShieldCheck} selected={config.testType === "static"} title={t.staticTest} description={t.staticTestDesc} onClick={() => onChangeConfig({ ...config, testType: "static" })} />
+          <Option icon={Waves} selected={config.testType === "dynamic"} title={t.dynamicTest} description={t.dynamicTestDesc} onClick={() => onChangeConfig({ ...config, testType: "dynamic" })} />
+          <Option icon={Eye} selected={config.visualCondition === "eyes_open"} title={t.eyesOpen} description={t.eyesOpenDesc} onClick={() => onChangeConfig({ ...config, visualCondition: "eyes_open" })} />
+          <Option icon={EyeOff} selected={config.visualCondition === "eyes_closed"} title={t.eyesClosed} description={t.eyesClosedDesc} onClick={() => onChangeConfig({ ...config, visualCondition: "eyes_closed" })} />
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <label className="text-sm font-semibold text-rehab-ink">
+            {t.duration}
+            <select value={config.durationSeconds} onChange={(e) => onChangeConfig({ ...config, durationSeconds: Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-rehab-line px-3 py-2 font-normal">
+              <option value={10}>{t.tenSecondDemo}</option>
+              <option value={30}>{t.thirtySeconds}</option>
+              <option value={60}>{t.sixtySeconds}</option>
+            </select>
+          </label>
+          <label className="text-sm font-semibold text-rehab-ink">
+            {t.notes}
+            <input value={config.notes} onChange={(e) => onChangeConfig({ ...config, notes: e.target.value })} className="mt-1 w-full rounded-lg border border-rehab-line px-3 py-2 font-normal" />
+          </label>
+        </div>
+      </ClinicalCard>
+
+      {/* ── 3. Pre-assessment checklist + Start CTA ── */}
+      <ClinicalCard className={`p-5 transition-opacity ${!selectedPatientId ? "pointer-events-none opacity-40" : ""}`}>
+        <SectionHeader
+          title={t.stepPreparation}
+          description={config.acquisitionMode === acquisitionModes.webcam ? t.webcamModeActiveData : t.demoModeActiveData}
+        />
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-4">
+          <SetupChip icon={Camera} label={t.acquisitionMode} value={config.acquisitionMode === acquisitionModes.webcam ? t.webcamBasedAssessment : config.acquisitionMode === acquisitionModes.demo ? t.demoAssessmentMode : config.acquisitionMode} />
+          <SetupChip icon={ShieldCheck} label={t.test} value={config.testType === "static" ? t.staticTest : t.dynamicTest} />
+          <SetupChip icon={Eye} label={t.conditions} value={config.visualCondition === "eyes_open" ? t.eyesOpen : t.eyesClosed} />
+          <SetupChip icon={Timer} label={t.duration} value={`${config.durationSeconds}s`} />
+        </div>
+
+        <div className="mt-5 grid gap-3">
+          {checklistItems.map(([key, label]) => (
+            <label key={key} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition ${checklist[key] ? "border-emerald-200 bg-emerald-50" : "border-rehab-line bg-white"}`}>
+              <input type="checkbox" checked={checklist[key]} onChange={(e) => onChangeChecklist({ ...checklist, [key]: e.target.checked })} className="h-4 w-4 accent-rehab-teal" />
+              <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${checklist[key] ? "bg-rehab-teal text-white" : "bg-slate-100 text-rehab-muted"}`}>
+                <ClipboardCheck size={16} />
+              </span>
+              <span className="font-medium text-rehab-ink">{label}</span>
+            </label>
+          ))}
+        </div>
+
+        {sourceError ? (
+          <div className="mt-4 flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">
+            <AlertTriangle size={18} className="shrink-0 mt-0.5" />
+            <span>{t.webcamPermissionDenied}</span>
+          </div>
+        ) : null}
+
+        <div className="mt-6 flex items-center justify-between border-t border-rehab-line pt-5">
+          <p className={`text-sm font-semibold ${canStart && selectedPatientId ? "text-emerald-700" : "text-rehab-muted"}`}>
+            {!selectedPatientId ? (t.selectPatientFirst ?? "Select a patient above to continue") : canStart ? (t.readyToStart ?? "All checks passed — ready to record") : (t.completeChecklist ?? "Complete the checklist to continue")}
+          </p>
+          <Button onClick={onStart} disabled={!canStart || !selectedPatientId}>
+            <Activity size={16} /> {t.startAssessment}
+          </Button>
+        </div>
+      </ClinicalCard>
+    </div>
   );
 }
 
@@ -886,7 +884,7 @@ function liveFeedbackTone(level) {
   return "border-[#90BE6D]/35 bg-[#90BE6D]/92 text-[#263F21]";
 }
 
-function ResultsStep({ t, patient, config, results, patientSessions, savedSession, onSave, onReport, onReturnToProfile }) {
+function ReviewStep({ t, patient, config, results, patientSessions, savedSession, report, onSave, onGenerateReport, onDownload, onReturnToProfile, onReturnToReports, onDone }) {
   const boardAvailable = Boolean(results.availableMetrics?.board);
   const postureUnits = getPostureUnits(config.acquisitionMode);
   const [clinicalImpression, setClinicalImpression] = useState(results.interpretation ?? "");
@@ -1045,12 +1043,34 @@ function ResultsStep({ t, patient, config, results, patientSessions, savedSessio
           <Button variant="secondary" onClick={() => onSave(clinicalImpression)} disabled={Boolean(savedSession)}>
             <Save size={16} /> {savedSession ? t.sessionSaved : t.saveSession}
           </Button>
-          <Button onClick={onReport} disabled={!savedSession}>{t.generatePdfReport}</Button>
         </div>
       </ClinicalCard>
 
       {comparisonSession ? (
         <SessionComparisonCard t={t} results={results} previousSession={comparisonSession} postureUnits={postureUnits} />
+      ) : null}
+
+      {savedSession ? (
+        <ClinicalCard className="p-5">
+          <SectionHeader title={t.stepReport} description={t.generateDownloadReport} />
+          <div className="mt-5 rounded-xl border border-rehab-line bg-slate-50 p-5">
+            <p className="font-semibold text-rehab-ink">{t.reportPreview}</p>
+            <p className="mt-2 text-sm text-rehab-muted">{patient.fullName} · {testTypeLabel(t, savedSession.testType)} · {savedSession.totalScore}/100</p>
+            {savedSession.results?.interpretation ? (
+              <p className="mt-2 text-sm text-rehab-muted">{savedSession.results.interpretation}</p>
+            ) : null}
+          </div>
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <Button variant="secondary" onClick={onGenerateReport} disabled={Boolean(report)}>
+              <CheckCircle2 size={16} /> {report ? t.savedToProfile : t.saveReportToProfile}
+            </Button>
+            <Button onClick={onDownload}>{t.downloadPdf}</Button>
+            {report ? (
+              <Button variant="secondary" onClick={onReturnToReports}>{t.viewPatientReports}</Button>
+            ) : null}
+            <Button variant="secondary" onClick={onDone}>{t.finish}</Button>
+          </div>
+        </ClinicalCard>
       ) : null}
     </div>
   );
@@ -1856,28 +1876,6 @@ function conditionLabel(t, condition) {
   return condition ?? "-";
 }
 
-function ReportStep({ t, patient, session, report, onGenerate, onDownload, onReturnToProfile, onDone }) {
-  return (
-    <ClinicalCard className="p-5">
-      <SectionHeader title={t.stepReport} description={t.generateDownloadReport} />
-      <div className="mt-5 rounded-lg border border-rehab-line bg-slate-50 p-5">
-        <p className="font-semibold">{t.reportPreview}</p>
-        <p className="mt-2 text-sm text-rehab-muted">{patient.fullName} - {testTypeLabel(t, session.testType)} - {session.totalScore}/100</p>
-        <p className="mt-2 text-sm text-rehab-muted">{session.results.interpretation}</p>
-      </div>
-      <div className="mt-5 flex justify-end gap-2">
-        <Button variant="secondary" onClick={onGenerate} disabled={Boolean(report)}>
-          <CheckCircle2 size={16} /> {report ? t.savedToProfile : t.saveReportToProfile}
-        </Button>
-        <Button onClick={onDownload}>{t.downloadPdf}</Button>
-        {report ? (
-          <Button variant="secondary" onClick={onReturnToProfile}>{t.viewPatientReports}</Button>
-        ) : null}
-        <Button variant="secondary" onClick={onDone}>{t.finish}</Button>
-      </div>
-    </ClinicalCard>
-  );
-}
 
 function Option({ selected, title, description, onClick, icon: Icon }) {
   return (

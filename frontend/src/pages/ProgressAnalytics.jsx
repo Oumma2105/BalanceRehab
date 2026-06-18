@@ -86,24 +86,19 @@ export function ProgressAnalyticsPage({ t, patients, sessions, onLoadPatientProg
 
   return (
     <div className="space-y-4">
-      {/* Mobile chip strip — hidden on xl */}
+      {/* Patient selector — below xl */}
       <div className="xl:hidden">
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <select
+          value={patientId ?? ""}
+          onChange={(e) => setPatientId(Number(e.target.value))}
+          className="w-full rounded-lg border border-rehab-line bg-white py-2.5 px-3 text-sm font-semibold text-rehab-ink outline-none focus:border-rehab-teal"
+        >
           {patients.map((patient) => (
-            <button
-              type="button"
-              key={patient.id}
-              onClick={() => setPatientId(patient.id)}
-              className={`shrink-0 rounded-full border px-3 py-1.5 text-sm font-semibold transition ${
-                Number(patientId) === patient.id
-                  ? "border-rehab-teal bg-rehab-teal text-white"
-                  : "border-rehab-line bg-white text-rehab-ink hover:bg-slate-50"
-              }`}
-            >
-              {patient.fullName}
-            </button>
+            <option key={patient.id} value={patient.id}>
+              {patient.fullName}{patient.patientCode ? ` (${patient.patientCode})` : ""}
+            </option>
           ))}
-        </div>
+        </select>
       </div>
 
       {/* Main layout: left panel + right content */}
@@ -137,7 +132,7 @@ export function ProgressAnalyticsPage({ t, patients, sessions, onLoadPatientProg
                     type="button"
                     key={patient.id}
                     onClick={() => setPatientId(patient.id)}
-                    className={`flex w-full items-center gap-3 border-b border-rehab-line px-3 py-3 text-left transition last:border-b-0 ${
+                    className={`flex w-full items-center gap-3 border-b border-rehab-line px-3 py-3 text-left transition last:border-b-0 cursor-pointer ${
                       isSelected ? "bg-rehab-teal" : "hover:bg-slate-50"
                     }`}
                   >
@@ -174,38 +169,51 @@ export function ProgressAnalyticsPage({ t, patients, sessions, onLoadPatientProg
         {/* Right: analytics content */}
         <div className="min-w-0 flex-1 space-y-4">
           {/* Selected patient header */}
-          {selectedPatient && (
-            <div className="flex items-center gap-3 rounded-xl border border-rehab-line bg-white p-4">
-              <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-rehab-blue text-sm font-semibold text-white">
-                {initials(selectedPatient.fullName)}
+          {selectedPatient && (() => {
+            const headerScore = Number(selectedPatient.latestScore);
+            const headerColor =
+              headerScore >= 80 ? "#43AA8B" :
+              headerScore >= 70 ? "#90BE6D" :
+              headerScore >= 60 ? "#F8961E" :
+              Number.isFinite(headerScore) ? "#F94144" : "#277DA1";
+            return (
+              <div className="flex items-center gap-3 rounded-xl border-l-4 bg-white p-4 shadow-card" style={{ borderLeftColor: headerColor }}>
+                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl text-sm font-bold text-white" style={{ backgroundColor: headerColor }}>
+                  {initials(selectedPatient.fullName)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-lg font-semibold text-rehab-ink">{selectedPatient.fullName}</p>
+                  <p className="text-sm text-rehab-muted">
+                    {selectedPatient.patientCode}
+                    {selectedPatient.pathology ? ` · ${selectedPatient.pathology}` : ""}
+                  </p>
+                </div>
+                {Number.isFinite(headerScore) && (
+                  <span className="shrink-0 rounded-full px-3 py-1 text-sm font-bold text-white" style={{ backgroundColor: headerColor }}>
+                    {headerScore}/100
+                  </span>
+                )}
+                <StatusBadge
+                  tone={
+                    selectedPatient.status === "Declining" ? "danger" :
+                    selectedPatient.status === "Follow-up" ? "warning" :
+                    selectedPatient.status === "Improving" ? "connected" : "active"
+                  }
+                >
+                  {statusLabel(t, selectedPatient.status)}
+                </StatusBadge>
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-lg font-semibold text-rehab-ink">{selectedPatient.fullName}</p>
-                <p className="text-sm text-rehab-muted">
-                  {selectedPatient.patientCode}
-                  {selectedPatient.pathology ? ` · ${selectedPatient.pathology}` : ""}
-                </p>
-              </div>
-              <StatusBadge
-                tone={
-                  selectedPatient.status === "Declining" ? "danger" :
-                  selectedPatient.status === "Follow-up" ? "warning" :
-                  selectedPatient.status === "Improving" ? "connected" : "active"
-                }
-              >
-                {statusLabel(t, selectedPatient.status)}
-              </StatusBadge>
-            </div>
-          )}
+            );
+          })()}
 
           {patientSessions.length === 0 ? (
             <EmptyState title={t.progressEmptyTitle} description={t.progressEmptyDesc} />
           ) : (
             <>
               <section className="grid gap-4 md:grid-cols-3">
-                <Summary label={t.latestScore} value={`${backendProgress?.latest_score ?? latest.totalScore}/100`} />
-                <Summary label={t.sessionsSaved} value={backendProgress?.session_count ?? patientSessions.length} />
-                <Summary label={t.scoreChange} value={`${improvement >= 0 ? "+" : ""}${improvement} pts`} />
+                <Summary label={t.latestScore} value={`${backendProgress?.latest_score ?? latest.totalScore}/100`} color="#277DA1" />
+                <Summary label={t.sessionsSaved} value={backendProgress?.session_count ?? patientSessions.length} color="#43AA8B" />
+                <Summary label={t.scoreChange} value={`${improvement >= 0 ? "+" : ""}${improvement} pts`} color={improvement > 0 ? "#90BE6D" : improvement < 0 ? "#F94144" : "#577590"} />
               </section>
 
               {patientSessions.length < 2 ? (
@@ -340,12 +348,12 @@ function initials(name = "") {
   return name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 }
 
-function Summary({ label, value }) {
+function Summary({ label, value, color }) {
   return (
-    <ClinicalCard className="p-5">
-      <p className="text-sm text-rehab-muted">{label}</p>
-      <p className="mt-2 text-3xl font-semibold">{value}</p>
-    </ClinicalCard>
+    <div className="rounded-xl p-5 text-white shadow-card" style={{ backgroundColor: color }}>
+      <p className="text-sm font-medium text-white/75">{label}</p>
+      <p className="mt-2 text-3xl font-bold">{value}</p>
+    </div>
   );
 }
 
@@ -356,16 +364,23 @@ function average(items) {
 
 function MetricTrendChart({ t, title, data, dataKey, threshold, unit }) {
   const maxValue = Math.max(threshold + 3, ...data.map((item) => Number(item[dataKey] ?? 0))) + 2;
+  const latestValue = data.length ? Number(data[data.length - 1]?.[dataKey] ?? 0) : 0;
+  const areaColor = latestValue <= threshold ? "#43AA8B" : latestValue <= threshold * 1.5 ? "#F8961E" : "#F94144";
 
   return (
     <ClinicalCard className="p-5">
-      <p className="font-semibold text-rehab-ink">{title}</p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-semibold text-rehab-ink">{title}</p>
+        <span className="rounded-full px-2.5 py-1 text-xs font-semibold" style={{ backgroundColor: `${areaColor}20`, color: areaColor }}>
+          {latestValue <= threshold ? (t.withinRange ?? "Within range") : (t.attention ?? "Attention")} · {data.length ? `${latestValue}${unit}` : "-"}
+        </span>
+      </div>
       <div className="mt-4 h-56">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 10, right: 14, left: -18, bottom: 4 }}>
             <CartesianGrid stroke="#E2E8F0" strokeDasharray="3 3" />
-            <ReferenceArea y1={0} y2={threshold} fill="#90BE6D" fillOpacity={0.12} />
-            <ReferenceArea y1={threshold} y2={maxValue} fill="#F8961E" fillOpacity={0.12} />
+            <ReferenceArea y1={0} y2={threshold} fill="#43AA8B" fillOpacity={0.15} />
+            <ReferenceArea y1={threshold} y2={maxValue} fill="#F8961E" fillOpacity={0.15} />
             <XAxis dataKey="label" tick={{ fill: "#577590", fontSize: 12 }} axisLine={false} tickLine={false} />
             <YAxis
               domain={[0, maxValue]}
@@ -376,8 +391,8 @@ function MetricTrendChart({ t, title, data, dataKey, threshold, unit }) {
               tickFormatter={(value) => `${value}${unit}`}
             />
             <Tooltip formatter={(value) => [`${value}${unit}`, title]} labelFormatter={(label) => `Session ${label.replace("S", "")}`} />
-            <ReferenceLine y={threshold} stroke="#F8961E" strokeDasharray="5 5" />
-            <Area type="monotone" dataKey={dataKey} stroke="#577590" strokeWidth={2} fill="#577590" fillOpacity={0.08} dot={{ r: 3, fill: "#577590" }} />
+            <ReferenceLine y={threshold} stroke="#F8961E" strokeWidth={1.5} strokeDasharray="5 5" />
+            <Area type="monotone" dataKey={dataKey} stroke={areaColor} strokeWidth={3} fill={areaColor} fillOpacity={0.12} dot={{ r: 4, fill: areaColor, strokeWidth: 0 }} activeDot={{ r: 5 }} />
           </AreaChart>
         </ResponsiveContainer>
       </div>
