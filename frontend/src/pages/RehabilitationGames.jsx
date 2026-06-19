@@ -1,0 +1,2090 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Activity,
+  ArrowRightLeft,
+  BrainCircuit,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  Footprints,
+  Gauge,
+  Grid3X3,
+  Hand,
+  LineChart,
+  Move,
+  Route,
+  ShieldCheck,
+  Play,
+  Save,
+  Target,
+  User,
+  Webcam,
+} from "lucide-react";
+import {
+  CartesianGrid,
+  Line,
+  LineChart as ReLineChart,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+} from "recharts";
+
+import { Button } from "../components/clinical/Button";
+import { ClinicalCard } from "../components/clinical/ClinicalCard";
+import { EmptyState } from "../components/clinical/EmptyState";
+import { SectionHeader } from "../components/clinical/SectionHeader";
+import { StatusBadge } from "../components/clinical/StatusBadge";
+import { useMediaPipePose } from "../webcam/useMediaPipePose";
+import { webcamVideoConstraints } from "../webcam/webcamConfig";
+
+// ─── Game catalogue ───────────────────────────────────────────────────────────
+
+const GAME_META = {
+  stability_challenge: { icon: Gauge, color: "#43AA8B", visual: "freeze" },
+  weight_shift_trainer: { icon: ArrowRightLeft, color: "#F8961E", visual: "shift" },
+  path_following: { icon: LineChart, color: "#577590", visual: "path" },
+  balance_maze: { icon: Grid3X3, color: "#F94144", visual: "maze" },
+  reach_touch: { icon: Activity, color: "#90BE6D", visual: "reach" },
+  balloon_pop: { icon: Target, color: "#F94144", visual: "balloon" },
+  squat_trainer: { icon: BrainCircuit, color: "#577590", visual: "squat" },
+  single_leg_balance: { icon: User, color: "#43AA8B", visual: "single" },
+  obstacle_avoidance: { icon: Grid3X3, color: "#F8961E", visual: "avoid" },
+};
+
+const PLAYABLE_GAME_TYPES = new Set(Object.keys(GAME_META));
+
+function localizedGames(t) {
+  return Object.fromEntries(
+    Object.entries(GAME_META).map(([key, meta]) => [
+      key,
+      { ...meta, ...(t.rehabilitationWorkspace?.games?.[key] ?? {}) },
+    ]),
+  );
+}
+
+export function RehabilitationGamesPage({
+  t,
+  patients,
+  sessions,
+  rehabilitationSessions = [],
+  onSaveRehabilitationSession,
+  preselectedPatientId,
+  onOpenPatientRehabilitation,
+  onWorkflowFocusChange,
+}) {
+  const [patientId, setPatientId] = useState(
+    preselectedPatientId ?? patients[0]?.id ?? null,
+  );
+  const [selectedGame, setSelectedGame] = useState("stability_challenge");
+  const [difficulty, setDifficulty] = useState("standard");
+  const [durationSeconds, setDurationSeconds] = useState(45);
+  const [activeSession, setActiveSession] = useState(null);
+  const [sessionSaved, setSessionSaved] = useState(false);
+  const [step, setStep] = useState(0);
+  const games = useMemo(() => localizedGames(t), [t]);
+
+  const selectedPatient = patients.find((p) => p.id === patientId);
+  const patientRehabSessions = rehabilitationSessions.filter(
+    (s) => s.patientId === patientId,
+  );
+  const latestAssessment = sessions.find((s) => s.patientId === patientId);
+  const suggestions = buildGuidedProgram(latestAssessment, t.rehabilitationWorkspace);
+  const assessmentProfile = buildAssessmentProfile(latestAssessment, selectedPatient, t.rehabilitationWorkspace);
+  const patientAnalytics = buildRehabAnalytics(patientRehabSessions);
+  const steps = t.rehabilitationWorkspace.steps;
+  const currentStepLabel = `${step + 1}/3 - ${steps[step]}`;
+
+  useEffect(() => {
+    onWorkflowFocusChange?.(step === 1);
+    return () => onWorkflowFocusChange?.(false);
+  }, [onWorkflowFocusChange, step]);
+
+  const runSession = () => {
+    if (!selectedPatient) return;
+    if (!PLAYABLE_GAME_TYPES.has(selectedGame)) return;
+    setActiveSession({
+      patientId: selectedPatient.id,
+      gameType: selectedGame,
+      acquisitionMode: "webcam_mediapipe",
+      difficulty,
+      durationSeconds,
+      score: 0,
+      accuracy: 0,
+      stability: 0,
+      smoothness: 0,
+      reactionTimeMs: null,
+      pathError: null,
+      completionRate: 0,
+      successRate: 0,
+      trackingQuality: null,
+      level: difficulty === "advanced" ? 3 : difficulty === "standard" ? 2 : 1,
+      clinicalFocus: games[selectedGame].focus,
+      createdAt: new Date().toISOString(),
+      date: new Date().toLocaleString(),
+      samples: [],
+      live: true,
+    });
+    setSessionSaved(false);
+    setStep(1);
+  };
+
+  const saveSession = async () => {
+    if (!activeSession) return;
+    const saved = await onSaveRehabilitationSession(activeSession);
+    setActiveSession(saved ? { ...activeSession, ...saved } : activeSession);
+    setSessionSaved(true);
+  };
+
+  const handleSelectPatient = (id) => {
+    setPatientId(id);
+    setActiveSession(null);
+    setSessionSaved(false);
+    setStep(0);
+  };
+
+  return (
+    <div className="space-y-5">
+      {step === 0 ? (
+        <PatientSnapshot
+          patients={patients}
+          patientId={patientId}
+          selectedPatient={selectedPatient}
+          latestAssessment={latestAssessment}
+          profile={assessmentProfile}
+          games={games}
+          t={t}
+          onSelectPatient={handleSelectPatient}
+          onOpenProfile={() => onOpenPatientRehabilitation?.(patientId)}
+        />
+      ) : null}
+
+      {step === 0 ? (
+        <RehabSetupStep
+          selectedPatient={selectedPatient}
+          selectedGame={selectedGame}
+          difficulty={difficulty}
+          durationSeconds={durationSeconds}
+          suggestions={suggestions}
+          assessmentProfile={assessmentProfile}
+          analytics={patientAnalytics}
+          latestAssessment={latestAssessment}
+          games={games}
+          t={t}
+          onSelectGame={setSelectedGame}
+          onSetDifficulty={setDifficulty}
+          onSetDuration={setDurationSeconds}
+          onStart={runSession}
+        />
+      ) : null}
+
+      {step === 1 && activeSession ? (
+        <RehabTrainingStep
+          currentStepLabel={currentStepLabel}
+          session={activeSession}
+          selectedGame={selectedGame}
+          games={games}
+          onBack={() => setStep(0)}
+          onRestart={runSession}
+          t={t}
+          onComplete={(completedSession) => {
+            setActiveSession(completedSession);
+            setStep(2);
+          }}
+        />
+      ) : null}
+
+      {step === 2 && activeSession ? (
+        <RehabReviewStep
+          selectedPatient={selectedPatient}
+          session={activeSession}
+          patientSessions={patientRehabSessions}
+          analytics={patientAnalytics}
+          games={games}
+          t={t}
+          saved={sessionSaved}
+          onSave={saveSession}
+          onNewSession={() => {
+            setActiveSession(null);
+            setSessionSaved(false);
+            setStep(0);
+          }}
+          onRepeat={runSession}
+          onOpenProfile={() => onOpenPatientRehabilitation?.(patientId)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function RehabSetupStep({
+  selectedPatient,
+  selectedGame,
+  difficulty,
+  durationSeconds,
+  suggestions,
+  assessmentProfile,
+  analytics,
+  latestAssessment,
+  games,
+  t,
+  onSelectGame,
+  onSetDifficulty,
+  onSetDuration,
+  onStart,
+}) {
+  const copy = t.rehabilitationWorkspace;
+  const selectedGameInfo = games[selectedGame];
+  const details = selectedGameInfo;
+  const Icon = selectedGameInfo.icon;
+
+  return (
+    <div className="space-y-6">
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-clinical">
+        <div className="grid lg:grid-cols-[minmax(22rem,0.9fr)_1.1fr]">
+          <ExercisePreview game={selectedGameInfo} copy={copy} />
+          <div className="flex flex-col p-6 lg:p-8">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-rehab-teal">{copy.selectedExercise}</p>
+                <div className="mt-3 flex items-center gap-3">
+                  <span className="grid h-12 w-12 place-items-center rounded-xl text-white shadow-sm" style={{ backgroundColor: selectedGameInfo.color }}>
+                    <Icon size={22} />
+                  </span>
+                  <div>
+                    <h2 className="text-2xl font-semibold text-rehab-ink">{selectedGameInfo.title}</h2>
+                    <p className="text-sm font-semibold text-rehab-muted">{details.primaryGoal}</p>
+                  </div>
+                </div>
+              </div>
+              <span className="rounded-full bg-rehab-teal/10 px-3 py-1 text-xs font-bold text-rehab-teal">{details.difficulty}</span>
+            </div>
+
+            <p className="mt-5 max-w-3xl text-sm font-medium leading-6 text-rehab-muted">{details.description}</p>
+
+            <div className="mt-6 grid gap-5 sm:grid-cols-2">
+              <TherapyList title={copy.therapeuticObjectives} items={details.objectives} />
+              <TherapyList title={copy.bodyPartsInvolved} items={details.bodyParts} />
+            </div>
+
+            <div className="mt-6">
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-rehab-muted">{copy.clinicalOutcomes}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {details.outcomes.map((outcome) => (
+                  <span key={outcome} className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800">
+                    <CheckCircle2 size={13} /> {outcome}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-auto pt-7">
+              <div className="flex flex-wrap items-end justify-between gap-4 border-t border-slate-200 pt-5">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.16em] text-rehab-muted">{copy.session}</p>
+                  <p className="mt-1 text-sm font-semibold text-rehab-ink">{difficultyLabel(difficulty, copy)} · {durationSeconds} {copy.seconds} · Webcam / MediaPipe</p>
+                </div>
+                <Button onClick={onStart} disabled={!selectedPatient} className="min-h-12 px-6">
+                  <Play size={17} /> {copy.startTraining}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(22rem,0.85fr)]">
+        <ClinicalCard className="p-5">
+          <SectionHeader title={copy.recommendedPlan} description={copy.recommendedPlanDescription} />
+          <div className="mt-5 grid gap-5 lg:grid-cols-[0.78fr_1.22fr]">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-amber-800">{copy.assessmentFindings}</p>
+              <div className="mt-3 space-y-2.5">
+                {assessmentProfile.findings.map((finding) => (
+                  <div key={finding} className="flex items-start gap-2 text-sm font-semibold text-amber-950">
+                    <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[#F8961E]" />
+                    {finding}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              {suggestions.slice(0, 3).map((item, index) => {
+                const game = games[item.gameType];
+                const ItemIcon = game.icon;
+                return (
+                  <button
+                    key={item.gameType}
+                    type="button"
+                    onClick={() => {
+                      onSelectGame(item.gameType);
+                      onSetDifficulty(item.difficulty);
+                    }}
+                    className={`flex min-h-20 w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition ${
+                      selectedGame === item.gameType ? "border-rehab-teal bg-emerald-50 shadow-sm ring-2 ring-rehab-teal/10" : "border-slate-200 bg-white hover:border-rehab-teal/50"
+                    }`}
+                  >
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-white" style={{ backgroundColor: game.color }}><ItemIcon size={17} /></span>
+                    <span className="min-w-0">
+                      <span className="block text-[10px] font-black uppercase tracking-wide text-rehab-muted">{copy.program} {index + 1}</span>
+                      <span className="mt-0.5 block text-sm font-bold text-rehab-ink">{game.title}</span>
+                      <span className="mt-0.5 block text-xs text-rehab-muted">{copy.reason}: {item.reason}</span>
+                    </span>
+                    <ChevronRight size={16} className="ml-auto shrink-0 text-rehab-muted" />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </ClinicalCard>
+        <ClinicalCard className="p-5">
+          <SectionHeader title={copy.sessionConfiguration} description={copy.sessionConfigurationDescription} />
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <ConfigurationSelect label={copy.difficulty} value={difficulty} onChange={onSetDifficulty} options={[
+              ["intro", copy.difficultyLabels.intro], ["standard", copy.difficultyLabels.standard], ["advanced", copy.difficultyLabels.advanced],
+            ]} />
+            <ConfigurationSelect label={copy.duration} value={durationSeconds} onChange={(value) => onSetDuration(Number(value))} options={[
+              [30, `30 ${copy.seconds}`], [45, `45 ${copy.seconds}`], [60, `60 ${copy.seconds}`], [90, `90 ${copy.seconds}`],
+            ]} />
+          </div>
+          <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs font-medium leading-5 text-rehab-muted">
+            {copy.recommendedForPatient}: <span className="font-bold text-rehab-ink">{difficultyLabel(difficulty, copy)}</span>, {copy.recommendationBasis}
+          </div>
+        </ClinicalCard>
+      </section>
+
+      <section>
+        <SectionHeader title={copy.exerciseLibrary} description={copy.exerciseLibraryDescription} />
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {Object.entries(games).map(([key, game]) => (
+            <GameCard key={key} game={game} copy={copy} selected={selectedGame === key} onClick={() => onSelectGame(key)} />
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function RehabTrainingStep({ currentStepLabel, session, selectedGame, games, onBack, onRestart, onComplete, t }) {
+  const copy = t.rehabilitationWorkspace;
+  const game = games[session?.gameType ?? selectedGame];
+  const Icon = game.icon;
+  const [finishSignal, setFinishSignal] = useState(0);
+  const [liveSummary, setLiveSummary] = useState({
+    elapsedSeconds: 0,
+    accuracy: 0,
+    stability: 0,
+    smoothness: 0,
+    successRate: 0,
+    sampleCount: 0,
+    feedback: copy.waitingTracking,
+  });
+  const [paused, setPaused] = useState(false);
+
+  return (
+    <div className="min-h-screen bg-rehab-surface text-rehab-ink">
+      <section className="grid min-h-screen lg:grid-cols-[minmax(0,1fr)_24rem]">
+        <main className="relative min-h-screen overflow-hidden border-r border-rehab-line bg-slate-950">
+      <div className="absolute left-5 top-5 z-30 flex max-w-[min(48rem,calc(100%-2rem))] flex-wrap items-center justify-between gap-3 rounded-xl border border-white/70 bg-white/92 px-4 py-3 text-rehab-ink shadow-clinical backdrop-blur-md">
+        <div className="flex items-center gap-3">
+          <span className="grid h-11 w-11 place-items-center rounded-xl text-white" style={{ backgroundColor: game.color }}>
+            <Icon size={19} />
+          </span>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">
+              {currentStepLabel}
+            </p>
+            <h2 className="text-xl font-semibold text-rehab-ink">{game.title}</h2>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={onBack} className="rounded-xl border border-rehab-line bg-white px-4 py-2 text-sm font-semibold text-rehab-ink shadow-sm transition hover:border-[#43AA8B]">
+            {copy.backToSetup}
+          </button>
+          <button type="button" onClick={onRestart} className="rounded-xl border border-rehab-line bg-white px-4 py-2 text-sm font-semibold text-rehab-ink shadow-sm transition hover:border-[#F8961E]">
+            {copy.restart}
+          </button>
+          <Button onClick={() => setFinishSignal((value) => value + 1)} className="px-5 py-2.5">
+            {copy.endTraining} <ChevronRight size={16} />
+          </Button>
+        </div>
+      </div>
+
+          <div className="h-screen">
+          <MotionRehabArena
+            session={session}
+            game={game}
+            t={t}
+            onLiveSummary={setLiveSummary}
+            onComplete={onComplete}
+            finishSignal={finishSignal}
+            paused={paused}
+          />
+          <div className="absolute bottom-5 left-5 right-5 z-30 grid gap-3 md:grid-cols-4 lg:right-[2rem]">
+            <LiveMetric label={copy.time} value={`${Math.round(liveSummary.elapsedSeconds)} / ${session.durationSeconds}s`} color="#577590" />
+            <LiveMetric label={copy.accuracy} value={`${formatValue(liveSummary.accuracy)}%`} color="#90BE6D" />
+            <LiveMetric label={copy.stability} value={`${formatValue(liveSummary.stability)}%`} color="#43AA8B" />
+            <LiveMetric label={copy.success} value={`${formatValue(liveSummary.successRate)}%`} color="#F8961E" />
+          </div>
+        </div>
+        </main>
+        <aside className="flex max-h-screen min-h-screen flex-col gap-3 overflow-hidden border-l border-rehab-line bg-white p-3 text-rehab-ink shadow-clinical">
+          <div className="rounded-xl border border-rehab-line bg-rehab-surface p-3">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-rehab-muted">BalanceRehab Live</p>
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-lg font-semibold text-rehab-ink">{game.title}</p>
+                <p className="text-xs font-semibold text-rehab-muted">{game.control ?? copy.fullBodyLandmarks}</p>
+              </div>
+              <Button variant="secondary" className="px-3 py-2" onClick={() => setFinishSignal((value) => value + 1)}>
+                {copy.end}
+              </Button>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPaused((value) => !value)}
+            className="rounded-xl border border-rehab-line bg-white px-3 py-2 text-sm font-semibold text-rehab-ink transition hover:border-[#43AA8B]"
+          >
+            {paused ? copy.resume : copy.pause}
+          </button>
+          <LiveMotionPanel game={game} summary={liveSummary} copy={copy} />
+        </aside>
+      </section>
+    </div>
+  );
+}
+
+function MotionRehabArena({ session, game, t, onLiveSummary, onComplete, finishSignal, paused = false }) {
+  const copy = t.rehabilitationWorkspace;
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const samplesRef = useRef([]);
+  const lastSampleAtRef = useRef(0);
+  const startedAtRef = useRef(0);
+  const completedRef = useRef(false);
+  const demoTimerRef = useRef(null);
+  const [streamReady, setStreamReady] = useState(false);
+  const [cameraError, setCameraError] = useState("");
+  const [frame, setFrame] = useState(null);
+  const [countdown, setCountdown] = useState(3);
+  const [demoMode, setDemoMode] = useState(false);
+
+  const finishSession = useCallback(() => {
+    if (completedRef.current) return;
+    completedRef.current = true;
+    const completed = buildMotionSessionFromSamples(session, samplesRef.current, demoMode ? "demo" : "webcam_mediapipe");
+    videoRef.current?.srcObject?.getTracks?.().forEach((track) => track.stop());
+    onComplete(completed);
+  }, [demoMode, onComplete, session]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: webcamVideoConstraints,
+          audio: false,
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+        startedAtRef.current = 0;
+        samplesRef.current = [];
+        setStreamReady(true);
+        setCountdown(3);
+      } catch (error) {
+        setCameraError(error.message || copy.webcamAccessFailed);
+      }
+    }
+    startCamera();
+    return () => {
+      cancelled = true;
+      videoRef.current?.srcObject?.getTracks?.().forEach((track) => track.stop());
+    };
+  }, []);
+
+  useEffect(() => {
+    if ((!streamReady && !demoMode) || completedRef.current) return undefined;
+    setCountdown(3);
+    const timer = window.setInterval(() => {
+      setCountdown((value) => {
+        if (value <= 1) {
+          window.clearInterval(timer);
+          startedAtRef.current = performance.now();
+          return 0;
+        }
+        return value - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [streamReady, demoMode]);
+
+  useEffect(() => {
+    if (finishSignal > 0) finishSession();
+  }, [finishSignal, finishSession]);
+
+  useEffect(() => {
+    if (!demoMode || countdown > 0 || paused || completedRef.current) return undefined;
+    demoTimerRef.current = window.setInterval(() => {
+      const now = performance.now();
+      if (!startedAtRef.current) startedAtRef.current = now;
+      const elapsedSeconds = (now - startedAtRef.current) / 1000;
+      if (elapsedSeconds >= session.durationSeconds) {
+        window.clearInterval(demoTimerRef.current);
+        finishSession();
+        return;
+      }
+      const nextFrame = buildDemoMotionFrame({
+        gameType: session.gameType,
+        elapsedSeconds,
+        durationSeconds: session.durationSeconds,
+        difficulty: session.difficulty,
+        previousSamples: samplesRef.current,
+      });
+      samplesRef.current = [...samplesRef.current, nextFrame.sample].slice(-1200);
+      const summary = summarizeMotionSamples(samplesRef.current, session.durationSeconds, elapsedSeconds, session.gameType);
+      setFrame(nextFrame);
+      onLiveSummary({ ...summary, elapsedSeconds, sampleCount: samplesRef.current.length, feedback: nextFrame.feedback, tracking: { demo: true } });
+    }, 120);
+    return () => {
+      if (demoTimerRef.current) window.clearInterval(demoTimerRef.current);
+    };
+  }, [countdown, demoMode, finishSession, onLiveSummary, paused, session]);
+
+  useMediaPipePose({
+    videoRef,
+    canvasRef,
+    active: streamReady && !demoMode && !completedRef.current,
+    t,
+    onMetrics: (metrics) => {
+      if (paused || countdown > 0) return;
+      const now = performance.now();
+      if (!startedAtRef.current) startedAtRef.current = now;
+      const elapsedSeconds = (now - startedAtRef.current) / 1000;
+      if (elapsedSeconds >= session.durationSeconds) {
+        finishSession();
+        return;
+      }
+      if (now - lastSampleAtRef.current < 120) return;
+      lastSampleAtRef.current = now;
+
+      const nextFrame = buildMotionGameFrame({
+        gameType: session.gameType,
+        metrics,
+        elapsedSeconds,
+        durationSeconds: session.durationSeconds,
+        difficulty: session.difficulty,
+        previousSamples: samplesRef.current,
+      });
+      samplesRef.current = [...samplesRef.current, nextFrame.sample].slice(-1200);
+      const summary = summarizeMotionSamples(samplesRef.current, session.durationSeconds, elapsedSeconds, session.gameType);
+      setFrame(nextFrame);
+      onLiveSummary({
+        ...summary,
+        elapsedSeconds,
+        sampleCount: samplesRef.current.length,
+        feedback: nextFrame.feedback,
+        tracking: metrics.engines,
+      });
+    },
+  });
+
+  const elapsed = frame?.sample?.t ?? 0;
+  const progress = Math.min(100, (elapsed / session.durationSeconds) * 100);
+
+  return (
+    <div className="relative h-full min-h-screen overflow-hidden bg-slate-950">
+      <video
+        ref={videoRef}
+        muted
+        playsInline
+        className="absolute inset-0 h-full w-full scale-x-[-1] object-cover opacity-80"
+      />
+      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full scale-x-[-1]" />
+      <MotionGameOverlay
+        frame={frame}
+        game={game}
+        cameraError={cameraError}
+        streamReady={streamReady || demoMode}
+        countdown={countdown}
+        paused={paused}
+        demoMode={demoMode}
+        onStartDemo={() => {
+          videoRef.current?.srcObject?.getTracks?.().forEach((track) => track.stop());
+          samplesRef.current = [];
+          setDemoMode(true);
+          setCameraError("");
+          setStreamReady(false);
+        }}
+        copy={copy}
+      />
+      <div className="absolute left-5 right-5 top-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="rounded-xl bg-white/90 px-4 py-3 shadow-sm backdrop-blur">
+          <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{copy.mediaPipeControl}</p>
+          <p className="text-sm font-semibold text-rehab-ink">{game.control ?? copy.fullBodyLandmarks}</p>
+        </div>
+        <div className="rounded-xl bg-white/90 px-4 py-3 text-right shadow-sm backdrop-blur">
+          <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{copy.timer}</p>
+          <p className="text-sm font-semibold text-rehab-ink">{Math.round(elapsed)}s / {session.durationSeconds}s</p>
+        </div>
+      </div>
+      <div className="absolute bottom-0 left-0 right-0 h-2 bg-white/25">
+        <div className="h-full bg-[#43AA8B]" style={{ width: `${progress}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function MotionGameOverlay({ frame, game, cameraError, streamReady, countdown = 0, paused = false, demoMode = false, onStartDemo, copy }) {
+  if (cameraError) {
+    return (
+      <div className="absolute inset-0 grid place-items-center bg-slate-950/80 p-8 text-center text-white">
+        <div>
+          <Webcam className="mx-auto mb-4" size={34} />
+          <p className="text-xl font-semibold">{copy.webcamUnavailable}</p>
+          <p className="mt-2 max-w-md text-sm text-white/75">{cameraError}</p>
+          <button
+            type="button"
+            onClick={onStartDemo}
+            className="mt-5 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-rehab-ink"
+          >
+            {copy.useDemoSimulation}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (countdown > 0 && streamReady) {
+    return (
+      <div className="absolute inset-0 grid place-items-center bg-slate-950/35 p-8 text-center text-white">
+        <div className="rounded-2xl bg-white/92 px-10 py-8 text-rehab-ink shadow-2xl">
+          <p className="text-sm font-semibold uppercase tracking-wide text-rehab-muted">{copy.getReady}</p>
+          <p className="mt-2 text-7xl font-semibold" style={{ color: game.color }}>{countdown}</p>
+          <p className="mt-2 text-sm font-semibold">{copy.standTall}</p>
+        </div>
+      </div>
+    );
+  }
+  if (!streamReady || !frame) {
+    return (
+      <div className="absolute inset-0 grid place-items-center bg-slate-950/55 p-8 text-center text-white">
+        <div>
+          <Webcam className="mx-auto mb-4" size={34} />
+          <p className="text-xl font-semibold">{copy.standInView}</p>
+          <p className="mt-2 max-w-md text-sm text-white/75">{copy.trackingInstruction}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const marker = toPercentPoint(frame.marker);
+  const target = toPercentPoint(frame.target);
+  const hand = frame.hand ? toPercentPoint(frame.hand) : null;
+  const obstacles = frame.obstacles ?? [];
+  const gameType = frame.sample?.gameType;
+  const instruction = frame.instruction ?? frame.feedback;
+
+  return (
+    <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+      <defs>
+        <radialGradient id="targetGlow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor={game.color} stopOpacity="0.35" />
+          <stop offset="100%" stopColor={game.color} stopOpacity="0.02" />
+        </radialGradient>
+      </defs>
+      <rect x="4" y="6" width="92" height="88" rx="4" fill="rgba(15,23,42,0.16)" stroke="rgba(255,255,255,0.24)" />
+      <line x1="50" x2="50" y1="8" y2="92" stroke="rgba(255,255,255,0.32)" strokeDasharray="2 2" />
+      <line x1="8" x2="92" y1="50" y2="50" stroke="rgba(255,255,255,0.32)" strokeDasharray="2 2" />
+      {frame.path?.map((point, index) => {
+        if (index === 0) return null;
+        const prev = toPercentPoint(frame.path[index - 1]);
+        const current = toPercentPoint(point);
+        return <line key={index} x1={prev.x} y1={prev.y} x2={current.x} y2={current.y} stroke="#F9C74F" strokeWidth="0.7" opacity="0.75" />;
+      })}
+      {obstacles.map((obstacle, index) => {
+        const point = toPercentPoint(obstacle);
+        return <circle key={index} cx={point.x} cy={point.y} r={obstacle.r ?? 4} fill="#F94144" opacity="0.75" />;
+      })}
+      {gameType === "stability_challenge" ? (
+        <circle cx={50} cy={50} r={frame.targetRadius ?? 10} fill="rgba(67,170,139,0.20)" stroke="#43AA8B" strokeWidth="1.2" />
+      ) : (
+        <circle cx={target.x} cy={target.y} r={frame.targetRadius ?? 8} fill="url(#targetGlow)" stroke={game.color} strokeWidth="1.2" className="animate-pulse" />
+      )}
+      {hand ? <circle cx={hand.x} cy={hand.y} r="3.2" fill="#F9C74F" stroke="white" strokeWidth="1" /> : null}
+      <circle cx={marker.x} cy={marker.y} r={gameUsesHands(gameType) ? 3.1 : 4.2} fill={frame.success ? "#43AA8B" : "#F94144"} stroke="white" strokeWidth="1.2" />
+      <rect x="6" y="84.5" width="88" height="8.5" rx="2.5" fill="rgba(255,255,255,0.90)" />
+      <text x="50" y="90.2" textAnchor="middle" fill="#14213D" fontSize="3.2" fontWeight="800">{paused ? copy.paused : instruction}</text>
+      {demoMode ? <text x="94" y="11" textAnchor="end" fill="#F9C74F" fontSize="2.6" fontWeight="800">{copy.demo}</text> : null}
+    </svg>
+  );
+}
+
+function LiveMotionPanel({ game, summary, copy, dark = false }) {
+  const metrics = [
+    { label: copy.accuracy, value: summary.accuracy, color: "#90BE6D" },
+    { label: copy.stability, value: summary.stability, color: "#43AA8B" },
+    { label: copy.smoothness, value: summary.smoothness, color: "#F8961E" },
+    { label: copy.successRate, value: summary.successRate, color: "#577590" },
+  ];
+
+  return (
+    <div>
+      <p className={`text-xs font-semibold uppercase tracking-wide ${dark ? "text-cyan-100/70" : "text-rehab-muted"}`}>{copy.liveMotionMetrics}</p>
+      <p className={`mt-2 text-2xl font-semibold ${dark ? "text-white" : "text-rehab-ink"}`}>{game.title}</p>
+      <p className={`mt-1 text-xs font-semibold leading-5 ${dark ? "text-cyan-100/70" : "text-rehab-muted"}`}>{summary.feedback}</p>
+      <div className="mt-5 space-y-3.5">
+        {metrics.map(({ label, value, color }) => (
+          <div key={label}>
+            <div className={`flex justify-between text-sm font-semibold ${dark ? "text-white" : "text-rehab-ink"}`}>
+              <span>{label}</span>
+              <span style={{ color }}>{formatValue(value)}%</span>
+            </div>
+            <div className={`mt-1.5 h-2 rounded-full ${dark ? "bg-white/15" : "bg-slate-200"}`}>
+              <div className="h-full rounded-full" style={{ width: `${Math.min(100, Number(value) || 0)}%`, backgroundColor: color }} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className={`mt-5 rounded-xl p-3 text-xs font-semibold leading-5 ${dark ? "border border-cyan-100/15 bg-white/[0.06] text-cyan-50" : "bg-blue-50 text-blue-800"}`}>
+        {copy.estimatedSupportNote}
+      </p>
+    </div>
+  );
+}
+
+function RehabReviewStep({ selectedPatient, session, patientSessions, analytics, games, t, saved, onSave, onNewSession, onRepeat, onOpenProfile }) {
+  const copy = t.rehabilitationWorkspace;
+  const game = games[session.gameType] ?? games.stability_challenge;
+  const combinedSessions = saved ? patientSessions : [session, ...patientSessions];
+
+  return (
+    <div className="space-y-5">
+      <ClinicalCard className="p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#43AA8B]">
+              {copy.trainingReview}
+            </p>
+            <h2 className="mt-1 text-xl font-semibold text-rehab-ink">
+              {game.title} {copy.completed}
+            </h2>
+            <p className="mt-1 text-sm font-medium text-rehab-muted">
+              {selectedPatient?.fullName ?? t.patient} - {copy.estimatedIndicators}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-3xl font-semibold text-rehab-ink">
+              {Math.round(session.score)}
+              <span className="text-base text-rehab-muted">/100</span>
+            </p>
+            <StatusBadge tone={session.score >= 75 ? "success" : session.score >= 55 ? "warning" : "danger"}>
+              {session.score >= 75 ? copy.controlled : session.score >= 55 ? copy.needsPractice : copy.highSupport}
+            </StatusBadge>
+          </div>
+        </div>
+      </ClinicalCard>
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <ClinicalCard className="p-5">
+          <SectionHeader title={copy.trajectoryControl} description={copy.trajectoryControlDescription} />
+          <div className="mt-4">
+            <ClinicalGameCanvas session={session} game={game} />
+          </div>
+        </ClinicalCard>
+        <ClinicalCard className="p-5">
+          <SectionHeader title={copy.sessionScores} description={copy.clinicalTrainingIndicators} />
+          <ScorePanel session={session} copy={copy} />
+          <div className="mt-5 grid gap-2">
+            <Button onClick={onSave} disabled={saved} className="w-full justify-center">
+              <Save size={15} /> {saved ? copy.sessionSaved : copy.saveSession}
+            </Button>
+            <button type="button" onClick={onRepeat} className="rounded-xl border border-rehab-line bg-white px-4 py-2.5 text-sm font-semibold text-rehab-ink transition hover:border-[#43AA8B]">
+              {copy.repeatExercise}
+            </button>
+            <button type="button" onClick={onNewSession} className="rounded-xl border border-rehab-line bg-white px-4 py-2.5 text-sm font-semibold text-rehab-ink transition hover:border-[#577590]">
+              {copy.newSetup}
+            </button>
+            <button type="button" onClick={onOpenProfile} className="rounded-xl border border-rehab-line bg-slate-50 px-4 py-2.5 text-sm font-semibold text-rehab-ink transition hover:border-[#F8961E]">
+              {copy.openPatientRehab}
+            </button>
+          </div>
+        </ClinicalCard>
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
+        <ClinicalCard className="p-5">
+          <SectionHeader title={copy.progressTrend} description={copy.progressTrendDescription} />
+          <ProgressChart sessions={combinedSessions} analytics={analytics} copy={copy} />
+        </ClinicalCard>
+        <ClinicalCard className="p-5">
+          <SectionHeader title={copy.performanceSummary} description={copy.patientHistory} />
+          <PerformanceSummary analytics={analytics} copy={copy} games={games} />
+        </ClinicalCard>
+      </div>
+
+      <ClinicalCard className="p-5">
+        <SectionHeader title={copy.sessionHistory} description={copy.sessionHistoryDescription} />
+        <SessionHistoryTable sessions={patientSessions} games={games} copy={copy} />
+      </ClinicalCard>
+    </div>
+  );
+}
+
+function LiveMetric({ label, value, color }) {
+  return (
+    <div className="rounded-xl border border-white/70 bg-white p-3 shadow-sm">
+      <span className="block h-1 w-9 rounded-full" style={{ backgroundColor: color }} />
+      <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-rehab-muted">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-rehab-ink">{value}</p>
+    </div>
+  );
+}
+
+function PatientSnapshot({ patients, patientId, selectedPatient, latestAssessment, profile, games, t, onSelectPatient, onOpenProfile }) {
+  const copy = t.rehabilitationWorkspace;
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-clinical">
+      <div className="border-b border-slate-200 bg-[#f7fbfa] px-5 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-rehab-teal">{copy.patientSnapshot}</p>
+            <p className="mt-1 text-sm font-medium text-rehab-muted">{copy.snapshotDescription}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <select value={patientId ?? ""} onChange={(event) => onSelectPatient(Number(event.target.value))} className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-rehab-ink outline-none focus:border-rehab-teal">
+              {patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.fullName}</option>)}
+            </select>
+            <button type="button" onClick={onOpenProfile} className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-rehab-ink transition hover:border-rehab-teal hover:text-rehab-teal">
+              {copy.openProfile}
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-6">
+        <SnapshotDatum icon={User} label={t.patient} value={selectedPatient?.fullName ?? "-"} />
+        <SnapshotDatum icon={Activity} label={t.pathology} value={t.clinicalTerms?.pathologies?.[selectedPatient?.pathology] ?? selectedPatient?.pathology ?? selectedPatient?.medicalReason ?? "-"} />
+        <SnapshotDatum icon={Gauge} label={copy.lastBalanceScore} value={latestAssessment?.totalScore != null ? `${latestAssessment.totalScore}/100` : selectedPatient?.latestScore != null ? `${selectedPatient.latestScore}/100` : copy.noAssessment} />
+        <SnapshotDatum icon={ShieldCheck} label={copy.riskLevel} value={profile.riskLevel} accent={profile.riskColor} />
+        <SnapshotDatum icon={Target} label={copy.mainDeficit} value={profile.mainDeficit} />
+        <SnapshotDatum icon={Play} label={copy.recommendedExercise} value={games[profile.recommendedGame]?.title ?? games.stability_challenge.title} accent="#43AA8B" />
+      </div>
+    </section>
+  );
+}
+
+function SnapshotDatum({ icon: Icon, label, value, accent = "#577590" }) {
+  return (
+    <div className="min-h-24 bg-white p-4">
+      <div className="flex items-center gap-2">
+        <span className="grid h-7 w-7 place-items-center rounded-lg" style={{ color: accent, backgroundColor: `${accent}16` }}><Icon size={14} /></span>
+        <p className="text-[10px] font-black uppercase tracking-[0.13em] text-rehab-muted">{label}</p>
+      </div>
+      <p className="mt-3 text-sm font-bold leading-5 text-rehab-ink">{value}</p>
+    </div>
+  );
+}
+
+function ExercisePreview({ game, copy }) {
+  const details = game;
+  const Icon = game.icon;
+  return (
+    <div className="relative min-h-[23rem] overflow-hidden bg-[linear-gradient(145deg,#102b31,#163f3d)] p-6 text-white">
+      <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full border border-white/10" />
+      <div className="absolute -bottom-20 -left-16 h-64 w-64 rounded-full border border-white/10" />
+      <div className="relative flex h-full min-h-[20rem] flex-col">
+        <div className="flex items-center justify-between">
+          <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white/72">{copy.therapeuticPreview}</span>
+          <span className="grid h-10 w-10 place-items-center rounded-xl text-white" style={{ backgroundColor: game.color }}><Icon size={19} /></span>
+        </div>
+        <div className="grid flex-1 place-items-center">
+          <ExerciseMotionGraphic type={details.visual} color={game.color} />
+        </div>
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-white/55">{copy.movementFocus}</p>
+          <p className="mt-1 text-lg font-semibold">{game.control ?? copy.fullBodyControl}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExerciseMotionGraphic({ type, color }) {
+  const isReach = type === "reach" || type === "balloon";
+  const isLower = type === "squat" || type === "single";
+  return (
+    <div className="relative h-48 w-64" aria-label={`${type} exercise illustration`} role="img">
+      <div className="absolute left-1/2 top-5 h-9 w-9 -translate-x-1/2 rounded-full border-2 border-white/80" />
+      <div className={`absolute left-1/2 top-14 h-20 w-0.5 -translate-x-1/2 bg-white/75 ${type === "squat" ? "rotate-6" : ""}`} />
+      <div className={`absolute left-1/2 top-20 h-0.5 w-24 -translate-x-1/2 bg-white/75 ${isReach ? "-rotate-12" : ""}`} />
+      <div className={`absolute left-[7.1rem] top-[8.2rem] h-0.5 w-16 origin-left bg-white/75 ${isLower ? "rotate-[120deg]" : "rotate-[62deg]"}`} />
+      <div className={`absolute left-[8rem] top-[8.2rem] h-0.5 w-16 origin-left bg-white/75 ${isLower ? "rotate-[60deg]" : "rotate-[118deg]"}`} />
+      <div className="absolute bottom-4 left-1/2 h-20 w-40 -translate-x-1/2 rounded-[50%] border border-white/15" />
+      <div className="absolute bottom-11 left-1/2 h-3 w-3 -translate-x-1/2 rounded-full shadow-[0_0_0_10px_rgba(255,255,255,0.06)]" style={{ backgroundColor: color }} />
+      {type === "shift" || type === "path" || type === "maze" || type === "avoid" ? (
+        <>
+          <Move className="absolute bottom-8 left-5 text-white/45" size={24} />
+          <Route className="absolute bottom-8 right-5 text-white/45" size={24} />
+        </>
+      ) : null}
+      {isReach ? <Hand className="absolute right-7 top-12" size={25} style={{ color }} /> : null}
+      {isLower ? <Footprints className="absolute bottom-2 right-8 text-white/45" size={24} /> : null}
+    </div>
+  );
+}
+
+function TherapyList({ title, items }) {
+  return (
+    <div>
+      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-rehab-muted">{title}</p>
+      <ul className="mt-2 space-y-2">
+        {items.map((item) => <li key={item} className="flex items-start gap-2 text-sm font-semibold text-rehab-ink"><span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-rehab-teal" />{item}</li>)}
+      </ul>
+    </div>
+  );
+}
+
+function ConfigurationSelect({ label, value, onChange, options }) {
+  return (
+    <label className="text-xs font-black uppercase tracking-[0.13em] text-rehab-muted">
+      {label}
+      <select value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold normal-case tracking-normal text-rehab-ink outline-none focus:border-rehab-teal">
+        {options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function PatientContextBar({
+  patients,
+  patientId,
+  selectedPatient,
+  latestAssessment,
+  analytics,
+  onSelectPatient,
+  onOpenProfile,
+}) {
+  const lastSessionDate = analytics.lastSessionDate;
+
+  return (
+    <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+      <div className="flex items-center gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#EEF7F4]">
+          <User size={18} className="text-[#43AA8B]" />
+        </span>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">
+            Patient
+          </p>
+          <select
+            value={patientId ?? ""}
+            onChange={(e) => onSelectPatient(Number(e.target.value))}
+            className="mt-0.5 rounded-lg border border-rehab-line bg-white px-2 py-1.5 text-sm font-semibold text-rehab-ink"
+          >
+            {patients.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.fullName}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {selectedPatient && (
+        <>
+          <div className="h-8 w-px bg-rehab-line" />
+          <ContextPill label="Pathology" value={selectedPatient.medicalReason ?? selectedPatient.pathology ?? "—"} />
+          <ContextPill
+            label="Balance score"
+            value={
+              latestAssessment?.totalScore != null
+                ? `${latestAssessment.totalScore}/100`
+                : selectedPatient.latestScore != null
+                ? `${selectedPatient.latestScore}/100`
+                : "No assessment"
+            }
+            highlight
+          />
+          <ContextPill
+            label="Rehab sessions"
+            value={analytics.count > 0 ? `${analytics.count} done` : "None yet"}
+          />
+          {lastSessionDate && (
+            <ContextPill label="Last session" value={lastSessionDate} />
+          )}
+          <div className="ml-auto">
+            <button
+              type="button"
+              onClick={onOpenProfile}
+              className="flex items-center gap-1.5 rounded-lg border border-rehab-line px-3 py-1.5 text-xs font-semibold text-rehab-ink transition hover:border-[#43AA8B] hover:text-[#43AA8B]"
+            >
+              Open profile <ChevronRight size={13} />
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ContextPill({ label, value, highlight }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-rehab-muted">
+        {label}
+      </p>
+      <p
+        className={`mt-0.5 text-sm font-semibold ${highlight ? "text-[#43AA8B]" : "text-rehab-ink"}`}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+// ─── Game card ────────────────────────────────────────────────────────────────
+
+function GameCard({ game, copy, selected, onClick }) {
+  const Icon = game.icon;
+  const details = game;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative flex min-h-44 w-full flex-col rounded-xl border p-4 text-left transition ${
+        selected
+          ? "border-[#43AA8B] bg-[#F2FBF8] shadow-md ring-2 ring-[#43AA8B]/15"
+          : "border-rehab-line bg-white hover:-translate-y-0.5 hover:border-[#43AA8B]/50 hover:shadow-sm"
+      }`}
+    >
+      <div className="flex w-full items-start justify-between gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-white" style={{ backgroundColor: game.color }}><Icon size={18} /></span>
+        <span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-rehab-muted">{details.difficulty}</span>
+      </div>
+      <p className="mt-4 text-sm font-bold text-rehab-ink">{game.title}</p>
+      <p className="mt-1 line-clamp-2 text-xs leading-5 text-rehab-muted">{details.description}</p>
+      <div className="mt-auto flex w-full items-end justify-between gap-3 pt-4">
+        <div><p className="text-[9px] font-black uppercase tracking-wide text-rehab-muted">{copy.primaryGoal}</p><p className="mt-0.5 text-xs font-semibold text-rehab-ink">{details.primaryGoal}</p></div>
+        <span className="shrink-0 text-[10px] font-bold text-rehab-muted">{details.duration}</span>
+      </div>
+      {selected ? <span className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-rehab-teal ring-4 ring-rehab-teal/15" /> : null}
+    </button>
+  );
+}
+
+// ─── Arena panel ──────────────────────────────────────────────────────────────
+
+function ArenaPanel({ session, selectedGame, onSave, saved, disabled }) {
+  const game = GAME_META[session?.gameType ?? selectedGame];
+  const Icon = game.icon;
+
+  return (
+    <div className="flex h-full min-h-[36rem] flex-col">
+      {/* Arena header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rehab-line bg-[#F8FBFA] px-5 py-4">
+        <div className="flex items-center gap-3">
+          <span
+            className="grid h-10 w-10 place-items-center rounded-xl text-white"
+            style={{ backgroundColor: game.color }}
+          >
+            <Icon size={18} />
+          </span>
+          <div>
+            <p className="font-semibold text-rehab-ink">{game.title}</p>
+            <p className="text-xs font-semibold text-rehab-muted">{game.focus}</p>
+          </div>
+        </div>
+        {session && (
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saved}
+            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${
+              saved
+                ? "bg-slate-100 text-rehab-muted cursor-not-allowed"
+                : "bg-[#43AA8B] text-white hover:bg-[#3b9a7e]"
+            }`}
+          >
+            <Save size={15} />
+            {saved ? "Session saved" : "Save session"}
+          </button>
+        )}
+      </div>
+
+      {/* Arena body */}
+      {session ? (
+        <div className="grid flex-1 gap-0 xl:grid-cols-[minmax(0,1fr)_18rem]">
+          <div className="p-5">
+            <ClinicalGameCanvas session={session} game={game} />
+          </div>
+          <div className="border-t border-rehab-line bg-slate-50 p-5 xl:border-l xl:border-t-0">
+            <ScorePanel session={session} />
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-1 items-center justify-center p-8 text-center">
+          <div className="max-w-sm">
+            <span
+              className="mx-auto grid h-16 w-16 place-items-center rounded-xl text-white"
+              style={{ backgroundColor: game.color }}
+            >
+              <Icon size={30} />
+            </span>
+            <p className="mt-5 text-xl font-semibold text-rehab-ink">{game.title}</p>
+            <p className="mt-2 text-sm leading-6 text-rehab-muted">
+              {game.description}
+            </p>
+            <p className="mt-5 rounded-xl border border-rehab-line bg-slate-50 px-4 py-3 text-xs font-semibold text-rehab-muted">
+              {disabled
+                ? "Select a patient from the context bar above, then click Run simulation."
+                : "Configure difficulty and duration, then click Run simulation to generate a clinical session."}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Clinical game canvas ─────────────────────────────────────────────────────
+
+function ClinicalGameCanvas({ session, game }) {
+  const width = 620;
+  const height = 400;
+  const cx = width / 2;
+  const cy = height / 2;
+  const points = session.samples.map((s) => ({
+    x: cx + (s.markerX ?? 0) * 110,
+    y: cy - (s.markerY ?? 0) * 110,
+    tx: cx + (s.targetX ?? 0) * 110,
+    ty: cy - (s.targetY ?? 0) * 110,
+  }));
+  const path = points
+    .map((p, i) => `${i ? "L" : "M"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+    .join(" ");
+  const targetPath = points
+    .map((p, i) => `${i ? "L" : "M"} ${p.tx.toFixed(1)} ${p.ty.toFixed(1)}`)
+    .join(" ");
+  const last = points[points.length - 1];
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="h-full w-full rounded-xl border border-rehab-line bg-white"
+      role="img"
+      aria-label={`${game.title} clinical training field`}
+    >
+      <defs>
+        <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+          <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#E2E8F0" strokeWidth="1" />
+        </pattern>
+      </defs>
+      <rect x="12" y="12" width={width - 24} height={height - 24} rx="14" fill="url(#grid)" stroke="#CBD5E1" />
+      <line x1={cx} x2={cx} y1="28" y2={height - 28} stroke="#94A3B8" strokeDasharray="5 5" strokeWidth="1" />
+      <line x1="28" x2={width - 28} y1={cy} y2={cy} stroke="#94A3B8" strokeDasharray="5 5" strokeWidth="1" />
+      {session.gameType === "stability_challenge" && (
+        <circle cx={cx} cy={cy} r="60" fill="#90BE6D" opacity="0.12" stroke="#43AA8B" strokeWidth="2" />
+      )}
+      {session.gameType === "balance_maze" && <MazeWalls />}
+      {targetPath && (
+        <path d={targetPath} fill="none" stroke="#F9C74F" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" opacity="0.55" />
+      )}
+      {path && (
+        <path d={path} fill="none" stroke={game.color} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+      )}
+      {points.slice(0, 12).map((p, i) => (
+        <circle key={i} cx={p.tx} cy={p.ty} r="4" fill="#F8961E" opacity="0.45" />
+      ))}
+      <circle cx={cx} cy={cy} r="4" fill="#264653" />
+      {last && (
+        <circle cx={last.x} cy={last.y} r="11" fill={game.color} stroke="#fff" strokeWidth="3.5" />
+      )}
+      <text x="28" y="46" fill="#94A3B8" fontSize="11" fontWeight="700">
+        Estimated balance control field
+      </text>
+    </svg>
+  );
+}
+
+function MazeWalls() {
+  return (
+    <g stroke="#264653" strokeWidth="8" strokeLinecap="round" opacity="0.55">
+      <path d="M120 110 H300" />
+      <path d="M390 110 H520" />
+      <path d="M120 210 H230" />
+      <path d="M300 210 H500" />
+      <path d="M160 310 H360" />
+      <path d="M230 110 V210" />
+      <path d="M420 210 V330" />
+    </g>
+  );
+}
+
+// ─── Score panel ──────────────────────────────────────────────────────────────
+
+function ScorePanel({ session, copy }) {
+  const metrics = [
+    { label: copy.accuracy, value: session.accuracy, unit: "%", color: "#90BE6D" },
+    { label: copy.stability, value: session.stability, unit: "%", color: "#577590" },
+    { label: copy.smoothness, value: session.smoothness, unit: "%", color: "#F8961E" },
+    { label: copy.success, value: session.successRate ?? session.completionRate, unit: "%", color: "#43AA8B" },
+  ];
+  const extra = [
+    session.reactionTimeMs != null ? [copy.reaction, `${session.reactionTimeMs} ms`] : null,
+    session.trackingQuality != null ? [copy.tracking, `${formatValue(session.trackingQuality)}%`] : null,
+    session.exits != null ? [copy.zoneExits, session.exits] : null,
+    session.targetsHit != null ? [copy.targetsHit, session.targetsHit] : null,
+    session.touches != null ? [copy.touches, session.touches] : null,
+    (session.targetsMissed ?? session.missedTargets) != null ? [copy.missed, session.targetsMissed ?? session.missedTargets] : null,
+    session.pathLength != null ? [copy.trajectory, formatValue(session.pathLength)] : null,
+  ].filter(Boolean);
+
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">
+        {copy.clinicalScore}
+      </p>
+      <p className="mt-2 text-3xl font-semibold text-rehab-ink">
+        {Math.round(session.score)}
+        <span className="text-base font-semibold text-rehab-muted">/100</span>
+      </p>
+      <p className="mt-1 text-xs text-rehab-muted">
+        {session.difficulty} · {session.durationSeconds}s · {session.acquisitionMode}
+      </p>
+
+      <div className="mt-5 space-y-3.5">
+        {metrics.map(({ label, value, unit, color }) => (
+          <div key={label}>
+            <div className="flex justify-between text-sm font-semibold text-rehab-ink">
+              <span>{label}</span>
+              <span style={{ color }}>
+                {formatValue(value)}
+                {unit}
+              </span>
+            </div>
+            <div className="mt-1.5 h-2 rounded-full bg-slate-200">
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: `${Math.min(100, Number(value) || 0)}%`,
+                  backgroundColor: color,
+                }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {extra.length ? (
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          {extra.map(([label, value]) => (
+            <div key={label} className="rounded-lg bg-slate-50 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-rehab-muted">{label}</p>
+              <p className="mt-0.5 text-sm font-semibold text-rehab-ink">{value}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <p className="mt-5 rounded-xl bg-blue-50 p-3 text-xs font-semibold leading-5 text-blue-800">
+        {copy.diagnosticLimit}
+      </p>
+    </div>
+  );
+}
+
+// ─── Progress chart ───────────────────────────────────────────────────────────
+
+function ProgressChart({ sessions, analytics, copy }) {
+  const trend = sessions
+    .slice()
+    .reverse()
+    .map((s, i) => ({ label: `R${i + 1}`, score: s.score, accuracy: s.accuracy }));
+
+  return (
+    <div className="mt-4">
+      <div className="mb-3 flex flex-wrap gap-4 text-xs font-semibold text-rehab-muted">
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2 w-5 rounded-full bg-[#43AA8B]" /> {copy.score}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-0.5 w-5 border-t-2 border-dashed border-[#577590]" /> {copy.accuracy}
+        </span>
+      </div>
+      <div className="h-52 rounded-xl border border-rehab-line bg-white p-4">
+        <ResponsiveContainer width="100%" height="100%">
+          <ReLineChart data={trend}>
+            <CartesianGrid stroke="#E2E8F0" strokeDasharray="3 3" />
+            <XAxis dataKey="label" stroke="#94A3B8" tick={{ fontSize: 11 }} />
+            <YAxis domain={[0, 100]} stroke="#94A3B8" tick={{ fontSize: 11 }} />
+            <Line dataKey="score" stroke="#43AA8B" strokeWidth={3} dot={false} isAnimationActive={false} />
+            <Line dataKey="accuracy" stroke="#577590" strokeWidth={2} strokeDasharray="6 4" dot={false} isAnimationActive={false} />
+          </ReLineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+// ─── Performance summary ──────────────────────────────────────────────────────
+
+function PerformanceSummary({ analytics, copy, games }) {
+  const items = [
+    { label: copy.sessionsDone, value: analytics.count, color: "#43AA8B" },
+    { label: copy.averageScore, value: analytics.averageScore ? `${analytics.averageScore}/100` : "—", color: "#577590" },
+    { label: copy.averageAccuracy, value: analytics.averageAccuracy ? `${analytics.averageAccuracy}%` : "—", color: "#90BE6D" },
+    { label: copy.averageStability, value: analytics.averageStability ? `${analytics.averageStability}%` : "—", color: "#577590" },
+    { label: copy.improvement, value: analytics.scoreChange == null ? "—" : `${analytics.scoreChange > 0 ? "+" : ""}${analytics.scoreChange} pts`, color: analytics.scoreChange > 0 ? "#43AA8B" : "#F94144" },
+    { label: copy.mostTrained, value: games?.[analytics.mostTrainedGame]?.title ?? "—", color: "#F8961E" },
+  ];
+
+  return (
+    <div className="mt-4 grid grid-cols-2 gap-3">
+      {items.map(({ label, value, color }) => (
+        <div key={label} className="rounded-xl border border-rehab-line bg-white p-3">
+          <span className="block h-1 w-8 rounded-full" style={{ backgroundColor: color }} />
+          <p className="mt-2.5 text-[10px] font-semibold uppercase tracking-wide text-rehab-muted">
+            {label}
+          </p>
+          <p className="mt-1 text-lg font-semibold text-rehab-ink">{value}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Session history table ────────────────────────────────────────────────────
+
+function SessionHistoryTable({ sessions, games, copy }) {
+  if (!sessions.length) {
+    return (
+      <div className="mt-4">
+        <EmptyState
+          title={copy.noSavedSessions}
+          description={copy.noSavedSessionsDescription}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-rehab-line">
+            {[copy.date, copy.exercise, copy.difficulty, copy.duration, copy.score, copy.accuracy, copy.stability, copy.smoothness].map(
+              (h) => (
+                <th key={h} className="pb-2 pr-4 text-left text-xs font-semibold uppercase tracking-wide text-rehab-muted last:pr-0">
+                  {h}
+                </th>
+              ),
+            )}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-rehab-line">
+          {sessions.map((s, i) => {
+            const game = games[s.gameType] ?? games.stability_challenge;
+            const Icon = game.icon;
+            return (
+              <tr key={s.id ?? i} className="hover:bg-slate-50">
+                <td className="py-3 pr-4 font-semibold text-rehab-muted">
+                  {formatDate(s.createdAt ?? s.date)}
+                </td>
+                <td className="py-3 pr-4">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-white"
+                      style={{ backgroundColor: game.color }}
+                    >
+                      <Icon size={12} />
+                    </span>
+                    <span className="font-semibold text-rehab-ink">{game.title}</span>
+                  </div>
+                </td>
+                <td className="py-3 pr-4 capitalize text-rehab-muted">{s.difficulty ?? "—"}</td>
+                <td className="py-3 pr-4 text-rehab-muted">{s.durationSeconds ? `${s.durationSeconds}s` : "—"}</td>
+                <td className="py-3 pr-4">
+                  <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold text-white" style={{ backgroundColor: game.color }}>
+                    {Math.round(s.score ?? 0)}/100
+                  </span>
+                </td>
+                <td className="py-3 pr-4 font-semibold text-rehab-ink">{formatValue(s.accuracy)}%</td>
+                <td className="py-3 pr-4 font-semibold text-rehab-ink">{formatValue(s.stability)}%</td>
+                <td className="py-3 font-semibold text-rehab-ink">{formatValue(s.smoothness)}%</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── Stat chip ────────────────────────────────────────────────────────────────
+
+function StatChip({ label, value, color, icon: Icon }) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <Icon size={18} style={{ color }} />
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{label}</p>
+        <p className="mt-0.5 text-xl font-semibold text-rehab-ink">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Patient rehabilitation panel (used in patient profile tab) ───────────────
+
+export function PatientRehabilitationPanel({ t, patient, sessions = [], assessments = [], onStartRehabilitation }) {
+  const games = localizedGames(t);
+  const copy = t.rehabilitationWorkspace;
+  const analytics = buildRehabAnalytics(sessions);
+  const latestAssessment = assessments[0];
+  const suggestions = buildGameSuggestions(latestAssessment, copy).filter((item) => PLAYABLE_GAME_TYPES.has(item.gameType));
+
+  return (
+    <ClinicalCard className="p-5">
+      <SectionHeader
+        title={t.rehabilitation ?? "Rehabilitation"}
+        description={copy.exerciseLibraryDescription}
+      />
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 md:grid-cols-4">
+        {[
+          { label: copy.sessionsDone, value: sessions.length, color: "#43AA8B" },
+          { label: copy.averageScore, value: analytics.averageScore ? `${analytics.averageScore}/100` : "—", color: "#577590" },
+          { label: copy.averageAccuracy, value: analytics.averageAccuracy ? `${analytics.averageAccuracy}%` : "—", color: "#90BE6D" },
+          { label: copy.improvement, value: analytics.scoreChange == null ? "—" : `${analytics.scoreChange > 0 ? "+" : ""}${analytics.scoreChange} pts`, color: "#F8961E" },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="rounded-xl border border-rehab-line bg-white p-4">
+            <span className="block h-1 w-8 rounded-full" style={{ backgroundColor: color }} />
+            <p className="mt-2.5 text-[10px] font-semibold uppercase tracking-wide text-rehab-muted">{label}</p>
+            <p className="mt-1 text-xl font-semibold text-rehab-ink">{value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_0.9fr]">
+        <div className="rounded-xl border border-rehab-line bg-white p-4">
+          <p className="font-semibold text-rehab-ink">{copy.savedSessions}</p>
+          {sessions.length ? (
+            <div className="mt-3 space-y-2">
+              {sessions.slice(0, 6).map((s) => {
+                const game = games[s.gameType] ?? games.stability_challenge;
+                const Icon = game.icon;
+                return (
+                  <div key={s.id ?? s.createdAt} className="flex items-center justify-between gap-3 rounded-lg border border-rehab-line px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <span className="grid h-6 w-6 place-items-center rounded-md text-white" style={{ backgroundColor: game.color }}>
+                        <Icon size={12} />
+                      </span>
+                      <div>
+                        <p className="text-xs font-semibold text-rehab-ink">{game.title}</p>
+                        <p className="text-[10px] text-rehab-muted">{s.date ?? formatDate(s.createdAt)} · {s.difficulty}</p>
+                      </div>
+                    </div>
+                    <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold text-white" style={{ backgroundColor: game.color }}>
+                      {Math.round(s.score ?? 0)}/100
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-rehab-muted">{copy.noSavedSessions}</p>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-rehab-line bg-slate-50 p-4">
+          <p className="font-semibold text-rehab-ink">{copy.suggestedExercises}</p>
+          <div className="mt-3 space-y-2">
+            {suggestions.map((item) => (
+              <div key={item.gameType} className="rounded-lg bg-white p-3">
+                <p className="text-xs font-semibold text-rehab-ink">{games[item.gameType].title}</p>
+                <p className="mt-0.5 text-[11px] text-rehab-muted">{item.reason}</p>
+              </div>
+            ))}
+          </div>
+          <Button className="mt-4 w-full justify-center" onClick={() => onStartRehabilitation?.(patient.id)}>
+            <Play size={15} /> {copy.startRehabilitation}
+          </Button>
+        </div>
+      </div>
+    </ClinicalCard>
+  );
+}
+
+function buildMotionGameFrame({ gameType, metrics, elapsedSeconds, durationSeconds, difficulty, previousSamples }) {
+  const control = extractMotionControl(metrics, previousSamples);
+  const targetInfo = targetForMotionGame(gameType, elapsedSeconds, durationSeconds, difficulty, previousSamples);
+  const marker = markerForMotionGame(gameType, control);
+  const hand = gameUsesHands(gameType) ? control.bestHand : null;
+  const error = Math.hypot((marker.x ?? 0) - targetInfo.target.x, (marker.y ?? 0) - targetInfo.target.y);
+  const success = error < targetInfo.radius && (!gameUsesHands(gameType) || Boolean(hand));
+  const previous = previousSamples.at(-1);
+  const exitEvent = gameType === "stability_challenge" && previous && previous.inTarget && !success;
+  const newTargetSuccess = success && !previousSamples.some((sample) => sample.targetKey === targetInfo.key && sample.inTarget);
+
+  const sample = {
+    t: round2(elapsedSeconds),
+    gameType,
+    targetX: round2(targetInfo.target.x),
+    targetY: round2(targetInfo.target.y),
+    markerX: round2(marker.x),
+    markerY: round2(marker.y),
+    ap: round2(control.ap * 10),
+    ml: round2(control.ml * 10),
+    error: round2(error),
+    inTarget: success,
+    exitEvent: Boolean(exitEvent),
+    targetSuccess: Boolean(newTargetSuccess),
+    touched: Boolean(gameUsesHands(gameType) && newTargetSuccess),
+    missed: Boolean(gameUsesHands(gameType) && targetInfo.isExpiring && !success),
+    handSide: control.handSide ?? null,
+    trackingQuality: control.trackingQuality,
+    targetKey: targetInfo.key,
+    targetStartedAt: targetInfo.startedAt ?? null,
+    reactionTimeMs: newTargetSuccess ? reactionTimeForTarget(previousSamples, targetInfo.key, elapsedSeconds, targetInfo.startedAt) : null,
+    squatDepth: round2(control.squatDepth),
+    singleLeg: control.singleLeg,
+  };
+
+  return {
+    sample,
+    marker,
+    target: targetInfo.target,
+    hand,
+    path: targetInfo.path,
+    obstacles: targetInfo.obstacles,
+    targetRadius: targetInfo.radius * 38,
+    success,
+    instruction: targetInfo.instruction,
+    feedback: feedbackForGame(gameType, success, control, targetInfo),
+  };
+}
+
+function buildDemoMotionFrame({ gameType, elapsedSeconds, durationSeconds, difficulty, previousSamples }) {
+  const targetInfo = targetForMotionGame(gameType, elapsedSeconds, durationSeconds, difficulty, previousSamples);
+  const lag = difficulty === "advanced" ? 0.34 : difficulty === "intro" ? 0.16 : 0.24;
+  const noise = difficulty === "advanced" ? 0.16 : difficulty === "intro" ? 0.07 : 0.11;
+  const wobble = {
+    x: Math.sin(elapsedSeconds * 1.7) * noise + Math.sin(elapsedSeconds * 0.41) * 0.04,
+    y: Math.cos(elapsedSeconds * 1.35) * noise + Math.cos(elapsedSeconds * 0.52) * 0.04,
+  };
+  const marker = {
+    x: targetInfo.target.x * (1 - lag) + wobble.x,
+    y: targetInfo.target.y * (1 - lag) + wobble.y,
+  };
+  const hand = gameUsesHands(gameType) ? marker : null;
+  const error = Math.hypot(marker.x - targetInfo.target.x, marker.y - targetInfo.target.y);
+  const success = error < targetInfo.radius;
+  const previous = previousSamples.at(-1);
+  const newTargetSuccess = success && !previousSamples.some((sample) => sample.targetKey === targetInfo.key && sample.inTarget);
+  const sample = {
+    t: round2(elapsedSeconds),
+    gameType,
+    targetX: round2(targetInfo.target.x),
+    targetY: round2(targetInfo.target.y),
+    markerX: round2(marker.x),
+    markerY: round2(marker.y),
+    ap: round2(marker.y * 10),
+    ml: round2(marker.x * 10),
+    error: round2(error),
+    inTarget: success,
+    exitEvent: gameType === "stability_challenge" && previous && previous.inTarget && !success,
+    targetSuccess: newTargetSuccess,
+    touched: Boolean(gameUsesHands(gameType) && newTargetSuccess),
+    missed: Boolean(gameUsesHands(gameType) && targetInfo.isExpiring && !success),
+    handSide: Math.sin(elapsedSeconds) > 0 ? "right" : "left",
+    trackingQuality: 100,
+    targetKey: targetInfo.key,
+    targetStartedAt: targetInfo.startedAt ?? null,
+    reactionTimeMs: newTargetSuccess ? reactionTimeForTarget(previousSamples, targetInfo.key, elapsedSeconds, targetInfo.startedAt) : null,
+  };
+  return {
+    sample,
+    marker,
+    target: targetInfo.target,
+    hand,
+    path: targetInfo.path,
+    targetRadius: targetInfo.radius * 38,
+    success,
+    instruction: targetInfo.instruction,
+    feedback: feedbackForGame(gameType, success, { ap: marker.y, ml: marker.x }, targetInfo),
+  };
+}
+
+function extractMotionControl(metrics, previousSamples = []) {
+  const holistic = metrics.rawLandmarks ?? {};
+  const pose = holistic.pose ?? [];
+  const leftWrist = holistic.leftHand?.[8] ?? holistic.leftHand?.[0] ?? pose[15];
+  const rightWrist = holistic.rightHand?.[8] ?? holistic.rightHand?.[0] ?? pose[16];
+  const leftHip = pose[23];
+  const rightHip = pose[24];
+  const leftKnee = pose[25];
+  const rightKnee = pose[26];
+  const leftAnkle = pose[27];
+  const rightAnkle = pose[28];
+  const leftFoot = pose[31];
+  const rightFoot = pose[32];
+  const bodyCenter = metrics.bodyCenter ?? midpointSafe(leftHip, rightHip) ?? { x: 0.5, y: 0.55 };
+  const footCenter = metrics.footCenter ?? midpointSafe(leftFoot, rightFoot) ?? { x: 0.5, y: 0.86 };
+  const ml = clamp((bodyCenter.x - 0.5) * 3.4, -1, 1);
+  const ap = clamp((footCenter.y - bodyCenter.y - 0.28) * 3.2, -1, 1);
+  const leftHand = landmarkToGamePoint(leftWrist);
+  const rightHand = landmarkToGamePoint(rightWrist);
+  const handChoice = chooseBestHand(leftHand, rightHand, previousSamples.at(-1));
+  const leftKneeAngle = jointAngle(leftHip, leftKnee, leftAnkle);
+  const rightKneeAngle = jointAngle(rightHip, rightKnee, rightAnkle);
+  const kneeAngle = average([leftKneeAngle, rightKneeAngle].filter(Number.isFinite));
+  const squatDepth = Number.isFinite(kneeAngle) ? clamp((170 - kneeAngle) / 70, 0, 1) : 0;
+
+  return {
+    bodyCursor: { x: ml, y: ap },
+    bestHand: handChoice.point,
+    handSide: handChoice.side,
+    leftHand,
+    rightHand,
+    ap,
+    ml,
+    squatDepth,
+    kneeAngle,
+    singleLeg: isFootLifted(leftAnkle, rightAnkle, leftFoot, rightFoot),
+    stabilityScore: metrics.stabilityScore,
+    bodyCenterDeviation: metrics.bodyCenterDeviation,
+    trackingQuality: clamp(Number(metrics.landmarkCount ?? 0) / 543 * 100, 0, 100),
+  };
+}
+
+function targetForMotionGame(gameType, elapsed, duration, difficulty, samples) {
+  const difficultyScale = difficulty === "advanced" ? 0.82 : difficulty === "intro" ? 1.2 : 1;
+  const radius = 0.22 * difficultyScale;
+  if (gameType === "stability_challenge") {
+    return { target: { x: 0, y: 0, label: "Hold center" }, radius: 0.26 * difficultyScale, key: "freeze-center", instruction: "Hold still inside the green zone" };
+  }
+  if (gameType === "weight_shift_trainer") {
+    const targets = [
+      { x: -0.62, y: 0, label: "Lean left" },
+      { x: 0.62, y: 0, label: "Lean right" },
+      { x: 0, y: 0.58, label: "Lean forward" },
+      { x: 0, y: -0.58, label: "Lean backward" },
+    ];
+    const targetDuration = difficulty === "advanced" ? 3 : difficulty === "intro" ? 5 : 4;
+    const index = Math.floor(elapsed / targetDuration) % targets.length;
+    const bucket = Math.floor(elapsed / targetDuration);
+    return { target: targets[index], radius: radius * 1.04, key: `shift-${index}-${bucket}`, startedAt: bucket * targetDuration, instruction: targets[index].label };
+  }
+  if (gameType === "balloon_pop" || gameType === "reach_touch") {
+    const targets = [
+      { x: -0.72, y: 0.46 }, { x: 0.72, y: 0.42 }, { x: -0.52, y: -0.35 },
+      { x: 0.5, y: -0.42 }, { x: 0, y: 0.62 }, { x: -0.82, y: 0.02 }, { x: 0.82, y: -0.05 },
+    ];
+    const targetDuration = gameType === "balloon_pop" ? 2.8 : 3.4;
+    const bucket = Math.floor(elapsed / targetDuration);
+    const phase = elapsed / targetDuration - bucket;
+    return { target: targets[bucket % targets.length], radius: radius * 0.92, key: `${gameType}-${bucket}`, startedAt: bucket * targetDuration, instruction: gameType === "balloon_pop" ? "Pop the target with either hand" : "Touch the target with your hand", isExpiring: phase > 0.92 };
+  }
+  if (gameType === "path_following" || gameType === "balance_maze") {
+    const t = Math.min(1, elapsed / Math.max(1, duration));
+    const path = Array.from({ length: 42 }, (_, i) => {
+      const p = i / 41;
+      return { x: -0.78 + p * 1.56, y: Math.sin(p * Math.PI * (gameType === "balance_maze" ? 3 : 2)) * 0.45 };
+    });
+    return { target: path[Math.min(path.length - 1, Math.floor(t * (path.length - 1)))], radius: radius * 0.72, key: `path-${Math.floor(elapsed)}`, path, instruction: "Follow the yellow line" };
+  }
+  if (gameType === "squat_trainer") {
+    return { target: { x: 0, y: -0.62 }, radius: 0.24, key: `squat-${countSquatReps(samples)}`, requiredDepth: difficulty === "advanced" ? 0.48 : difficulty === "intro" ? 0.26 : 0.36, instruction: "Squat down with control" };
+  }
+  if (gameType === "single_leg_balance") {
+    return { target: { x: 0, y: 0 }, radius: difficulty === "advanced" ? 0.18 : 0.24, key: "single-leg-hold", instruction: "Lift one foot and stay centered" };
+  }
+  if (gameType === "obstacle_avoidance") {
+    const phase = elapsed * (difficulty === "advanced" ? 0.22 : 0.16);
+    const obstacles = [
+      { x: Math.sin(phase) * 0.72, y: 0.45, r: 5, rNorm: 0.16 },
+      { x: Math.cos(phase * 1.2) * 0.68, y: -0.35, r: 5, rNorm: 0.16 },
+    ];
+    return { target: { x: 0, y: 0 }, radius: 0.32, key: `avoid-${Math.floor(elapsed)}`, obstacles, instruction: "Avoid red obstacles" };
+  }
+  return { target: { x: 0, y: 0 }, radius, key: "freeze", instruction: "Stay centered" };
+}
+
+function markerForMotionGame(gameType, control) {
+  if (gameUsesHands(gameType)) return control.bestHand ?? { x: 0, y: 0 };
+  if (gameType === "squat_trainer") return { x: 0, y: -control.squatDepth };
+  return control.bodyCursor;
+}
+
+function summarizeMotionSamples(samples, durationSeconds, elapsedSeconds = durationSeconds, gameType = "stability_challenge") {
+  if (!samples.length) return { accuracy: 0, stability: 0, smoothness: 0, successRate: 0, reactionTimeMs: null, pathError: null, completionRate: 0, score: 0 };
+  const errors = samples.map((sample) => Number(sample.error)).filter(Number.isFinite);
+  const successRate = Math.round((samples.filter((sample) => sample.inTarget).length / samples.length) * 100);
+  const pathLength = computeMarkerPath(samples);
+  const meanError = average(errors);
+  const reactionTimes = samples.map((sample) => sample.reactionTimeMs).filter(Number.isFinite);
+  const trackingValues = samples.map((sample) => Number(sample.trackingQuality)).filter(Number.isFinite);
+  const exits = samples.filter((sample) => sample.exitEvent).length;
+  const targetKeys = [...new Set(samples.map((sample) => sample.targetKey).filter(Boolean))];
+  const successfulTargets = targetKeys.filter((key) => samples.some((sample) => sample.targetKey === key && sample.inTarget)).length;
+  const missedTargets = gameUsesHands(gameType) ? Math.max(0, targetKeys.length - successfulTargets) : samples.filter((sample) => sample.missed).length;
+  const accuracy = clamp(100 - meanError * (gameType === "stability_challenge" ? 58 : 46), 0, 100);
+  const stability = clamp(100 - swaySpread(samples) * (gameType === "stability_challenge" ? 34 : 20) - exits * 3.5, 0, 100);
+  const smoothness = clamp(100 - pathLength * (gameUsesHands(gameType) ? 1.5 : 2.1) - jerkScore(samples) * 20, 0, 100);
+  const completionRate = Math.round(Math.min(100, (elapsedSeconds / Math.max(1, durationSeconds)) * 100));
+  const targetSuccessRate = targetKeys.length ? Math.round((successfulTargets / targetKeys.length) * 100) : successRate;
+  const effectiveSuccessRate = gameType === "weight_shift_trainer" || gameUsesHands(gameType) ? targetSuccessRate : successRate;
+  const score = gameType === "stability_challenge"
+    ? Math.round(stability * 0.34 + successRate * 0.3 + smoothness * 0.22 + accuracy * 0.14)
+    : gameUsesHands(gameType)
+      ? Math.round(effectiveSuccessRate * 0.35 + accuracy * 0.26 + smoothness * 0.18 + clamp(100 - (reactionTimes.length ? average(reactionTimes) : 900) / 12, 0, 100) * 0.21)
+      : Math.round(effectiveSuccessRate * 0.3 + accuracy * 0.25 + stability * 0.2 + smoothness * 0.16 + completionRate * 0.09);
+  return {
+    accuracy: round1(accuracy),
+    stability: round1(stability),
+    smoothness: round1(smoothness),
+    successRate: effectiveSuccessRate,
+    completionRate,
+    reactionTimeMs: reactionTimes.length ? Math.round(average(reactionTimes)) : null,
+    pathError: round2(meanError),
+    pathLength: round2(pathLength),
+    score,
+    exits,
+    successfulTargets,
+    missedTargets,
+    targetsHit: successfulTargets,
+    targetsMissed: missedTargets,
+    touches: samples.filter((sample) => sample.touched).length,
+    trackingQuality: trackingValues.length ? round1(average(trackingValues)) : null,
+  };
+}
+
+function buildMotionSessionFromSamples(session, samples, acquisitionMode = "webcam_mediapipe") {
+  const summary = summarizeMotionSamples(samples, session.durationSeconds, session.durationSeconds, session.gameType);
+  return {
+    ...session,
+    ...summary,
+    acquisitionMode,
+    live: false,
+    createdAt: session.createdAt ?? new Date().toISOString(),
+    date: session.date ?? new Date().toLocaleString(),
+    notes: "Full-body MediaPipe-controlled rehabilitation exercise. Estimated support indicators, not diagnostic measurements.",
+    duration: session.durationSeconds,
+    samples: samples.map((sample) => ({
+      ...sample,
+      t: round2(sample.t),
+      targetX: round2(sample.targetX),
+      targetY: round2(sample.targetY),
+      markerX: round2(sample.markerX),
+      markerY: round2(sample.markerY),
+      ap: round2(sample.ap),
+      ml: round2(sample.ml),
+      error: round2(sample.error),
+    })),
+  };
+}
+
+function feedbackForGame(gameType, success, control, targetInfo) {
+  if (gameType === "squat_trainer") return success ? "Good squat depth" : "Lower slowly and keep knees controlled";
+  if (gameType === "single_leg_balance") return control.singleLeg ? "Hold steady on one leg" : "Lift one foot to begin the hold";
+  if (gameType === "obstacle_avoidance") return success ? "Clear path" : "Shift away from the red obstacle";
+  if (gameUsesHands(gameType)) return success ? "Target reached" : targetInfo.instruction;
+  return success ? "Inside target zone" : targetInfo.instruction;
+}
+
+function reactionTimeForTarget(samples, key, elapsed, startedAt = null) {
+  const targetSamples = samples.filter((sample) => sample.targetKey === key);
+  if (targetSamples.some((sample) => sample.inTarget)) return null;
+  const first = targetSamples[0]?.targetStartedAt ?? targetSamples[0]?.t ?? startedAt ?? elapsed;
+  return Math.round((elapsed - first) * 1000);
+}
+
+function gameUsesHands(gameType) {
+  return gameType === "balloon_pop" || gameType === "reach_touch";
+}
+
+function toPercentPoint(point) {
+  return { x: 50 + clamp(point?.x ?? 0, -1, 1) * 38, y: 50 - clamp(point?.y ?? 0, -1, 1) * 38 };
+}
+
+function landmarkToGamePoint(point) {
+  if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
+  return { x: clamp((point.x - 0.5) * 2.1, -1, 1), y: clamp((0.5 - point.y) * 2.1, -1, 1) };
+}
+
+function chooseBestHand(leftHand, rightHand, previousSample) {
+  if (leftHand && rightHand && previousSample?.targetX != null && previousSample?.targetY != null) {
+    const target = { x: previousSample.targetX, y: previousSample.targetY };
+    return Math.hypot(leftHand.x - target.x, leftHand.y - target.y) < Math.hypot(rightHand.x - target.x, rightHand.y - target.y)
+      ? { point: leftHand, side: "left" }
+      : { point: rightHand, side: "right" };
+  }
+  if (leftHand) return { point: leftHand, side: "left" };
+  if (rightHand) return { point: rightHand, side: "right" };
+  return { point: null, side: null };
+}
+
+function isFootLifted(leftAnkle, rightAnkle, leftFoot, rightFoot) {
+  if (!leftAnkle || !rightAnkle) return false;
+  const ankleLift = Math.abs(leftAnkle.y - rightAnkle.y) > 0.045;
+  const footLift = leftFoot && rightFoot ? Math.abs(leftFoot.y - rightFoot.y) > 0.045 : false;
+  return ankleLift || footLift;
+}
+
+function jointAngle(a, b, c) {
+  if (![a, b, c].every(Boolean)) return null;
+  const ab = { x: a.x - b.x, y: a.y - b.y };
+  const cb = { x: c.x - b.x, y: c.y - b.y };
+  const dot = ab.x * cb.x + ab.y * cb.y;
+  const mag = Math.hypot(ab.x, ab.y) * Math.hypot(cb.x, cb.y);
+  if (!mag) return null;
+  return Math.acos(clamp(dot / mag, -1, 1)) * (180 / Math.PI);
+}
+
+function midpointSafe(a, b) {
+  if (!a || !b) return null;
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+function computeMarkerPath(samples) {
+  let path = 0;
+  for (let index = 1; index < samples.length; index += 1) {
+    path += Math.hypot(samples[index].markerX - samples[index - 1].markerX, samples[index].markerY - samples[index - 1].markerY);
+  }
+  return path;
+}
+
+function swaySpread(samples) {
+  const xs = samples.map((sample) => Number(sample.markerX)).filter(Number.isFinite);
+  const ys = samples.map((sample) => Number(sample.markerY)).filter(Number.isFinite);
+  if (!xs.length || !ys.length) return 0;
+  return Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+}
+
+function jerkScore(samples) {
+  if (samples.length < 3) return 0;
+  let jerk = 0;
+  for (let index = 2; index < samples.length; index += 1) {
+    const dx1 = samples[index - 1].markerX - samples[index - 2].markerX;
+    const dy1 = samples[index - 1].markerY - samples[index - 2].markerY;
+    const dx2 = samples[index].markerX - samples[index - 1].markerX;
+    const dy2 = samples[index].markerY - samples[index - 1].markerY;
+    jerk += Math.hypot(dx2 - dx1, dy2 - dy1);
+  }
+  return jerk / samples.length;
+}
+
+function countSquatReps(samples) {
+  let reps = 0;
+  let wasDown = false;
+  samples.forEach((sample) => {
+    const down = Number(sample.squatDepth) > 0.38;
+    if (down && !wasDown) reps += 1;
+    wasDown = down;
+  });
+  return reps;
+}
+
+// ─── Simulation engine ────────────────────────────────────────────────────────
+
+function simulateGameSession({ patient, latestAssessment, gameType, difficulty, durationSeconds }) {
+  const scoreBase = Number(latestAssessment?.totalScore ?? patient.latestScore ?? 74);
+  const difficultyPenalty = difficulty === "advanced" ? 9 : difficulty === "standard" ? 4 : 0;
+  const control = Math.max(35, Math.min(96, scoreBase - difficultyPenalty + 6));
+  const samples = buildGameSamples(gameType, durationSeconds, control);
+  const errors = samples.map((s) => s.error);
+  const inTarget = samples.filter((s) => s.inTarget).length;
+  const pathLength = samples.slice(1).reduce((sum, s, i) => {
+    const prev = samples[i];
+    return sum + Math.hypot(s.markerX - prev.markerX, s.markerY - prev.markerY);
+  }, 0);
+  const accuracy = clamp(100 - average(errors) * 35, 25, 98);
+  const stability = clamp(100 - pathLength * 3.5, 25, 98);
+  const smoothness = clamp(100 - pathLength * 2.4 - Math.max(0, 80 - control) * 0.35, 25, 98);
+  const completionRate = Math.round((inTarget / samples.length) * 100);
+  const reactionTimeMs = Math.round(420 + (100 - control) * 8 + (difficulty === "advanced" ? 120 : 0));
+  const score = Math.round(accuracy * 0.34 + stability * 0.28 + smoothness * 0.22 + completionRate * 0.16);
+
+  return {
+    patientId: patient.id,
+    gameType,
+    acquisitionMode: "demo",
+    difficulty,
+    durationSeconds,
+    score,
+    accuracy: round1(accuracy),
+    stability: round1(stability),
+    smoothness: round1(smoothness),
+    reactionTimeMs,
+    pathError: round1(average(errors)),
+    completionRate,
+    level: difficulty === "advanced" ? 3 : difficulty === "standard" ? 2 : 1,
+    clinicalFocus: gameType,
+    createdAt: new Date().toISOString(),
+    date: new Date().toLocaleString(),
+    samples,
+  };
+}
+
+function buildGameSamples(gameType, durationSeconds, control) {
+  const count = Math.max(24, Math.min(90, durationSeconds));
+  const instability = (100 - control) / 100;
+  return Array.from({ length: count }, (_, index) => {
+    const t = index / Math.max(1, count - 1);
+    const target = targetForGame(gameType, t, index);
+    const lag = 0.08 + instability * 0.18;
+    const markerX = target.x * (1 - lag) + Math.sin(index * 0.43) * instability * 0.55 + Math.sin(index * 0.11) * 0.05;
+    const markerY = target.y * (1 - lag) + Math.cos(index * 0.37) * instability * 0.55 + Math.cos(index * 0.09) * 0.05;
+    const error = Math.hypot(markerX - target.x, markerY - target.y);
+    return {
+      t: index,
+      targetX: round2(target.x),
+      targetY: round2(target.y),
+      markerX: round2(markerX),
+      markerY: round2(markerY),
+      ap: round2(markerY * 10),
+      ml: round2(markerX * 10),
+      error: round2(error),
+      inTarget: error < (gameType === "stability_challenge" ? 0.34 : 0.28),
+    };
+  });
+}
+
+function targetForGame(gameType, t, index) {
+  if (gameType === "stability_challenge") return { x: 0, y: 0 };
+  if (gameType === "weight_shift_trainer") {
+    const targets = [{ x: -0.65, y: 0 }, { x: 0.65, y: 0 }, { x: 0, y: 0.65 }, { x: 0, y: -0.65 }];
+    return targets[Math.floor(index / 8) % targets.length];
+  }
+  if (gameType === "balance_maze") {
+    return { x: -0.72 + t * 1.42, y: Math.sin(t * Math.PI * 3) * 0.52 };
+  }
+  return { x: Math.sin(t * Math.PI * 2) * 0.72, y: Math.sin(t * Math.PI * 4) * 0.45 };
+}
+
+// ─── Clinical logic ───────────────────────────────────────────────────────────
+
+function buildGuidedProgram(latestAssessment, copy) {
+  if (!latestAssessment) {
+    return [
+      { gameType: "stability_challenge", reason: copy.reasons.baseline, priority: "medium", difficulty: "intro" },
+      { gameType: "weight_shift_trainer", reason: copy.reasons.transferIntro, priority: "medium", difficulty: "intro" },
+      { gameType: "reach_touch", reason: copy.reasons.coordinatedReach, priority: "medium", difficulty: "intro" },
+    ];
+  }
+  const results = latestAssessment.results ?? {};
+  const score = Number(latestAssessment.totalScore ?? results.totalBalanceScore ?? 75);
+  const asymmetry = Math.max(Number(results.shoulderAsymmetry ?? 0), Number(results.hipAsymmetry ?? 0));
+  const posturalControl = Number(results.posturalControlScore ?? results.postureStabilityScore ?? score);
+  return [
+    {
+      gameType: "stability_challenge",
+      reason: posturalControl < 80 ? copy.reasons.improveStatic : copy.reasons.consolidateStatic,
+      priority: posturalControl < 70 ? "high" : "medium",
+      difficulty: score < 72 ? "intro" : "standard",
+    },
+    {
+      gameType: "weight_shift_trainer",
+      reason: copy.reasons.improveTransfer,
+      priority: "high",
+      difficulty: score < 65 ? "intro" : "standard",
+    },
+    {
+      gameType: asymmetry > 5 ? "reach_touch" : "path_following",
+      reason: asymmetry > 5 ? copy.reasons.improveCoordination : copy.reasons.improveTrajectory,
+      priority: asymmetry > 5 ? "high" : "medium",
+      difficulty: "standard",
+    },
+  ];
+}
+
+function buildAssessmentProfile(latestAssessment, patient, copy) {
+  const results = latestAssessment?.results ?? {};
+  const score = Number(latestAssessment?.totalScore ?? results.totalBalanceScore ?? patient?.latestScore);
+  const ap = Number(results.meanSwayAp ?? results.estimatedBodySway ?? 0);
+  const ml = Number(results.meanSwayMl ?? results.bodyCenterDeviation ?? 0);
+  const posture = Number(results.posturalControlScore ?? results.postureStabilityScore ?? score);
+  const asymmetry = Math.max(Number(results.shoulderAsymmetry ?? 0), Number(results.hipAsymmetry ?? 0));
+  const findings = [
+    ap > 4 || !latestAssessment ? copy.deficits.ap : copy.findings.apControlled,
+    posture < 80 || !Number.isFinite(posture) ? copy.deficits.posture : copy.findings.endurance,
+    asymmetry > 5 ? copy.findings.moderateAsymmetry : copy.deficits.asymmetry,
+  ];
+  const riskLevel = !Number.isFinite(score) ? copy.findings.notAssessed : score < 65 ? copy.riskLabels.high : score < 80 ? copy.riskLabels.moderate : copy.riskLabels.low;
+  const riskColor = !Number.isFinite(score) ? "#577590" : score < 65 ? "#F94144" : score < 80 ? "#F8961E" : "#43AA8B";
+  const mainDeficit = posture < 70 ? copy.findings.posturalControl : ap >= ml ? copy.findings.apStability : asymmetry > 5 ? copy.findings.symmetryReach : copy.findings.directionalControl;
+  const recommendedGame = posture < 70 ? "stability_challenge" : asymmetry > 5 ? "reach_touch" : "weight_shift_trainer";
+  return { findings, riskLevel, riskColor, mainDeficit, recommendedGame };
+}
+
+function difficultyLabel(value, copy) {
+  return copy.difficultyLabels[value] ?? copy.difficultyLabels.standard;
+}
+
+function buildGameSuggestions(latestAssessment, copy) {
+  if (!latestAssessment) {
+    return [{ gameType: "stability_challenge", reason: copy.reasons.baseline, priority: "medium", difficulty: "intro" }];
+  }
+  const results = latestAssessment.results ?? {};
+  const suggestions = [];
+  if (Number(results.meanSwayMl ?? results.bodyCenterDeviation ?? 0) > 9)
+    suggestions.push({ gameType: "weight_shift_trainer", reason: copy.reasons.elevatedLateral, priority: "high", difficulty: "standard" });
+  if (Number(results.pathLength ?? results.maxResultantSway ?? 0) > 16)
+    suggestions.push({ gameType: "path_following", reason: copy.reasons.irregularPath, priority: "high", difficulty: "standard" });
+  if (Number(latestAssessment.totalScore ?? results.totalBalanceScore ?? 100) < 72)
+    suggestions.push({ gameType: "stability_challenge", reason: copy.reasons.lowScore, priority: "high", difficulty: "intro" });
+  suggestions.push({ gameType: "balance_maze", reason: copy.reasons.progressCoordination, priority: "medium", difficulty: "standard" });
+  return suggestions.slice(0, 4);
+}
+
+function buildRehabAnalytics(sessions) {
+  const scores = sessions.map((s) => Number(s.score)).filter(Number.isFinite);
+  const accuracies = sessions.map((s) => Number(s.accuracy)).filter(Number.isFinite);
+  const stabilities = sessions.map((s) => Number(s.stability)).filter(Number.isFinite);
+  const sorted = sessions.slice().sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  const counts = sessions.reduce((map, s) => ({ ...map, [s.gameType]: (map[s.gameType] ?? 0) + 1 }), {});
+  const most = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const lastSession = sessions.slice().sort((a, b) => new Date(b.createdAt ?? b.date) - new Date(a.createdAt ?? a.date))[0];
+  return {
+    count: sessions.length,
+    averageScore: average(scores),
+    averageAccuracy: average(accuracies),
+    averageStability: average(stabilities),
+    scoreChange: sorted.length > 1 ? round1(Number(sorted.at(-1).score) - Number(sorted[0].score)) : null,
+    mostTrainedGame: most ?? null,
+    lastSessionDate: lastSession ? formatDate(lastSession.createdAt ?? lastSession.date) : null,
+  };
+}
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+
+function average(values) {
+  if (!values.length) return 0;
+  return Math.round(values.reduce((sum, v) => sum + v, 0) / values.length);
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function round1(value) {
+  return Math.round(Number(value) * 10) / 10;
+}
+
+function round2(value) {
+  return Math.round(Number(value) * 100) / 100;
+}
+
+function formatValue(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n) : "—";
+}
+
+function formatDate(value) {
+  if (!value) return "—";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}

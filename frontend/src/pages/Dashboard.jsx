@@ -166,7 +166,7 @@ export function Dashboard({ t, patients, sessions, reports, dashboardSummary, on
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-sm text-rehab-muted">{assessment.date}</td>
+                  <td className="px-4 py-3 text-sm text-rehab-muted">{formatDashboardDate(assessment.dateISO, t.localeCode)}</td>
                   <td className="px-4 py-3 text-sm text-rehab-muted">{testTypeLabel(t, assessment.testType)}</td>
                   <td className="px-4 py-3 text-sm text-rehab-muted">{conditionLabel(t, assessment.condition)}</td>
                   <td className="px-4 py-3">
@@ -218,7 +218,7 @@ export function Dashboard({ t, patients, sessions, reports, dashboardSummary, on
                           {patient.latestScore ?? "-"}
                         </span>
                       </div>
-                      <p className="mt-0.5 truncate text-xs text-rehab-muted">{patient.pathology}</p>
+                      <p className="mt-0.5 truncate text-xs text-rehab-muted">{t.clinicalTerms?.pathologies?.[patient.pathology] ?? patient.pathology}</p>
                     </div>
                   </div>
                 </button>
@@ -288,9 +288,9 @@ function titleCase(value) {
   return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "";
 }
 
-function formatDashboardDate(value) {
+function formatDashboardDate(value, locale = "en-US") {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+  return date.toLocaleString(locale);
 }

@@ -2,6 +2,8 @@ import {
   patientFromApi,
   patientToApi,
   patientUpdateToApi,
+  rehabSessionFromApi,
+  rehabSessionToApi,
   reportFromApi,
   reportDataFromApi,
   reportToApi,
@@ -83,4 +85,11 @@ export const api = {
   esp32Zero: () => request("/esp32/zero", { method: "POST" }),
   reports: async () => (await request("/reports")).map(reportFromApi),
   createReport: async (report) => reportFromApi(await request("/reports", { method: "POST", body: JSON.stringify(reportToApi(report)) })),
+  rehabSessions: async (patientId = null) => {
+    const path = patientId != null ? `/rehab-games?patient_id=${patientId}` : "/rehab-games";
+    return (await request(path)).map(rehabSessionFromApi);
+  },
+  createRehabSession: async (session) => rehabSessionFromApi(
+    await request("/rehab-games", { method: "POST", body: JSON.stringify(rehabSessionToApi(session)) }),
+  ),
 };

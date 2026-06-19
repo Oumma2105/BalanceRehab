@@ -346,3 +346,28 @@ class SessionReportData(BaseModel):
     acquisition_mode_label: str
     clinical_impression: str | None = None
     recommendations: list[str] = Field(default_factory=list)
+
+
+class RehabGameSessionCreate(BaseModel):
+    patient_id: int
+    game_type: str
+    difficulty: str = "medium"
+    duration_seconds: int = 60
+    acquisition_mode: str = "webcam"
+    score: float | None = None
+    accuracy: float | None = None
+    stability: float | None = None
+    smoothness: float | None = None
+    reaction_time_ms: float | None = None
+    success_rate: float | None = None
+    tracking_quality: float | None = None
+    exits: int | None = None
+    targets_hit: int | None = None
+    targets_missed: int | None = None
+    samples_json: str | None = None
+
+
+class RehabGameSessionRead(RehabGameSessionCreate):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    created_at: datetime

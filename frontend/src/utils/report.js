@@ -5,31 +5,688 @@ const TEXT = [30, 41, 59];
 const MUTED = [100, 116, 139];
 const LINE = [203, 213, 225];
 const SOFT = [248, 250, 252];
-const GREEN = [22, 163, 74];
-const ORANGE = [249, 115, 22];
-const RED = [220, 38, 38];
+const GREEN = [67, 170, 139];
+const BLUE = [87, 117, 144];
+const YELLOW = [249, 199, 79];
+const ORANGE = [248, 150, 30];
+const RED = [249, 65, 68];
 const MARGIN = 15;
 const PAGE_W = 210;
 const PAGE_H = 297;
 const CONTENT_W = PAGE_W - MARGIN * 2;
+const REQUIRED_LIMITATION_NOTE = "Ces visualisations sont inspirées de la posturographie. Les indicateurs sont estimés à partir de la webcam et/ou des capteurs ultrasoniques et ne correspondent pas à une mesure médicale certifiée du centre de pression.";
+const LIMITATION_NOTE = REQUIRED_LIMITATION_NOTE;
 
 export function downloadSessionReport({ patient, session, t = {} }) {
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
-  const generatedAt = new Date().toLocaleDateString();
+  const doc = createSessionReportDocument({ patient, session, t });
+  doc.save(`BalanceRehab_${patient.patientCode}_${session.id}.pdf`);
+}
+
+export function createSessionReportDocument({ patient, session, t = {} }) {
+  const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
+  const generatedAt = new Date().toLocaleDateString(t.localeCode ?? "en-US");
   const results = session.results ?? {};
   const recommendations = results.recommendations ?? [];
-  const clinicianName = t.clinicianName ?? "Dr. Habiba El Kettani";
+  const clinicianName = t.clinicianName ?? "Dr. ERRAMI Noureddine";
   const clinicianRole = t.clinicianRole ?? "Physiotherapist";
-  const severity = getSeverity(session.totalScore ?? results.totalBalanceScore, t);
-
-  drawCoverPage(doc, { patient, session, generatedAt, clinicianName, severity, t });
-  drawResultsPage(doc, { patient, session, results, t });
-  drawInterpretationPage(doc, { patient, session, results, recommendations, t });
-  drawTrendAppendixPage(doc, { patient, session, results, t });
-  drawSignaturePage(doc, { patient, generatedAt, clinicianName, clinicianRole, t });
+  drawClinicalReport(doc, {
+    patient,
+    session,
+    results,
+    recommendations,
+    generatedAt,
+    clinicianName,
+    clinicianRole,
+    t,
+  });
 
   addHeadersAndFooters(doc, patient, generatedAt, t);
-  doc.save(`BalanceRehab_${patient.patientCode}_${session.id}.pdf`);
+  return doc;
+}
+
+function drawClinicalReport(doc, { patient, session, results, recommendations, generatedAt, clinicianName, clinicianRole, t }) {
+  const score = Number(session.totalScore ?? results.totalBalanceScore ?? 0);
+  const severity = getSeverity(score, t);
+  const trace = buildClinicalSwayTrace(results, session);
+  const samples = trace.samples;
+  const metrics = buildClinicalReportMetrics({ session, results, samples, score });
+  const generatedRecommendations = recommendations.length ? recommendations : defaultRecommendations(severity, t);
+
+  drawClinicalSummaryPage(doc, { patient, session, results, generatedAt, clinicianName, t, severity, metrics });
+  doc.addPage();
+  drawPosturographicAnalysisPage(doc, { patient, session, samples, trace, generatedAt, clinicianName, t });
+  doc.addPage();
+  drawIndicatorsRecommendationsPage(doc, { patient, session, results, severity, recommendations: generatedRecommendations, metrics, clinicianName, clinicianRole, generatedAt, t });
+}
+
+function drawClinicalSummaryPage(doc, { patient, session, results, generatedAt, clinicianName, t, severity, metrics }) {
+  drawClinicalHeader(doc, { patient, session, generatedAt, clinicianName, t });
+  drawClinicalScoreCards(doc, metrics, severity, 48, t);
+
+  let y = 116;
+  y = sectionTitle(doc, t.pdfClinicalSummary ?? "Clinical Summary", y);
+  const summaryRows = [
+    [t.pdfPatientName ?? "Patient", patient.fullName ?? "-", t.pdfClinician ?? "Clinician", clinicianName],
+    [t.acquisitionMode ?? "Acquisition mode", acquisitionModeLabel(t, session), t.test ?? "Test type", testTypeLabel(t, session.testType)],
+    [t.visionCondition ?? "Visual condition", conditionLabel(t, session.condition), t.duration ?? "Duration", `${session.durationSeconds ?? "-"} s`],
+  ];
+  drawTwoColumnInfoGrid(doc, summaryRows, y);
+
+  y += 50;
+  y = sectionTitle(doc, t.clinicalInterpretationSection ?? "Interpretation", y);
+  const interpretation = session.clinician_impression ?? session.interpretation ?? results.interpretation ??
+    (t.pdfDefaultInterpretation ?? "{classification}").replace("{classification}", severity.label);
+  drawTextBlock(doc, interpretation, y);
+  drawClinicalLimitNoteExact(doc, 246, t);
+}
+
+function drawPosturographicAnalysisPage(doc, { patient, session, samples, trace, generatedAt, clinicianName, t }) {
+  drawClinicalHeader(doc, { patient, session, generatedAt, clinicianName, t, compact: true });
+  let y = 42;
+  y = sectionTitle(doc, t.pdfPosturographicAnalysis ?? "Posturographic Analysis", y);
+  doc.setTextColor(...MUTED);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.text(`${sourceLabelForTrace(trace, t)} | ${trace.realSamplesUsed ? (t.recordedSessionData ?? "Données issues de la session enregistrée") : trace.fallbackUsed ? (t.sourceDemoData ?? "Source: Demo data") : (t.noRecordedSamplesAvailable ?? "No recorded samples available for this session.")}`, MARGIN, y - 3, { maxWidth: CONTENT_W });
+
+  if (!samples.length) {
+    drawNoSamplesBox(doc, MARGIN, 58, CONTENT_W, 84, t);
+    return;
+  }
+
+  drawClinicalFootMap(doc, samples, MARGIN, 58, 85, 72, t);
+  drawClinicalTrajectory(doc, samples, MARGIN + 95, 58, 85, 72, t);
+  drawClinicalStabilogram(doc, samples, MARGIN, 152, 85, 42, "ap", ORANGE, t.apStabilogram ?? "AP stabilogram");
+  drawClinicalStabilogram(doc, samples, MARGIN + 95, 152, 85, 42, "ml", BLUE, t.mlStabilogram ?? "ML stabilogram");
+  drawClinicalStabilogram(doc, samples, MARGIN, 216, 85, 42, "resultant", RED, t.resultantSwayOverTime ?? "Resultant sway");
+  drawClinicalHeatmap(doc, samples, MARGIN + 105, 213, 58, 58, t);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.2);
+  doc.setTextColor(...MUTED);
+  doc.text(`Debug: MediaPipe samples ${trace.mediaPipeSamples} | ESP32 samples ${trace.esp32Samples} | fallback ${trace.fallbackUsed ? "yes" : "no"}`, MARGIN, 279);
+}
+
+function drawIndicatorsRecommendationsPage(doc, { patient, session, results, severity, recommendations, metrics, clinicianName, clinicianRole, generatedAt, t }) {
+  drawClinicalHeader(doc, { patient, session, generatedAt, clinicianName, t, compact: true });
+  let y = 42;
+  y = sectionTitle(doc, t.pdfIndicatorsRecommendations ?? "Indicators & Recommendations", y);
+  y = drawTable(doc, {
+    y,
+    columns: [t.metric ?? "Indicator", t.pdfValue ?? "Value", t.pdfReference ?? "Reference", t.status ?? "Status"],
+    widths: [66, 40, 42, 32],
+    rows: buildDetailedIndicatorRows({ session, results, metrics, severity, t }),
+    rowHeight: 8.5,
+  });
+
+  y += 10;
+  y = sectionTitle(doc, t.recommendations ?? "Recommendations", y);
+  recommendations.slice(0, 4).forEach((item, index) => {
+    y = drawWrappedLine(doc, `${index + 1}. ${item}`, MARGIN + 4, y, CONTENT_W - 8);
+  });
+
+  y = Math.max(y + 4, 202);
+  drawClinicalLimitNoteExact(doc, y, t);
+  drawClinicalSignatureBlock(doc, { clinicianName, clinicianRole, generatedAt, t }, y + 23);
+}
+
+function drawClinicalHeader(doc, { patient, session, generatedAt, clinicianName, t, compact = false }) {
+  doc.setFillColor(255, 255, 255);
+  doc.rect(0, 0, PAGE_W, PAGE_H, "F");
+  doc.setDrawColor(...LINE);
+  doc.line(MARGIN, compact ? 28 : 38, PAGE_W - MARGIN, compact ? 28 : 38);
+
+  doc.setTextColor(...PRIMARY);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(compact ? 16 : 21);
+  doc.text("BalanceRehab", MARGIN, compact ? 17 : 19);
+  doc.setTextColor(...TEXT);
+  doc.setFontSize(compact ? 10 : 12);
+  doc.text(t.pdfReportSubtitle ?? "Clinical Balance Assessment Report", MARGIN, compact ? 24 : 28);
+
+  const rightX = PAGE_W - MARGIN;
+  doc.setTextColor(...TEXT);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text(patient.fullName ?? "-", rightX, compact ? 13 : 15, { align: "right" });
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(...MUTED);
+  doc.text(`${patient.patientCode ?? "-"} | ${generatedAt}`, rightX, compact ? 20 : 22, { align: "right" });
+  if (!compact) {
+    doc.text(`${clinicianName} | ${acquisitionModeLabel(t, session)}`, rightX, 29, { align: "right" });
+  }
+
+}
+
+function drawClinicalInfoPill(doc, label, value, x, y, width) {
+  doc.setFillColor(...SOFT);
+  doc.setDrawColor(...LINE);
+  doc.roundedRect(x, y, width, 17, 2.5, 2.5, "FD");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(6.8);
+  doc.setTextColor(...MUTED);
+  doc.text(String(label).toUpperCase(), x + 3, y + 6);
+  doc.setFontSize(8.4);
+  doc.setTextColor(...TEXT);
+  doc.text(String(valueOrDash(value)), x + 3, y + 12.5, { maxWidth: width - 6 });
+}
+
+function drawTwoColumnInfoGrid(doc, rows, y) {
+  const rowH = 14;
+  const colW = CONTENT_W / 2;
+  rows.forEach((row, rowIndex) => {
+    const currentY = y + rowIndex * rowH;
+    [0, 1].forEach((col) => {
+      const x = MARGIN + col * colW;
+      const label = row[col * 2];
+      const value = row[col * 2 + 1];
+      doc.setFillColor(rowIndex % 2 === 0 ? 255 : 248, rowIndex % 2 === 0 ? 255 : 250, rowIndex % 2 === 0 ? 255 : 252);
+      doc.setDrawColor(...LINE);
+      doc.rect(x, currentY, colW, rowH, "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.5);
+      doc.setTextColor(...MUTED);
+      doc.text(String(label).toUpperCase(), x + 4, currentY + 5);
+      doc.setFontSize(9);
+      doc.setTextColor(...TEXT);
+      doc.text(String(valueOrDash(value)), x + 4, currentY + 11, { maxWidth: colW - 8 });
+    });
+  });
+}
+
+function drawScoreFocusBlock(doc, { score, severity, metrics, t }, y) {
+  doc.setFillColor(...severity.bg);
+  doc.setDrawColor(...severity.color);
+  doc.roundedRect(MARGIN, y, CONTENT_W, 54, 4, 4, "FD");
+  doc.setTextColor(...severity.color);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(34);
+  doc.text(`${Math.round(score)}/100`, MARGIN + 8, y + 28);
+  doc.setFontSize(11);
+  doc.text(severity.label, MARGIN + 9, y + 41);
+
+  const items = [
+    [t.meanSway ?? "Mean sway", `${valueOrDash(metrics.meanSway)} cm`],
+    [t.maxSway ?? "Max sway", `${valueOrDash(metrics.maxSway)} cm`],
+    [t.pathLength ?? "Path length", `${valueOrDash(metrics.pathLength)} cm`],
+    [t.swayVelocity ?? "Velocity", `${valueOrDash(metrics.swayVelocity)} cm/s`],
+  ];
+  items.forEach(([label, value], index) => {
+    const x = MARGIN + 74 + index * 26;
+    doc.setTextColor(...MUTED);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6.8);
+    doc.text(String(label).toUpperCase(), x, y + 18, { maxWidth: 24 });
+    doc.setTextColor(...TEXT);
+    doc.setFontSize(10);
+    doc.text(String(value), x, y + 31, { maxWidth: 24 });
+  });
+}
+
+function drawClinicalScoreCards(doc, metrics, severity, y, t) {
+  const cards = [
+    { label: t.balanceScore ?? "Balance", value: `${Math.round(metrics.totalScore)}/100`, color: severity.color },
+    { label: t.postureScoreMetric ?? "Posture", value: `${valueOrDash(metrics.postureScore)}/100`, color: BLUE },
+    { label: t.stabilityScore ?? "Stability", value: `${valueOrDash(metrics.stabilityScore)}/100`, color: PRIMARY },
+    { label: t.apSway ?? "AP sway (est.)", value: `${valueOrDash(metrics.meanAp)} cm`, color: ORANGE },
+    { label: t.mlSway ?? "ML sway (est.)", value: `${valueOrDash(metrics.meanMl)} cm`, color: BLUE },
+    { label: t.swayVelocity ?? "Velocity (est.)", value: `${valueOrDash(metrics.swayVelocity)} cm/s`, color: YELLOW },
+    { label: t.instabilityEvents ?? "Events (est.)", value: valueOrDash(metrics.instabilityEvents), color: RED },
+    { label: t.stabilityClassification ?? "Classification", value: severity.label, color: severity.color },
+  ];
+  const columns = 4;
+  const gap = 4;
+  const width = (CONTENT_W - gap * (columns - 1)) / columns;
+  cards.forEach((card, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const x = MARGIN + column * (width + gap);
+    const cardY = y + row * 29;
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(...LINE);
+    doc.roundedRect(x, cardY, width, 25, 3, 3, "FD");
+    doc.setFillColor(...card.color);
+    doc.rect(x, cardY, width, 2.2, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6.4);
+    doc.setTextColor(...MUTED);
+    doc.text(String(card.label).toUpperCase(), x + 3, cardY + 9, { maxWidth: width - 6 });
+    doc.setFontSize(index === cards.length - 1 ? 9 : 12);
+    doc.setTextColor(...TEXT);
+    doc.text(String(card.value), x + 3, cardY + 19, { maxWidth: width - 6 });
+  });
+}
+
+function buildDetailedIndicatorRows({ session, results, metrics, severity, t }) {
+  return [
+    [t.totalBalanceScore ?? "Global balance score", `${Math.round(metrics.totalScore)}/100`, "> 80", shortSeverityLabel(severity.label)],
+    [t.postureStability ?? "Posture score", `${valueOrDash(session.postureScore ?? results.postureStabilityScore)}/100`, "> 75", statusSymbol(session.postureScore ?? results.postureStabilityScore, 75, true, t)],
+    [t.apSway ?? "AP mean sway (estimated)", `${valueOrDash(metrics.meanAp)} cm`, "< 4 cm", statusSymbol(metrics.meanAp, 4, false, t)],
+    [t.mlSway ?? "ML mean sway (estimated)", `${valueOrDash(metrics.meanMl)} cm`, "< 4 cm", statusSymbol(metrics.meanMl, 4, false, t)],
+    [t.meanSway ?? "Mean resultant sway", `${valueOrDash(metrics.meanSway)} cm`, "< 6 cm", statusSymbol(metrics.meanSway, 6, false, t)],
+    [t.maxSway ?? "Max resultant sway", `${valueOrDash(metrics.maxSway)} cm`, "< 10 cm", statusSymbol(metrics.maxSway, 10, false, t)],
+    [t.pathLength ?? "Path length", `${valueOrDash(metrics.pathLength)} cm`, "< 80 cm", statusSymbol(metrics.pathLength, 80, false, t)],
+    [t.swayVelocity ?? "Sway velocity", `${valueOrDash(metrics.swayVelocity)} cm/s`, "< 3 cm/s", statusSymbol(metrics.swayVelocity, 3, false, t)],
+    [t.instabilityEvents ?? "Instability events", valueOrDash(metrics.instabilityEvents), "0-2", statusSymbol(metrics.instabilityEvents, 2, false, t)],
+    [t.sensorQuality ?? "Tracking/sensor quality", `${valueOrDash(metrics.sensorQuality)}%`, "> 75%", statusSymbol(metrics.sensorQuality, 75, true, t)],
+  ];
+}
+
+function drawClinicalFootMap(doc, samples, x, y, width, height, t) {
+  const cx = x + width / 2;
+  const cy = y + height / 2 + 4;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  doc.setTextColor(...TEXT);
+  doc.text(t.balanceFootprintMap ?? "Foot support map", x, y - 3);
+  doc.setDrawColor(...LINE);
+  doc.roundedRect(x, y, width, height, 2.5, 2.5, "S");
+  doc.setDrawColor(226, 232, 240);
+  doc.line(cx, y + 6, cx, y + height - 6);
+  doc.line(x + 5, cy, x + width - 5, cy);
+  doc.setFillColor(248, 250, 252);
+  doc.ellipse(cx - 12, cy + 2, 8, 27, "F");
+  doc.ellipse(cx + 12, cy + 2, 8, 27, "F");
+  doc.setDrawColor(...LINE);
+  doc.ellipse(cx - 12, cy + 2, 8, 27, "S");
+  doc.ellipse(cx + 12, cy + 2, 8, 27, "S");
+  drawClinicalTrace(doc, samples, x + 5, y + 8, width - 10, height - 16, PRIMARY);
+  drawStartEndMarkers(doc, samples, x + 5, y + 8, width - 10, height - 16);
+}
+
+function drawClinicalTrajectory(doc, samples, x, y, width, height, t) {
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  doc.setTextColor(...TEXT);
+  doc.text(t.apMlTrajectory ?? "AP / ML trajectory", x, y - 3);
+  doc.setDrawColor(...LINE);
+  doc.roundedRect(x, y, width, height, 2.5, 2.5, "S");
+  doc.setDrawColor(226, 232, 240);
+  for (let i = 1; i < 4; i += 1) {
+    doc.line(x + (width / 4) * i, y, x + (width / 4) * i, y + height);
+    doc.line(x, y + (height / 4) * i, x + width, y + (height / 4) * i);
+  }
+  doc.setDrawColor(...MUTED);
+  doc.line(x + width / 2, y + 4, x + width / 2, y + height - 4);
+  doc.line(x + 4, y + height / 2, x + width - 4, y + height / 2);
+  doc.setDrawColor(...GREEN);
+  doc.circle(x + width / 2, y + height / 2, Math.min(width, height) * 0.18, "S");
+  drawClinicalTrace(doc, samples, x + 4, y + 4, width - 8, height - 8, BLUE);
+  drawStartEndMarkers(doc, samples, x + 4, y + 4, width - 8, height - 8);
+}
+
+function drawClinicalStabilogram(doc, samples, x, y, width, height, key, color, label) {
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.2);
+  doc.setTextColor(...TEXT);
+  doc.text(label, x, y - 3);
+  doc.setDrawColor(...LINE);
+  doc.roundedRect(x, y, width, height, 2, 2, "S");
+  doc.setDrawColor(226, 232, 240);
+  doc.line(x, y + height / 2, x + width, y + height / 2);
+  const values = samples.map((sample) => Number(sample[key])).filter(Number.isFinite);
+  const maxAbs = Math.max(1, ...values.map(Math.abs));
+  doc.setDrawColor(...color);
+  doc.setLineWidth(0.55);
+  samples.forEach((sample, index) => {
+    if (index === 0) return;
+    const prev = samples[index - 1];
+    if (!Number.isFinite(Number(prev[key])) || !Number.isFinite(Number(sample[key]))) return;
+    const x1 = x + ((index - 1) / Math.max(1, samples.length - 1)) * width;
+    const x2 = x + (index / Math.max(1, samples.length - 1)) * width;
+    const y1 = y + height / 2 - (Number(prev[key]) / maxAbs) * (height * 0.4);
+    const y2 = y + height / 2 - (Number(sample[key]) / maxAbs) * (height * 0.4);
+    doc.line(x1, y1, x2, y2);
+  });
+  doc.setLineWidth(0.2);
+}
+
+function drawClinicalHeatmap(doc, samples, x, y, width, height, t) {
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  doc.setTextColor(...TEXT);
+  doc.text(t.swayDensityHeatmap ?? "Sway density heatmap", x, y - 3);
+  const size = 8;
+  const cells = Array.from({ length: size * size }, () => 0);
+  const maxAxis = Math.max(1, ...samples.flatMap((sample) => [Math.abs(sample.ap), Math.abs(sample.ml)]));
+  samples.forEach((sample) => {
+    const ix = clampInt(Math.floor((((sample.ml / maxAxis) + 1) / 2) * size), 0, size - 1);
+    const iy = clampInt(Math.floor((((sample.ap / maxAxis) + 1) / 2) * size), 0, size - 1);
+    cells[iy * size + ix] += 1;
+  });
+  const maxCount = Math.max(1, ...cells);
+  const cellW = width / size;
+  const cellH = height / size;
+  cells.forEach((count, index) => {
+    const color = heatColor(count / maxCount);
+    doc.setFillColor(...color);
+    doc.rect(x + (index % size) * cellW, y + Math.floor(index / size) * cellH, cellW - 0.4, cellH - 0.4, "F");
+  });
+  doc.setDrawColor(...LINE);
+  doc.rect(x, y, width, height, "S");
+}
+
+function drawNoSamplesBox(doc, x, y, width, height, t = {}) {
+  doc.setFillColor(255, 247, 247);
+  doc.setDrawColor(...RED);
+  doc.roundedRect(x, y, width, height, 3, 3, "FD");
+  doc.setTextColor(...RED);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text(t.noRecordedSamplesAvailable ?? "No recorded samples available for this session.", x + 8, y + 26, { maxWidth: width - 16 });
+  doc.setTextColor(...MUTED);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(t.noFakeGraphWarning ?? "Graphs were not generated because this real session does not contain usable recorded AP/ML or posture samples.", x + 8, y + 42, { maxWidth: width - 16 });
+}
+
+function drawClinicalTrace(doc, samples, x, y, width, height, color) {
+  if (samples.length < 2) return;
+  const maxAxis = Math.max(1, ...samples.flatMap((sample) => [Math.abs(sample.ap), Math.abs(sample.ml)]));
+  const px = (sample) => x + width / 2 + (sample.ml / maxAxis) * width * 0.42;
+  const py = (sample) => y + height / 2 - (sample.ap / maxAxis) * height * 0.42;
+  doc.setDrawColor(...color);
+  doc.setLineWidth(0.55);
+  samples.forEach((sample, index) => {
+    if (index === 0) return;
+    const prev = samples[index - 1];
+    doc.line(px(prev), py(prev), px(sample), py(sample));
+  });
+  doc.setLineWidth(0.2);
+}
+
+function drawStartEndMarkers(doc, samples, x, y, width, height) {
+  if (!samples.length) return;
+  const maxAxis = Math.max(1, ...samples.flatMap((sample) => [Math.abs(sample.ap), Math.abs(sample.ml)]));
+  const point = (sample) => ({
+    x: x + width / 2 + (sample.ml / maxAxis) * width * 0.42,
+    y: y + height / 2 - (sample.ap / maxAxis) * height * 0.42,
+  });
+  const start = point(samples[0]);
+  const end = point(samples[samples.length - 1]);
+  doc.setFillColor(...GREEN);
+  doc.circle(start.x, start.y, 1.5, "F");
+  doc.setFillColor(...RED);
+  doc.circle(end.x, end.y, 1.8, "F");
+}
+
+function drawClinicalLimitNote(doc, y, t) {
+  const note = t.pdfEstimatedIndicatorLimit ??
+    "Les indicateurs présentés sont estimés à partir de la webcam et/ou des capteurs ultrasoniques. Ils ne sont pas équivalents à une mesure médicale du centre de pression par plateforme de force certifiée.";
+  doc.setFillColor(239, 246, 255);
+  doc.setDrawColor(191, 219, 254);
+  doc.roundedRect(MARGIN, y, CONTENT_W, 17, 2.5, 2.5, "FD");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(30, 64, 175);
+  doc.text(note, MARGIN + 4, y + 7, { maxWidth: CONTENT_W - 8 });
+}
+
+function drawClinicalLimitNoteExact(doc, y, t) {
+  const note = t.pdfEstimatedIndicatorLimit ?? REQUIRED_LIMITATION_NOTE;
+  doc.setFillColor(239, 246, 255);
+  doc.setDrawColor(191, 219, 254);
+  doc.roundedRect(MARGIN, y, CONTENT_W, 17, 2.5, 2.5, "FD");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(30, 64, 175);
+  doc.text(note, MARGIN + 4, y + 7, { maxWidth: CONTENT_W - 8 });
+}
+
+function drawClinicalInterpretation(doc, { session, results, severity, recommendations, metrics, t }, y) {
+  y = sectionTitle(doc, t.clinicalInterpretationSection ?? "Clinical Interpretation", y);
+  const interpretation = session.clinician_impression ?? session.interpretation ?? results.interpretation ??
+    `${severity.label}. Estimated balance indicators should be interpreted together with clinical observation.`;
+  y = drawTextBlock(doc, interpretation, y);
+
+  y += 6;
+  y = sectionTitle(doc, t.recommendations ?? "Recommendations", y);
+  recommendations.slice(0, 6).forEach((item, index) => {
+    y = drawWrappedLine(doc, `${index + 1}. ${item}`, MARGIN + 4, y, CONTENT_W - 8);
+  });
+
+  y += 4;
+  y = sectionTitle(doc, t.assessmentConfiguration ?? "Assessment Configuration", y);
+  drawTable(doc, {
+    y,
+    columns: [t.metric ?? "Metric", t.pdfValue ?? "Value", t.status ?? "Status"],
+    widths: [70, 60, 50],
+    rows: [
+      [t.acquisitionMode ?? "Acquisition mode", acquisitionModeLabel(t, session), severity.label],
+      [t.pathLength ?? "Path length", `${valueOrDash(metrics.pathLength)} cm`, metrics.pathLength > 30 ? "Review" : "OK"],
+      [t.swayVelocity ?? "Sway velocity", `${valueOrDash(metrics.swayVelocity)} cm/s`, metrics.swayVelocity > 4 ? "Review" : "OK"],
+      [t.instabilityEvents ?? "Instability events", valueOrDash(metrics.instabilityEvents), metrics.instabilityEvents > 2 ? "Review" : "OK"],
+    ],
+  });
+}
+
+function drawClinicalSignatureBlock(doc, { clinicianName, clinicianRole, generatedAt, t }, y) {
+  y = sectionTitle(doc, t.pdfSignatureBlock ?? "Signature", y);
+  doc.setFillColor(...SOFT);
+  doc.setDrawColor(...LINE);
+  doc.roundedRect(MARGIN, y, CONTENT_W, 28, 3, 3, "FD");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(...TEXT);
+  doc.text(clinicianName, MARGIN + 6, y + 9);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(...MUTED);
+  doc.text(clinicianRole, MARGIN + 6, y + 16);
+  doc.text(`${t.pdfReportDate ?? "Report date"}: ${generatedAt}`, MARGIN + 6, y + 23);
+  doc.setDrawColor(...TEXT);
+  doc.line(MARGIN + 104, y + 18, MARGIN + 172, y + 18);
+  doc.setFontSize(8);
+  doc.text(t.pdfSignature ?? "Signature", MARGIN + 104, y + 24);
+}
+
+function buildClinicalReportMetrics({ session, results, samples, score }) {
+  const apValues = samples.map((sample) => Math.abs(Number(sample.ap))).filter(Number.isFinite);
+  const mlValues = samples.map((sample) => Math.abs(Number(sample.ml))).filter(Number.isFinite);
+  const resultantValues = samples.map((sample) => sample.resultant).filter(Number.isFinite);
+  const pathLength = results.pathLength ?? samples.slice(1).reduce((sum, sample, index) => {
+    const prev = samples[index];
+    return sum + Math.hypot(sample.ap - prev.ap, sample.ml - prev.ml);
+  }, 0);
+  const duration = Number(session.durationSeconds ?? results.durationSeconds ?? samples.at(-1)?.t ?? samples.length ?? 1) || 1;
+  return {
+    totalScore: score,
+    postureScore: session.postureScore ?? results.postureStabilityScore ?? score,
+    stabilityScore: session.boardScore ?? session.postureScore ?? results.boardStabilityScore ?? results.postureStabilityScore ?? score,
+    meanAp: round1(results.meanSwayAp ?? averageNumber(apValues)),
+    meanMl: round1(results.meanSwayMl ?? averageNumber(mlValues)),
+    meanSway: round1(results.meanResultantSway ?? averageNumber(resultantValues)),
+    maxSway: round1(results.maxResultantSway ?? Math.max(0, ...resultantValues)),
+    pathLength: round1(pathLength),
+    swayVelocity: round1(results.swayVelocity ?? pathLength / duration),
+    instabilityEvents: Number(results.instabilityEvents ?? 0),
+    sensorQuality: round1(results.sensorQuality ?? results.trackingQuality?.usablePercent ?? 88),
+  };
+}
+
+function buildClinicalSwayTrace(results = {}, session = {}) {
+  const mode = session.acquisitionModeKey ?? results.acquisitionMode ?? session.acquisitionMode;
+  const isDemo = mode === "demo" || String(session.acquisitionMode ?? "").toLowerCase().includes("demo");
+  const sensorRaw = Array.isArray(results.sensorSamples) ? results.sensorSamples : [];
+  const postureRaw = Array.isArray(results.postureSamples) ? results.postureSamples : [];
+  const mergedRaw = Array.isArray(results.samples) ? results.samples : [];
+  const mergedBoard = mergedRaw.filter(hasBoardSway);
+  const mergedPosture = mergedRaw.filter(hasWebcamPosture);
+  const boardSamples = normalizeRecordedClinicalSamples(sensorRaw.length ? sensorRaw : mergedBoard, "esp32");
+  const webcamSamples = normalizeRecordedClinicalSamples(postureRaw.length ? postureRaw : mergedPosture, "webcam");
+  const selected =
+    boardSamples.length && (mode === "board" || String(mode).includes("combined") || results.availableMetrics?.board)
+      ? { source: "esp32", samples: boardSamples }
+      : webcamSamples.length
+        ? { source: "webcam", samples: webcamSamples }
+        : boardSamples.length
+          ? { source: "esp32", samples: boardSamples }
+          : { source: isDemo ? "demo" : "none", samples: [] };
+  const samples = selected.samples.length
+    ? smoothClinicalSamples(centerClinicalSamples(selected.samples))
+    : isDemo
+      ? generateDemoClinicalSamples(results)
+      : [];
+
+  return {
+    samples,
+    source: selected.source,
+    realSamplesUsed: selected.source !== "demo" && selected.source !== "none" && samples.length > 0,
+    fallbackUsed: selected.source === "demo" && samples.length > 0,
+    mediaPipeSamples: postureRaw.length || mergedPosture.length,
+    esp32Samples: sensorRaw.length || mergedBoard.length,
+  };
+}
+
+function normalizeClinicalSamples(results = {}) {
+  return buildClinicalSwayTrace(results, { acquisitionModeKey: results.acquisitionMode }).samples;
+}
+
+function normalizeRecordedClinicalSamples(raw, source) {
+  return raw.map((sample, index) => {
+    const ap = source === "webcam" ? webcamApProxy(sample) : firstNullableNumber(sample.ap, sample.anteriorPosteriorSway, sample.anterior_posterior_sway);
+    const ml = source === "webcam" ? webcamMlProxy(sample) : firstNullableNumber(sample.ml, sample.medialLateralSway, sample.medial_lateral_sway);
+    if (!Number.isFinite(ap) || !Number.isFinite(ml)) return null;
+    return {
+      t: firstNumber(sample.t, sample.timestampMs != null ? sample.timestampMs / 1000 : null, index / 3),
+      ap: round1(ap),
+      ml: round1(ml),
+      resultant: round1(firstNumber(sample.resultant, Math.hypot(ap, ml))),
+      posture: firstNumber(sample.posture, sample.postureScore, sample.stability, null),
+      source,
+    };
+  }).filter(Boolean);
+}
+
+function hasBoardSway(sample = {}) {
+  return Number.isFinite(Number(sample.ap ?? sample.anteriorPosteriorSway ?? sample.anterior_posterior_sway))
+    && Number.isFinite(Number(sample.ml ?? sample.medialLateralSway ?? sample.medial_lateral_sway));
+}
+
+function hasWebcamPosture(sample = {}) {
+  return Number.isFinite(Number(sample.bodyCenterX ?? sample.hipCenterX ?? sample.shoulderCenterX))
+    && Number.isFinite(Number(sample.bodyCenterY ?? sample.hipCenterY ?? sample.shoulderCenterY));
+}
+
+function webcamApProxy(sample = {}) {
+  return firstNullableNumber(
+    sample.ap,
+    sample.bodyCenterY != null ? (0.5 - Number(sample.bodyCenterY)) * 22 : null,
+    sample.hipCenterY != null ? (0.5 - Number(sample.hipCenterY)) * 22 : null,
+    sample.shoulderCenterY != null ? (0.5 - Number(sample.shoulderCenterY)) * 18 : null,
+    sample.signedBodyCenterDeviation,
+    sample.trunkInclination != null ? Number(sample.trunkInclination) * 0.45 : null,
+  );
+}
+
+function webcamMlProxy(sample = {}) {
+  return firstNullableNumber(
+    sample.ml,
+    sample.bodyCenterX != null ? (Number(sample.bodyCenterX) - 0.5) * 22 : null,
+    sample.hipCenterX != null ? (Number(sample.hipCenterX) - 0.5) * 22 : null,
+    sample.shoulderCenterX != null ? (Number(sample.shoulderCenterX) - 0.5) * 18 : null,
+    sample.shoulderAsymmetry != null ? Number(sample.shoulderAsymmetry) * 0.35 : null,
+  );
+}
+
+function generateDemoClinicalSamples(results = {}) {
+  const score = Number(results.totalBalanceScore ?? 76);
+  const amplitude = score >= 80 ? 2 : score >= 65 ? 4.8 : 8.2;
+  const count = Math.max(90, Number(results.durationSeconds ?? 30) * 3);
+  const generated = Array.from({ length: count }, (_, index) => {
+    const t = index / 3;
+    const drift = score < 65 ? Math.sin(index * 0.045) * 2.2 : Math.sin(index * 0.035) * 0.75;
+    const ap = Math.sin(index * 0.22) * amplitude + Math.sin(index * 0.071) * amplitude * 0.48 + drift;
+    const ml = Math.cos(index * 0.19) * amplitude * 0.82 + Math.sin(index * 0.053) * amplitude * 0.38 - drift * 0.42;
+    return { t, ap: round1(ap), ml: round1(ml), resultant: round1(Math.hypot(ap, ml)) };
+  });
+  return smoothClinicalSamples(centerClinicalSamples(generated));
+}
+
+function sourceLabelForTrace(trace, t = {}) {
+  if (trace.source === "esp32") return t.sourceEsp32SerialBoard ?? "Source: ESP32 serial board";
+  if (trace.source === "webcam") return t.sourceMediaPipeWebcam ?? "Source: MediaPipe webcam";
+  if (trace.source === "demo") return t.sourceDemoData ?? "Source: Demo data";
+  return t.sourceNoRecordedSamples ?? "Source: No recorded samples";
+}
+
+function defaultRecommendations(severity, t = {}) {
+  const label = String(severity.label).toLowerCase();
+  if (label.includes("stable")) {
+    return [
+      t.recoStableIndicators ?? "Continue supervised balance progression with periodic reassessment.",
+      t.recoStableProgression ?? "Increase task difficulty gradually while monitoring fatigue and safety.",
+    ];
+  }
+  if (label.includes("moderate")) {
+    return [
+      t.recoModerateBalance ?? "Prioritize controlled AP/ML weight-shift exercises and static balance holds.",
+      t.recoModerateFollowup ?? "Repeat the assessment after a short rehabilitation cycle to monitor response.",
+    ];
+  }
+  return [
+    t.recoUnstableSafety ?? "Use close supervision and external support during balance exercises.",
+    t.recoUnstableClinical ?? "Consider clinical follow-up before progressing to dynamic balance tasks.",
+  ];
+}
+
+function heatColor(intensity) {
+  const value = Math.max(0, Math.min(1, intensity));
+  if (value < 0.33) return interpolateColor(BLUE, PRIMARY, value / 0.33);
+  if (value < 0.66) return interpolateColor(PRIMARY, YELLOW, (value - 0.33) / 0.33);
+  return interpolateColor(YELLOW, RED, (value - 0.66) / 0.34);
+}
+
+function interpolateColor(a, b, t) {
+  return a.map((value, index) => Math.round(value + (b[index] - value) * t));
+}
+
+function firstNumber(...values) {
+  for (const value of values) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return 0;
+}
+
+function firstNullableNumber(...values) {
+  for (const value of values) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return null;
+}
+
+function centerClinicalSamples(samples) {
+  if (!samples.length) return samples;
+  const baseAp = samples[0].ap;
+  const baseMl = samples[0].ml;
+  return samples.map((sample) => ({
+    ...sample,
+    ap: round1(sample.ap - baseAp),
+    ml: round1(sample.ml - baseMl),
+    resultant: round1(Math.hypot(sample.ap - baseAp, sample.ml - baseMl)),
+  }));
+}
+
+function smoothClinicalSamples(samples) {
+  return samples.map((sample, index) => {
+    const window = samples.slice(Math.max(0, index - 2), Math.min(samples.length, index + 3));
+    const ap = averageNumber(window.map((item) => item.ap));
+    const ml = averageNumber(window.map((item) => item.ml));
+    return { ...sample, ap: round1(ap), ml: round1(ml), resultant: round1(Math.hypot(ap, ml)) };
+  });
+}
+
+function averageNumber(values) {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function round1(value) {
+  return Math.round(Number(value) * 10) / 10;
+}
+
+function clampInt(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function drawCoverPage(doc, { patient, session, generatedAt, clinicianName, severity, t }) {
@@ -298,20 +955,6 @@ function addHeadersAndFooters(doc, patient, generatedAt, t) {
   const pages = doc.getNumberOfPages();
   for (let page = 1; page <= pages; page += 1) {
     doc.setPage(page);
-    if (page > 1) {
-      doc.setFillColor(255, 255, 255);
-      doc.rect(0, 0, PAGE_W, 18, "F");
-      doc.setTextColor(...PRIMARY);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.text("BalanceRehab", MARGIN, 12);
-      doc.setTextColor(...MUTED);
-      doc.setFont("helvetica", "normal");
-      doc.text(`${patient.fullName} | ${patient.patientCode}`, PAGE_W - MARGIN, 12, { align: "right" });
-      doc.setDrawColor(...LINE);
-      doc.line(MARGIN, 18, PAGE_W - MARGIN, 18);
-    }
-
     doc.setDrawColor(...LINE);
     doc.line(MARGIN, 278, PAGE_W - MARGIN, 278);
     doc.setTextColor(...MUTED);
@@ -345,8 +988,8 @@ function drawInfoList(doc, rows, x, y, width) {
   });
 }
 
-function drawTable(doc, { y, columns, widths, rows }) {
-  const rowH = 10;
+function drawTable(doc, { y, columns, widths, rows, rowHeight = 10 }) {
+  const rowH = rowHeight;
   let currentY = y;
   let x = MARGIN;
 
@@ -526,8 +1169,15 @@ function resultant(ap, ml) {
 
 function getSeverity(score = 0, t = {}) {
   if (score >= 80) return { label: (t.stableResult ?? "Stable").toUpperCase(), color: GREEN, bg: [240, 253, 244] };
-  if (score >= 65) return { label: (t.moderateInstability ?? "Moderate instability").toUpperCase(), color: ORANGE, bg: [255, 247, 237] };
+  if (score >= 65) return { label: (t.moderateInstability ?? "Moderate instability").toUpperCase(), color: YELLOW, bg: [255, 251, 235] };
   return { label: (t.highInstability ?? "High instability").toUpperCase(), color: RED, bg: [254, 242, 242] };
+}
+
+function shortSeverityLabel(label = "") {
+  const normalized = String(label).toLowerCase();
+  if (normalized.includes("moderate")) return "Moderate";
+  if (normalized.includes("stable") && !normalized.includes("unstable")) return "Stable";
+  return "Unstable";
 }
 
 function statusSymbol(value, threshold, higherIsBetter, t = {}) {

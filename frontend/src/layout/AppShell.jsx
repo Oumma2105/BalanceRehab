@@ -1,9 +1,10 @@
-import { Activity, BarChart3, Bell, ChevronDown, ClipboardCheck, Home, Info, Settings, UsersRound } from "lucide-react";
+import { Activity, BarChart3, Bell, ChevronDown, ClipboardCheck, Gamepad2, Home, Info, Settings, UsersRound } from "lucide-react";
 
 const icons = {
   dashboard: Home,
   patients: UsersRound,
   balanceAssessment: ClipboardCheck,
+  rehabGames: Gamepad2,
   progressAnalytics: BarChart3,
   about: Info,
   settings: Settings,

@@ -8,6 +8,7 @@ import { EmptyState } from "../components/clinical/EmptyState";
 import { SectionHeader } from "../components/clinical/SectionHeader";
 import { StatusBadge } from "../components/clinical/StatusBadge";
 import { clinicalGoals, pathologyOptions } from "../data/demoPatients.js";
+import { PatientRehabilitationPanel } from "./RehabilitationGames.jsx";
 
 const emptyForm = {
   fullName: "",
@@ -32,11 +33,13 @@ export function PatientsPage({
   t,
   patients,
   sessions,
+  rehabSessions = [],
   reports,
   onAddPatient,
   onUpdatePatient,
   onDeletePatient,
   onStartAssessment,
+  onStartRehabGame,
   onLoadPatientSessions,
   onDownloadSessionReport,
   addRequest,
@@ -97,6 +100,7 @@ export function PatientsPage({
         patient={selectedPatient}
         requestedTab={requestedProfileTab}
         sessions={sessions.filter((session) => session.patientId === selectedPatient.id)}
+        rehabSessions={rehabSessions.filter((session) => session.patientId === selectedPatient.id)}
         reports={reports.filter((report) => report.patientId === selectedPatient.id)}
         onBack={() => setSelectedId(null)}
         onEdit={() => {
@@ -108,6 +112,7 @@ export function PatientsPage({
           setSelectedId(null);
         }}
         onStartAssessment={() => onStartAssessment(selectedPatient.id)}
+        onStartRehabGame={() => onStartRehabGame?.(selectedPatient.id)}
         onDownloadSessionReport={onDownloadSessionReport}
       />
     );
@@ -202,7 +207,7 @@ export function PatientsPage({
                           {statusLabel(t, patient.status)}
                         </StatusBadge>
                       </div>
-                      <p className="mt-1.5 truncate text-xs text-rehab-muted">{patient.pathology || "-"}</p>
+                      <p className="mt-1.5 truncate text-xs text-rehab-muted">{clinicalTerm(t, "pathologies", patient.pathology) || "-"}</p>
                       {patient.latestScore != null ? (
                         <div className="mt-2">
                           <div className="mb-1 flex items-center justify-between gap-2">
@@ -271,10 +276,10 @@ export function PatientsPage({
   );
 }
 
-function PatientDetail({ t, patient, requestedTab, sessions, reports, onBack, onEdit, onDelete, onStartAssessment, onDownloadSessionReport }) {
+function PatientDetail({ t, patient, requestedTab, sessions, rehabSessions, reports, onBack, onEdit, onDelete, onStartAssessment, onStartRehabGame, onDownloadSessionReport }) {
   const [tab, setTab] = useState("overview");
   const latestSession = sessions[0];
-  const tabs = ["overview", "sessions", "progress", "reports"];
+  const tabs = ["overview", "sessions", "progress", "rehabilitation", "reports"];
 
   useEffect(() => {
     if (tabs.includes(requestedTab)) {
@@ -294,7 +299,7 @@ function PatientDetail({ t, patient, requestedTab, sessions, reports, onBack, on
             <p className="text-sm font-semibold text-rehab-teal">{patient.patientCode}</p>
             <h1 className="mt-1 text-3xl font-semibold text-rehab-ink">{patient.fullName}</h1>
             <p className="mt-2 text-sm text-rehab-muted">
-              {patient.age} {t.years} - {displaySex(patient.sex)} - {patient.pathology || t.noSessions}
+              {patient.age} {t.years} - {displaySex(t, patient.sex)} - {clinicalTerm(t, "pathologies", patient.pathology) || t.noSessions}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -370,6 +375,16 @@ function PatientDetail({ t, patient, requestedTab, sessions, reports, onBack, on
         <ProgressPanel t={t} patient={patient} sessions={sessions} onStartAssessment={onStartAssessment} />
       ) : null}
 
+      {tab === "rehabilitation" ? (
+        <PatientRehabilitationPanel
+          t={t}
+          patient={patient}
+          sessions={rehabSessions}
+          assessments={sessions}
+          onStartRehabilitation={onStartRehabGame}
+        />
+      ) : null}
+
       {tab === "reports" ? (
         <ClinicalCard className="p-5">
           <SectionHeader title={t.reports} description={t.generatedPdfReports} />
@@ -389,7 +404,7 @@ function PatientDetail({ t, patient, requestedTab, sessions, reports, onBack, on
                     <FileText size={18} className="text-rehab-blue" />
                     <div>
                       <p className="font-semibold">{report.reportId ?? report.id}</p>
-                      <p className="text-sm text-rehab-muted">{report.generatedAt ?? report.createdAt ?? "-"}</p>
+                      <p className="text-sm text-rehab-muted">{localizedDate(t, report.generatedAt ?? report.createdAt)}</p>
                       <p className="mt-1 text-sm text-rehab-muted">{acquisitionModeLabel(t, report.acquisitionModeKey ?? session?.acquisitionModeKey, report.acquisitionMode ?? session?.acquisitionMode)}</p>
                       <p className="mt-1 max-w-2xl text-sm text-rehab-ink">{report.summary ?? "-"}</p>
                     </div>
@@ -474,7 +489,7 @@ function ProgressPanel({ t, patient, sessions, onStartAssessment }) {
                 <div className="mt-5 rounded-lg bg-white p-3 text-sm">
                   <p className="font-semibold text-rehab-ink">{t.bestSession ?? "Best session"}</p>
                   <p className="mt-1 text-rehab-muted">
-                    {bestSession.date} - {bestSession.totalScore}/100
+                    {localizedDate(t, bestSession.date)} - {bestSession.totalScore}/100
                   </p>
                 </div>
               ) : null}
@@ -500,7 +515,7 @@ function SessionsPanel({ t, patient, sessions, onDownloadSessionReport }) {
               rows={sessions}
               renderRow={(session) => (
                 <tr key={session.id}>
-                  <td className="px-4 py-3 text-rehab-muted">{session.date}</td>
+                  <td className="px-4 py-3 text-rehab-muted">{localizedDate(t, session.date)}</td>
                   <td className="px-4 py-3">{testTypeLabel(t, session.testType)}</td>
                   <td className="px-4 py-3">{conditionLabel(t, session.condition)}</td>
                   <td className="px-4 py-3 font-semibold">{session.totalScore}/100</td>
@@ -545,7 +560,7 @@ function PatientInfoPanel({ t, patient }) {
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <InfoItem label={t.patientDetails} value={patient.patientCode} />
         <InfoItem label={t.age} value={patient.age ? `${patient.age} ${t.years}` : "-"} />
-        <InfoItem label={t.sex} value={displaySex(patient.sex)} />
+        <InfoItem label={t.sex} value={displaySex(t, patient.sex)} />
         <InfoItem label={t.dominantSide} value={patient.dominantSide ?? "-"} />
         <InfoItem label={t.heightCm} value={patient.heightCm ? `${patient.heightCm} cm` : "-"} />
         <InfoItem label={t.weightKg} value={patient.weightKg ? `${patient.weightKg} kg` : "-"} />
@@ -559,7 +574,7 @@ function ClinicalInfoPanel({ t, patient }) {
     <div className="rounded-lg border border-rehab-line p-4">
       <p className="font-semibold text-rehab-ink">{t.clinicalProfile}</p>
       <div className="mt-4 grid gap-3">
-        <InfoItem label={t.medicalReason} value={patient.pathology || "-"} />
+        <InfoItem label={t.medicalReason} value={clinicalTerm(t, "pathologies", patient.pathology) || "-"} />
         <InfoItem label={t.clinicalGoal} value={patient.clinicalGoal || "-"} />
         <InfoItem label={t.clinicalNotes} value={patient.clinicalNotes || patient.notes || "-"} />
       </div>
@@ -594,7 +609,7 @@ function PatientFormModal({ t, patient, onClose, onSubmit, createdPatient, onSta
           </div>
           <div className="p-5">
             <div className="rounded-lg border border-rehab-line bg-slate-50 p-3 text-sm text-rehab-muted">
-              <span className="font-semibold text-rehab-ink">{createdPatient.pathology}</span>
+              <span className="font-semibold text-rehab-ink">{clinicalTerm(t, "pathologies", createdPatient.pathology)}</span>
               {createdPatient.clinicalGoal ? ` - ${createdPatient.clinicalGoal}` : ""}
             </div>
           <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
@@ -633,7 +648,10 @@ function PatientFormModal({ t, patient, onClose, onSubmit, createdPatient, onSta
                 label={t.sex}
                 value={form.sex}
                 onChange={(sex) => setForm({ ...form, sex })}
-                options={["Female", "Male"]}
+                options={[
+                  { value: "Female", label: t.female },
+                  { value: "Male", label: t.male },
+                ]}
                 required
               />
             </FormGroup>
@@ -642,7 +660,7 @@ function PatientFormModal({ t, patient, onClose, onSubmit, createdPatient, onSta
               <ComboboxInput
                 label={t.medicalReason}
                 value={form.pathology}
-                options={pathologyOptions}
+                options={pathologyOptions.map((value) => ({ value, label: clinicalTerm(t, "pathologies", value) }))}
                 placeholder={t.pathologyPlaceholder}
                 onChange={(pathology) => setForm({ ...form, pathology })}
                 required
@@ -651,7 +669,7 @@ function PatientFormModal({ t, patient, onClose, onSubmit, createdPatient, onSta
               <ComboboxInput
                 label={t.clinicalGoal}
                 value={form.clinicalGoal}
-                options={clinicalGoals}
+                options={clinicalGoals.map((value) => ({ value, label: clinicalTerm(t, "goals", value) }))}
                 placeholder={t.clinicalGoalPlaceholder}
                 onChange={(clinicalGoal) => setForm({ ...form, clinicalGoal })}
                 listId="clinical-goal-options"
@@ -660,7 +678,11 @@ function PatientFormModal({ t, patient, onClose, onSubmit, createdPatient, onSta
                 label={t.dominantSide}
                 value={form.dominantSide}
                 onChange={(dominantSide) => setForm({ ...form, dominantSide })}
-                options={["", "Left", "Right"]}
+                options={[
+                  { value: "", label: t.notSpecified },
+                  { value: "Left", label: t.left },
+                  { value: "Right", label: t.right },
+                ]}
                 emptyLabel={t.notSpecified}
               />
             </FormGroup>
@@ -797,11 +819,15 @@ function SelectField({ label, value, onChange, options, emptyLabel }) {
         onChange={(event) => onChange(event.target.value)}
         className="mt-1 w-full rounded-lg border border-rehab-line px-3 py-2 font-normal outline-none focus:border-rehab-teal"
       >
-        {options.map((option) => (
-          <option key={option || "empty"} value={option}>
-            {option || emptyLabel}
+        {options.map((option) => {
+          const optionValue = typeof option === "string" ? option : option.value;
+          const optionLabel = typeof option === "string" ? option || emptyLabel : option.label;
+          return (
+          <option key={optionValue || "empty"} value={optionValue}>
+            {optionLabel}
           </option>
-        ))}
+          );
+        })}
       </select>
     </label>
   );
@@ -820,7 +846,11 @@ function ComboboxInput({ label, value, options, placeholder, onChange, listId })
       />
       <datalist id={listId}>
         {options.map((option) => (
-          <option key={option} value={option} />
+          <option
+            key={typeof option === "string" ? option : option.value}
+            value={typeof option === "string" ? option : option.value}
+            label={typeof option === "string" ? option : option.label}
+          />
         ))}
       </datalist>
     </label>
@@ -857,10 +887,20 @@ function optionalNumber(value) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
-function displaySex(sex) {
-  if (sex === "F") return "Female";
-  if (sex === "M") return "Male";
+function displaySex(t, sex) {
+  if (sex === "F" || sex === "Female") return t.female ?? "Female";
+  if (sex === "M" || sex === "Male") return t.male ?? "Male";
   return sex || "-";
+}
+
+function clinicalTerm(t, group, value) {
+  return t.clinicalTerms?.[group]?.[value] ?? value;
+}
+
+function localizedDate(t, value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString(t.localeCode ?? "en-US");
 }
 
 function preparePatientPayload(form) {

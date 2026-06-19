@@ -286,6 +286,7 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
       {step !== 1 ? (
         <>
           <ContextStrip
+            t={t}
             patient={selectedPatient}
             status={results ? "Completed" : "Draft"}
             step={currentStepLabel}
@@ -569,7 +570,6 @@ function SetupStep({ t, patients, selectedPatientId, onSelectPatient, config, on
 function LiveStep({ t, elapsed, duration, countdown, assessmentPhase, assessmentRunning, frame, config, webcamStream, webcamMirrored, poseState, onPoseState, onPoseMetrics, onEnd }) {
   const hasWebcam = config.acquisitionMode === acquisitionModes.webcam || config.acquisitionMode === acquisitionModes.combined;
   const boardEnabled = config.acquisitionMode === acquisitionModes.board || config.acquisitionMode === acquisitionModes.combined;
-  const isWebcamOnly = config.acquisitionMode === acquisitionModes.webcam;
   const isCountingDown = countdown != null;
   const progress = Math.min(100, (elapsed / duration) * 100);
   const cameraActive = !hasWebcam || isCameraStreamActive(webcamStream);
@@ -584,12 +584,20 @@ function LiveStep({ t, elapsed, duration, countdown, assessmentPhase, assessment
   const isAssessing = assessmentPhase === "assessing" && assessmentRunning;
   const isLoading = hasWebcam && (!cameraActive || !modelActive);
   const liveMessage = liveAssessmentMessage({ t, isLoading, isCountingDown, isAssessing, isComplete, ready, poseState, isWebcamOnly: hasWebcam });
-  const lightPanels = !hasWebcam;
+  const sessionChecks = [
+    [t.cameraReady ?? "Camera", cameraActive],
+    ["MediaPipe", modelActive],
+    [t.fullBodyVisible ?? "Full body visible", bodyDetected && fullBodyVisible],
+    [t.feetVisible ?? "Feet visible", feetVisible],
+    [t.esp32Status ?? "ESP32 connected", boardEnabled ? boardReady : true],
+    [t.calibrationComplete ?? "Calibration complete", ready || isAssessing || isComplete],
+  ];
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_20%_0%,rgba(67,170,139,0.18),transparent_34%),linear-gradient(135deg,#f5fbf8_0%,#e8f2f6_50%,#eef7f0_100%)] p-2">
-      <section className="relative min-h-[calc(100vh-1rem)] overflow-hidden rounded-[1rem] border border-white/70 bg-[#edf7f3] shadow-2xl shadow-[#577590]/18">
-        <div className="absolute inset-0">
+    <div className="h-screen overflow-hidden bg-[#eaf1f2] p-2">
+      <main className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_clamp(18.5rem,23vw,23rem)] gap-2">
+        <section className="relative min-h-0 overflow-hidden rounded-[1.15rem] bg-[#dfeceb] shadow-[0_18px_60px_rgba(20,33,61,0.16)]">
+          <div className="absolute inset-0">
           {hasWebcam && webcamStream ? (
             <WebcamPoseAssessment t={t} stream={webcamStream} frame={frame} onMetrics={onPoseMetrics} onState={onPoseState} mirrored={webcamMirrored} immersive />
           ) : (
@@ -597,73 +605,186 @@ function LiveStep({ t, elapsed, duration, countdown, assessmentPhase, assessment
               <div className="text-center">
                 <div className="mx-auto mb-5 h-44 w-32 rounded-full border-4 border-[#43AA8B]" />
                 <p className="text-xl font-semibold">{t.simulatedSkeleton}</p>
-                <p className="mt-2 text-sm text-[#577590]">{isWebcamOnly ? t.webcamPosePrimary : t.liveAssessmentDesc}</p>
+                <p className="mt-2 text-sm text-[#577590]">{t.liveAssessmentDesc}</p>
               </div>
             </div>
           )}
-        </div>
+          </div>
 
-        {lightPanels ? null : (
-          <>
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-44 bg-gradient-to-b from-[#16352f]/48 to-transparent" />
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-44 bg-gradient-to-t from-[#16352f]/48 to-transparent" />
-          </>
-        )}
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-36 bg-gradient-to-b from-[#0b2824]/54 to-transparent" />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-24 bg-gradient-to-t from-[#0b2824]/35 to-transparent" />
 
-        <LiveVitalsPanel
+          <div className="absolute left-4 top-4 z-20 max-w-[min(26rem,48%)] rounded-xl border border-white/20 bg-[#102924]/68 px-4 py-3 text-white shadow-lg backdrop-blur-md">
+            <div className="flex items-center gap-2">
+              <span className={`h-2.5 w-2.5 rounded-full ${isAssessing ? "animate-pulse bg-[#F94144]" : ready ? "bg-[#90BE6D]" : "bg-[#F9C74F]"}`} />
+              <p className="text-xs font-bold uppercase tracking-[0.14em]">
+                {isAssessing ? (t.recording ?? "Recording") : (t.positioningCalibration ?? "Calibration")}
+              </p>
+            </div>
+            <p className="mt-1.5 text-sm font-semibold leading-5 text-white/92">{liveMessage?.text}</p>
+          </div>
+
+          <div className="absolute right-4 top-4 z-20 w-52 rounded-xl border border-white/30 bg-white/94 p-3 text-rehab-ink shadow-xl shadow-slate-950/15 backdrop-blur-md">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rehab-muted">{t.timeRemaining ?? "Time remaining"}</p>
+                <p className="mt-0.5 font-mono text-3xl font-black leading-none tabular-nums">
+                  {Math.max(0, duration - elapsed)}<span className="ml-1 text-sm font-bold text-rehab-muted">s</span>
+                </p>
+              </div>
+              <div className="grid h-9 w-9 place-items-center rounded-full bg-rehab-teal/10 text-rehab-teal">
+                <Timer size={18} />
+              </div>
+            </div>
+            <div className="mt-3 flex items-center justify-between text-[11px] font-bold text-rehab-muted">
+              <span>{elapsed}s / {duration}s</span>
+              <span>{Math.round(isComplete ? 100 : progress)}%</span>
+            </div>
+            <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100">
+              <div className="h-full rounded-full bg-rehab-teal transition-all duration-300" style={{ width: `${isComplete ? 100 : progress}%` }} />
+            </div>
+          </div>
+
+          <div className="pointer-events-none absolute inset-x-[12%] bottom-5 z-20 flex items-end justify-center">
+            <div className="flex items-center gap-3 rounded-full border border-white/18 bg-[#102924]/58 px-4 py-2 text-xs font-semibold text-white shadow-lg backdrop-blur-md">
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#43AA8B]" /> {t.commonUi?.bodyCenter}</span>
+              <span className="h-4 w-px bg-white/20" />
+              <span>{t.stablePosture ?? "Hold a natural, still stance"}</span>
+            </div>
+          </div>
+
+          {isCountingDown ? <CalibrationOverlay t={t} value={countdown} /> : null}
+        </section>
+
+        <BiomechanicsSidebar
           t={t}
           frame={frame}
-          liveMessage={liveMessage}
-          elapsed={elapsed}
-          duration={duration}
-          isAssessing={isAssessing}
-          isComplete={isComplete}
+          checks={sessionChecks}
+          poseState={poseState}
           ready={ready}
-          hasWebcam={hasWebcam}
-          boardEnabled={boardEnabled}
-          cameraActive={cameraActive}
-          modelActive={modelActive}
-          bodyDetected={bodyDetected}
-          fullBodyVisible={fullBodyVisible}
-          feetVisible={feetVisible}
-          stanceStable={stanceStable}
-          boardReady={boardReady}
-          light={lightPanels}
+          isAssessing={isAssessing}
+          onEnd={onEnd}
         />
-
-        <div className="absolute right-4 top-4 z-20">
-          <Button variant="secondary" className="border-white/20 bg-white/92 shadow-xl shadow-slate-950/15 backdrop-blur-md" onClick={onEnd}>
-            {t.endAssessment}
-          </Button>
-        </div>
-
-        {isCountingDown ? <CalibrationOverlay t={t} value={countdown} /> : null}
-
-        {boardEnabled ? (
-          <LiveBoardPanel t={t} frame={frame} light={lightPanels} />
-        ) : null}
-
-        <div className={`absolute bottom-4 right-4 z-20 w-[min(24rem,calc(100vw-2rem))] rounded-xl px-4 py-3 shadow-xl backdrop-blur-md ${
-          lightPanels
-            ? "border border-slate-200 bg-white text-rehab-ink shadow-slate-200/80"
-            : "border border-white/22 bg-[#16352f]/62 text-white shadow-[#16352f]/20"
-        }`}>
-          <div className={`flex items-center justify-between gap-3 text-xs font-semibold ${lightPanels ? "text-rehab-muted" : "text-white/70"}`}>
-            <span>{isComplete ? t.assessmentComplete ?? "Assessment complete" : t.assessmentProgress}</span>
-            <span>{elapsed}s / {duration}s</span>
-          </div>
-          <div className={`mt-2 h-2 overflow-hidden rounded-full ${lightPanels ? "bg-slate-100" : "bg-white/18"}`}>
-            <div className="h-full rounded-full bg-[#43AA8B] transition-all" style={{ width: `${isComplete ? 100 : progress}%` }} />
-          </div>
-          {!isAssessing && !isComplete ? (
-            <div className={`mt-2 text-[11px] font-semibold leading-4 ${lightPanels ? "text-rehab-muted" : "text-white/66"}`}>
-              {ready ? t.stablePosture ?? "Stable posture" : t.positioningCalibrationHelp}
-            </div>
-          ) : null}
-        </div>
-      </section>
+      </main>
     </div>
   );
+}
+
+function BiomechanicsSidebar({ t, frame, checks, poseState, ready, isAssessing, onEnd }) {
+  const balance = clampScore(frame.stability ?? frame.totalBalanceScore);
+  const posture = clampScore(frame.posture);
+  const stability = clampScore(frame.boardStability ?? frame.stability);
+  const trunk = Number(poseState?.metrics?.trunkInclination ?? frame.trunkInclination ?? 0);
+
+  return (
+    <aside className="flex min-h-0 flex-col overflow-hidden rounded-[1.15rem] border border-slate-200/80 bg-[#f8fbfb] shadow-[0_18px_60px_rgba(20,33,61,0.10)]">
+      <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-rehab-teal">BalanceRehab</p>
+          <h2 className="text-sm font-bold text-rehab-ink">{t.liveBiomechanics ?? "Live biomechanics"}</h2>
+        </div>
+        <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${isAssessing ? "bg-rose-50 text-rose-700" : ready ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+          {isAssessing ? (t.recording ?? "Recording") : ready ? (t.ready ?? "Ready") : (t.calibrating ?? "Calibrating")}
+        </span>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-3 overflow-hidden p-3">
+        <SidebarSection title={t.sessionStatus ?? "Session status"}>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+            {checks.map(([label, active]) => (
+              <div key={label} className="flex min-w-0 items-center gap-2">
+                <CheckCircle2 size={14} className={active ? "shrink-0 text-rehab-teal" : "shrink-0 text-slate-300"} />
+                <span className={`truncate text-[11px] font-semibold ${active ? "text-rehab-ink" : "text-rehab-muted"}`}>{label}</span>
+              </div>
+            ))}
+          </div>
+        </SidebarSection>
+
+        <SidebarSection title={t.keyScores ?? "Key scores"}>
+          <div className="grid grid-cols-3 gap-2">
+            <CompactScore label={t.balanceScore ?? "Balance"} value={balance} color="#43AA8B" />
+            <CompactScore label={t.posture ?? "Posture"} value={posture} color="#577590" />
+            <CompactScore label={t.stability ?? "Stability"} value={stability} color="#90BE6D" />
+          </div>
+        </SidebarSection>
+
+        <SidebarSection title={t.liveStabilogram ?? "Live stabilogram"} className="min-h-0 flex-1">
+          <div className="h-full min-h-[10rem]">
+            <LiveCopMiniPlot samples={stabilogramSamples(frame)} light />
+          </div>
+        </SidebarSection>
+
+        <SidebarSection title={t.bodyControl ?? "Body control"}>
+          <div className="space-y-2">
+            <ControlIndicator label="AP balance" value={frame.apSway} limit={12} />
+            <ControlIndicator label="ML balance" value={frame.mlSway} limit={12} />
+            <ControlIndicator label={t.trunkAlignment ?? "Trunk alignment"} value={trunk} limit={10} unit="°" />
+          </div>
+        </SidebarSection>
+      </div>
+
+      <div className="border-t border-slate-200 bg-white p-3">
+        <Button className="min-h-11 w-full justify-center bg-rehab-ink hover:bg-[#203357]" onClick={onEnd}>
+          <ClipboardCheck size={16} /> {t.endAssessment}
+        </Button>
+      </div>
+    </aside>
+  );
+}
+
+function SidebarSection({ title, children, className = "" }) {
+  return (
+    <section className={`rounded-xl border border-slate-200/80 bg-white p-3 shadow-[0_4px_18px_rgba(20,33,61,0.045)] ${className}`}>
+      <p className="mb-2.5 text-[10px] font-black uppercase tracking-[0.16em] text-rehab-muted">{title}</p>
+      {children}
+    </section>
+  );
+}
+
+function CompactScore({ label, value, color }) {
+  return (
+    <div className="rounded-lg bg-slate-50 px-2 py-2.5 text-center">
+      <p className="font-mono text-xl font-black leading-none text-rehab-ink tabular-nums">{value}</p>
+      <p className="mt-1 truncate text-[9px] font-bold uppercase tracking-wide text-rehab-muted">{label}</p>
+      <div className="mx-auto mt-2 h-1 w-full overflow-hidden rounded-full bg-slate-200">
+        <div className="h-full rounded-full" style={{ width: `${value}%`, backgroundColor: color }} />
+      </div>
+    </div>
+  );
+}
+
+function ControlIndicator({ label, value, limit, unit = "" }) {
+  const numeric = Number(value ?? 0);
+  const normalized = Math.min(100, Math.abs(numeric) / limit * 100);
+  const position = 50 + Math.max(-45, Math.min(45, numeric / limit * 45));
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-semibold">
+        <span className="text-rehab-ink">{label}</span>
+        <span className="font-mono text-rehab-muted tabular-nums">{Number.isFinite(numeric) ? `${Math.round(numeric * 10) / 10}${unit}` : "-"}</span>
+      </div>
+      <div className="relative h-2 rounded-full bg-[linear-gradient(90deg,#f9c74f_0%,#90be6d_35%,#43aa8b_50%,#90be6d_65%,#f9c74f_100%)] opacity-80">
+        <span className="absolute top-1/2 h-3.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-rehab-ink shadow-sm" style={{ left: `${position}%` }} />
+      </div>
+      <span className="sr-only">{normalized}% of expected range</span>
+    </div>
+  );
+}
+
+function stabilogramSamples(frame) {
+  const samples = Array.isArray(frame.boardSamples) ? frame.boardSamples.slice(-80) : [];
+  if (samples.length) return samples;
+  const ap = Number(frame.apSway ?? 0);
+  const ml = Number(frame.mlSway ?? 0);
+  return Array.from({ length: 18 }, (_, index) => ({
+    ap: Math.sin(index * 0.62) * ap * 0.35 + ap * 0.08,
+    ml: Math.cos(index * 0.51) * ml * 0.35 - ml * 0.06,
+  }));
+}
+
+function clampScore(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, Math.min(100, Math.round(numeric))) : 0;
 }
 
 function LiveVitalsPanel({
@@ -828,8 +949,8 @@ function LiveBoardPanel({ t, frame, light = false }) {
       </div>
 
       <div className={`mt-2 flex items-center gap-4 text-[11px] font-semibold ${light ? "text-rehab-muted" : "text-white/68"}`}>
-        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#F9C74F]" /> AP sway</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#43AA8B]" /> ML sway</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#F9C74F]" /> {t.apSway}</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#43AA8B]" /> {t.mlSway}</span>
         {latest?.stability != null ? <span>{t.stability ?? "Stability"} {Math.round(latest.stability)}/100</span> : null}
       </div>
     </div>
@@ -1026,12 +1147,12 @@ function TroubleshootingList({ t, overlay = false }) {
 
 function CalibrationOverlay({ t, value }) {
   return (
-    <div className="absolute inset-0 z-20 grid place-items-center rounded-xl bg-slate-950/72 backdrop-blur-sm">
-      <div className="mx-4 max-w-xl rounded-3xl border border-white/15 bg-white/10 p-8 text-center text-white shadow-2xl backdrop-blur-md">
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#90BE6D]">{t.positioningCalibration}</p>
-        <p className="mt-4 text-6xl font-semibold leading-none text-white">{value}</p>
-        <p className="mt-4 text-lg font-semibold">{t.assessmentBeginsIn}</p>
-        <p className="mt-3 text-sm font-medium leading-6 text-slate-200">{t.positioningCalibrationHelp}</p>
+    <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center">
+      <div className="grid h-32 w-32 place-items-center rounded-full border-4 border-white/75 bg-[#102924]/58 text-center text-white shadow-2xl shadow-slate-950/30 backdrop-blur-sm">
+        <div>
+          <p className="font-mono text-6xl font-black leading-none tabular-nums">{value}</p>
+          <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white/76">{t.assessmentBeginsIn}</p>
+        </div>
       </div>
     </div>
   );
@@ -1080,106 +1201,68 @@ function liveFeedbackTone(level) {
 }
 
 function ReviewStep({ t, patient, config, results, patientSessions, savedSession, report, onSave, onGenerateReport, onDownload, onReturnToProfile, onReturnToReports, onDone }) {
-  const boardAvailable = Boolean(results.availableMetrics?.board);
   const postureUnits = getPostureUnits(config.acquisitionMode);
   const [clinicalImpression, setClinicalImpression] = useState(results.interpretation ?? "");
-  const [movementFeatures, setMovementFeatures] = useState(null);
-  const [movementReviewState, setMovementReviewState] = useState("idle");
   const comparisonSession = patientSessions.find((session) => !savedSession || String(session.id) !== String(savedSession.id));
   const analytics = buildResultAnalytics(results, comparisonSession, t);
-
-  useEffect(() => {
-    let cancelled = false;
-    const sessionId = savedSession?.id;
-    if (!sessionId || Number.isNaN(Number(sessionId))) {
-      setMovementFeatures(null);
-      setMovementReviewState("idle");
-      return;
-    }
-
-    setMovementReviewState("loading");
-    api.movementFeatures(sessionId)
-      .then((features) => {
-        if (!cancelled) {
-          setMovementFeatures(features);
-          setMovementReviewState("ready");
-        }
-      })
-      .catch((error) => {
-        console.warn("Movement feature extraction could not be loaded.", error);
-        if (!cancelled) {
-          setMovementFeatures(null);
-          setMovementReviewState("error");
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [savedSession?.id]);
-
-  const labelMovement = async (label, intent = "unknown") => {
-    const sessionId = savedSession?.id;
-    if (!sessionId || Number.isNaN(Number(sessionId))) return;
-    setMovementReviewState("saving");
-    try {
-      await api.createMovementLabel(sessionId, {
-        start_ms: 0,
-        end_ms: Math.max(0, Number(config.durationSeconds ?? 0) * 1000),
-        label,
-        intent,
-        confidence: 0.8,
-        notes: "Whole-session prototype label from results review.",
-      });
-      const features = await api.movementFeatures(sessionId);
-      setMovementFeatures(features);
-      setMovementReviewState("ready");
-    } catch (error) {
-      console.warn("Movement label could not be saved.", error);
-      setMovementReviewState("error");
-    }
-  };
+  const swayTrace = buildAssessmentSwayTrace(results, config.acquisitionMode);
+  const swaySamples = swayTrace.samples;
+  const swayMetrics = buildSwaySummaryMetrics(results, swaySamples);
+  const classification = swayClassification(results.totalBalanceScore ?? 0, t);
+  const resultScores = [
+    { label: t.balanceScore ?? "Balance score", value: results.totalBalanceScore, suffix: "/100", color: classification.color },
+    { label: t.postureScoreMetric ?? "Posture score", value: results.postureStabilityScore, suffix: "/100", color: "#577590" },
+    { label: t.stabilityScore ?? "Stability score", value: results.stabilityScore ?? results.boardStabilityScore ?? results.totalBalanceScore, suffix: "/100", color: "#43AA8B" },
+    { label: t.apSway ?? "AP sway", value: swayMetrics.meanAp, suffix: " cm", color: "#F8961E", estimated: true },
+    { label: t.mlSway ?? "ML sway", value: swayMetrics.meanMl, suffix: " cm", color: "#577590", estimated: true },
+    { label: t.swayVelocity ?? "Sway velocity", value: swayMetrics.velocity, suffix: " cm/s", color: "#F9C74F", estimated: true },
+    { label: t.instabilityEvents ?? "Instability events", value: swayMetrics.instabilityEvents, suffix: "", color: "#F94144", estimated: true },
+  ];
 
   return (
     <div className="space-y-5">
-      <section>
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#43AA8B]">{t.assessmentSummary ?? "Assessment Summary"}</p>
-        <ClinicalCard className="mt-3 overflow-hidden border-0 bg-gradient-to-br from-[#0F766E] via-[#43AA8B] to-[#90BE6D] p-0 text-white shadow-xl shadow-slate-200/80">
-        <div className="grid gap-0 lg:grid-cols-[1.05fr_0.95fr]">
-          <div className="relative p-8">
-            <div className="absolute right-5 top-5 rounded-full bg-white/18 px-3 py-1 text-xs font-semibold text-white">
-              {acquisitionLabelForResults(config.acquisitionMode, t)}
-            </div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/75">{t.stepResults}</p>
-            <p className="mt-2 inline-flex rounded-full bg-white/16 px-3 py-1 text-xs font-semibold text-white/88">
-              {results.metricLabel ?? t.estimatedWebcamIndicators ?? "Estimated webcam-based indicators"}
-            </p>
-            <h2 className="mt-2 text-3xl font-semibold">{patient.fullName}</h2>
-            <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-white/85">
-              <span className="rounded-full bg-white/14 px-3 py-1">{testTypeLabel(t, config.testType)}</span>
-              <span className="rounded-full bg-white/14 px-3 py-1">{conditionLabel(t, config.visualCondition)}</span>
-              <span className="rounded-full bg-white/14 px-3 py-1">{config.durationSeconds}s</span>
-            </div>
-            <p className="mt-5 max-w-2xl text-sm leading-6 text-white/88">{results.interpretation}</p>
-            <div className="mt-8 flex flex-wrap items-center gap-6">
-              <CircularScore score={results.totalBalanceScore} light />
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-clinical">
+        <div className="grid lg:grid-cols-[1fr_18rem]">
+          <div className="p-6 lg:p-8">
+            <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-white/75">{t.totalBalanceScore}</p>
-                <p className="mt-1 text-5xl font-semibold leading-none">{Math.round(results.totalBalanceScore)}<span className="text-xl text-white/70">/100</span></p>
-                <span className="mt-4 inline-flex rounded-full bg-white px-3 py-1 text-sm font-semibold text-rehab-ink">
-                  {analytics.sessionLabel}
-                </span>
-                <p className="mt-3 text-sm font-semibold text-white/90">{analytics.shortInterpretation}</p>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-rehab-teal">{t.assessmentSummary ?? "Clinical summary"}</p>
+                <h2 className="mt-2 text-3xl font-semibold text-rehab-ink">{patient.fullName}</h2>
+                <p className="mt-1 text-sm font-semibold text-rehab-muted">{patient.patientCode} · {patient.age ?? "-"} {t.years ?? "years"} · {t.clinicalTerms?.pathologies?.[patient.pathology] ?? patient.pathology ?? "-"}</p>
               </div>
+              <span className="rounded-full px-3 py-1.5 text-xs font-bold" style={{ color: classification.color, backgroundColor: `${classification.color}18` }}>
+                {classification.label}
+              </span>
+            </div>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <SummaryDatum label={t.test ?? "Test type"} value={testTypeLabel(t, config.testType)} />
+              <SummaryDatum label={t.acquisitionMode ?? "Acquisition mode"} value={acquisitionLabelForResults(config.acquisitionMode, t)} />
+              <SummaryDatum label={t.duration ?? "Duration"} value={`${config.durationSeconds}s`} />
+              <SummaryDatum label={t.visionCondition ?? "Condition"} value={conditionLabel(t, config.visualCondition)} />
+            </div>
+
+            <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-rehab-muted">{t.clinicalInterpretationSection ?? "Clinical interpretation"}</p>
+              <p className="mt-2 text-sm font-medium leading-6 text-rehab-ink">{results.interpretation || analytics.shortInterpretation}</p>
             </div>
           </div>
-          <div className="grid gap-4 border-t border-white/20 bg-white/14 p-5 sm:grid-cols-2 lg:border-l lg:border-t-0">
-            {analytics.keyMetrics.map((metric) => (
-              <AnalyticsMetricCard key={metric.label} metric={metric} />
-            ))}
+
+          <div className="grid place-items-center border-t border-slate-200 bg-[#eff8f5] p-6 lg:border-l lg:border-t-0">
+            <div className="text-center">
+              <CircularScore score={results.totalBalanceScore} />
+              <p className="mt-4 text-xs font-black uppercase tracking-[0.16em] text-rehab-muted">{t.totalBalanceScore ?? "Balance score"}</p>
+              <p className="mt-1 text-sm font-semibold" style={{ color: classification.color }}>{classification.label}</p>
+            </div>
           </div>
         </div>
-      </ClinicalCard>
+      </section>
+
+      <section>
+        <AnalyticsSectionHeader title={t.keyScores ?? "Key scores"} subtitle={t.estimatedIndicators ?? "Estimated indicators"} />
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+          {resultScores.map((metric) => <ResultScoreCard key={metric.label} {...metric} estimatedLabel={t.commonUi?.estimated ?? t.estimatedIndicators} />)}
+        </div>
       </section>
 
       {results.trackingQuality && !results.trackingQuality.sufficient ? (
@@ -1191,25 +1274,22 @@ function ReviewStep({ t, patient, config, results, patientSessions, savedSession
         </ClinicalCard>
       ) : null}
 
-      <ResultsAnalyticsGrid analytics={analytics} t={t} sampleCount={(results.samples ?? []).length} />
-
-      {boardAvailable ? <BoardSwayReportPanel t={t} results={results} /> : null}
-
-      <FullBodyAnalysisPanel t={t} results={results} analytics={analytics} />
-
-      <MovementIntelligencePanel
+      <ClinicalPosturographyPanel
         t={t}
-        savedSession={savedSession}
-        features={movementFeatures}
-        state={movementReviewState}
-        onLabel={labelMovement}
+        results={results}
+        analytics={analytics}
+        acquisitionMode={config.acquisitionMode}
+        trace={swayTrace}
       />
 
       <section className="space-y-4">
-        <AnalyticsSectionHeader title={t.clinicalInterpretationSection ?? "Clinical Interpretation"} />
+        <AnalyticsSectionHeader title={t.clinicalInterpretationSection ?? "Interpretation and recommendations"} />
         <div className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
           <ClinicalFindingsPanel findings={analytics.findings} t={t} />
           <RecommendationCards recommendations={analytics.recommendations} t={t} />
+        </div>
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold leading-6 text-blue-950">
+          Les indicateurs présentés sont estimés à partir de la webcam et/ou des capteurs ultrasoniques. Ils ne sont pas équivalents à une mesure médicale du centre de pression par plateforme de force certifiée.
         </div>
       </section>
 
@@ -1288,6 +1368,32 @@ function CircularScore({ score, light = false }) {
   );
 }
 
+function SummaryDatum({ label, value }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-rehab-muted">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-rehab-ink">{value ?? "-"}</p>
+    </div>
+  );
+}
+
+function ResultScoreCard({ label, value, suffix, color, estimated = false, estimatedLabel }) {
+  const numeric = Number(value);
+  const display = Number.isFinite(numeric) ? Math.round(numeric * 10) / 10 : "-";
+  return (
+    <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <span className="absolute inset-x-0 top-0 h-1" style={{ backgroundColor: color }} />
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[10px] font-black uppercase tracking-[0.12em] text-rehab-muted">{label}</p>
+        {estimated ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide text-rehab-muted">{estimatedLabel}</span> : null}
+      </div>
+      <p className="mt-4 font-mono text-2xl font-black text-rehab-ink tabular-nums">
+        {display}<span className="ml-1 text-xs font-bold text-rehab-muted">{suffix}</span>
+      </p>
+    </div>
+  );
+}
+
 function AnalyticsMetricCard({ metric }) {
   const Icon = metric.icon;
   return (
@@ -1343,7 +1449,7 @@ function ResultsAnalyticsGrid({ analytics, t, sampleCount }) {
           </ResponsiveContainer>
         </AnalyticsChartCard>
         <AnalyticsChartCard title={t.bodyCenterHeatmap ?? "Body center heatmap"} size="medium">
-          <BodyCenterHeatmap samples={analytics.timeSeries} />
+          <BodyCenterHeatmap samples={analytics.timeSeries} t={t} />
         </AnalyticsChartCard>
       </div>
 
@@ -1425,15 +1531,22 @@ function BoardSwayReportPanel({ t, results }) {
           <CopStyleSwayPlot samples={samples} t={t} />
         </AnalyticsChartCard>
         <AnalyticsChartCard title={t.swayDensityMap ?? "Sway distribution density"} size="medium">
-          <div className="grid h-full grid-cols-7 grid-rows-7 gap-1 rounded-lg border border-rehab-line bg-white p-3">
-            {density.map((cell) => (
-              <div
-                key={`${cell.x}-${cell.y}`}
-                className="rounded"
-                style={{ backgroundColor: `rgba(67,170,139,${0.08 + cell.intensity * 0.82})` }}
-                title={`${cell.count} samples`}
-              />
-            ))}
+          <div className="flex h-full flex-col gap-3 rounded-lg border border-rehab-line bg-white p-3">
+            <div className="grid min-h-0 flex-1 grid-cols-7 grid-rows-7 gap-1">
+              {density.map((cell) => (
+                <div
+                  key={`${cell.x}-${cell.y}`}
+                  className="rounded"
+                  style={{ backgroundColor: swayHeatColor(cell.intensity) }}
+                  title={`${cell.count} samples`}
+                />
+              ))}
+            </div>
+            <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-rehab-muted">
+              <span>{t.commonUi?.low}</span>
+              <span className="h-2 flex-1 rounded-full mx-2 bg-[linear-gradient(90deg,#277DA1,#43AA8B,#F9C74F,#F94144)]" />
+              <span>{t.commonUi?.high}</span>
+            </div>
           </div>
         </AnalyticsChartCard>
         <AnalyticsChartCard title={t.apStabilogram ?? "AP stabilogram over time"} size="medium">
@@ -1514,8 +1627,8 @@ function CopStyleSwayPlot({ samples, t = {} }) {
           {t.estimatedCopNotice ?? "Estimated board sway, not medical force-plate CoP"}
         </p>
         <div className="flex gap-2 text-[11px] font-semibold text-rehab-muted">
-          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#2F7D67]" /> Start</span>
-          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#F94144]" /> End</span>
+          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#2F7D67]" /> {t.commonUi?.start}</span>
+          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#F94144]" /> {t.commonUi?.end}</span>
         </div>
       </div>
       <svg viewBox={`0 0 ${width} ${height}`} className="min-h-0 flex-1" role="img" aria-label="COP-style estimated sway trajectory">
@@ -1538,10 +1651,10 @@ function CopStyleSwayPlot({ samples, t = {} }) {
 
         <line x1={cx} y1="34" x2={cx} y2="306" stroke="#577590" strokeWidth="1.5" strokeDasharray="5 5" />
         <line x1="88" y1={cy} x2="432" y2={cy} stroke="#577590" strokeWidth="1.5" strokeDasharray="5 5" />
-        <text x={cx} y="20" textAnchor="middle" fill="#264653" fontSize="13" fontWeight="700">Anterior</text>
-        <text x={cx} y="338" textAnchor="middle" fill="#264653" fontSize="13" fontWeight="700">Posterior</text>
-        <text x="38" y={cy + 4} textAnchor="middle" fill="#264653" fontSize="13" fontWeight="700">Left</text>
-        <text x="482" y={cy + 4} textAnchor="middle" fill="#264653" fontSize="13" fontWeight="700">Right</text>
+        <text x={cx} y="20" textAnchor="middle" fill="#264653" fontSize="13" fontWeight="700">{t.commonUi?.anterior}</text>
+        <text x={cx} y="338" textAnchor="middle" fill="#264653" fontSize="13" fontWeight="700">{t.commonUi?.posterior}</text>
+        <text x="38" y={cy + 4} textAnchor="middle" fill="#264653" fontSize="13" fontWeight="700">{t.commonUi?.left}</text>
+        <text x="482" y={cy + 4} textAnchor="middle" fill="#264653" fontSize="13" fontWeight="700">{t.commonUi?.right}</text>
 
         {path ? <path d={path} fill="none" stroke="url(#cop-trace)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" opacity="0.95" /> : null}
         {points.map((point, index) => (
@@ -1554,8 +1667,196 @@ function CopStyleSwayPlot({ samples, t = {} }) {
   );
 }
 
-function buildSwayDensity(samples) {
-  const size = 7;
+function buildAssessmentSwayTrace(results = {}, acquisitionMode = results.acquisitionMode) {
+  const mode = acquisitionMode ?? results.acquisitionMode;
+  const isDemo = mode === acquisitionModes.demo || results.acquisitionMode === acquisitionModes.demo;
+  const sensorRaw = Array.isArray(results.sensorSamples) ? results.sensorSamples : [];
+  const postureRaw = Array.isArray(results.postureSamples) ? results.postureSamples : [];
+  const mergedRaw = Array.isArray(results.samples) ? results.samples : [];
+  const mergedBoard = mergedRaw.filter(hasBoardSway);
+  const mergedPosture = mergedRaw.filter(hasWebcamPosture);
+  const boardSamples = normalizeRecordedSwaySamples(sensorRaw.length ? sensorRaw : mergedBoard, "esp32");
+  const webcamSamples = normalizeRecordedSwaySamples(postureRaw.length ? postureRaw : mergedPosture, "webcam");
+  const selected =
+    boardSamples.length && (mode === acquisitionModes.board || mode === acquisitionModes.combined || results.availableMetrics?.board)
+      ? { source: "esp32", samples: boardSamples }
+      : webcamSamples.length
+        ? { source: "webcam", samples: webcamSamples }
+        : boardSamples.length
+          ? { source: "esp32", samples: boardSamples }
+          : { source: isDemo ? "demo" : "none", samples: [] };
+
+  const samples = selected.samples.length
+    ? smoothSwaySamples(centerSwaySamples(selected.samples))
+    : isDemo
+      ? generateDemoSwayTrace(results)
+      : [];
+
+  return {
+    samples,
+    source: selected.source,
+    acquisitionMode: mode,
+    realSamplesUsed: selected.source !== "demo" && selected.source !== "none" && samples.length > 0,
+    fallbackUsed: selected.source === "demo" && samples.length > 0,
+    mediaPipeSamples: postureRaw.length || mergedPosture.length,
+    esp32Samples: sensorRaw.length || mergedBoard.length,
+  };
+}
+
+function buildEstimatedSwaySamples(results = {}) {
+  return buildAssessmentSwayTrace(results, results.acquisitionMode).samples;
+}
+
+function normalizeRecordedSwaySamples(raw, source) {
+  return raw.map((sample, index) => {
+    const ap = source === "webcam" ? webcamApProxy(sample) : firstFinite(sample.ap, sample.anteriorPosteriorSway, sample.anterior_posterior_sway);
+    const ml = source === "webcam" ? webcamMlProxy(sample) : firstFinite(sample.ml, sample.medialLateralSway, sample.medial_lateral_sway);
+    if (!Number.isFinite(ap) || !Number.isFinite(ml)) return null;
+    return {
+      t: round1(firstFinite(sample.t, sample.timestampMs != null ? Number(sample.timestampMs) / 1000 : null, index * 0.25)),
+      ap: round1(ap),
+      ml: round1(ml),
+      resultant: round1(firstFinite(sample.resultant, Math.hypot(ap, ml))),
+      source,
+    };
+  }).filter(Boolean);
+}
+
+function hasBoardSway(sample = {}) {
+  return Number.isFinite(Number(sample.ap ?? sample.anteriorPosteriorSway ?? sample.anterior_posterior_sway))
+    && Number.isFinite(Number(sample.ml ?? sample.medialLateralSway ?? sample.medial_lateral_sway));
+}
+
+function hasWebcamPosture(sample = {}) {
+  return Number.isFinite(Number(sample.bodyCenterX ?? sample.hipCenterX ?? sample.shoulderCenterX))
+    && Number.isFinite(Number(sample.bodyCenterY ?? sample.hipCenterY ?? sample.shoulderCenterY));
+}
+
+function webcamApProxy(sample = {}) {
+  return firstFinite(
+    sample.ap,
+    sample.bodyCenterY != null ? (0.5 - Number(sample.bodyCenterY)) * 22 : null,
+    sample.hipCenterY != null ? (0.5 - Number(sample.hipCenterY)) * 22 : null,
+    sample.shoulderCenterY != null ? (0.5 - Number(sample.shoulderCenterY)) * 18 : null,
+    sample.signedBodyCenterDeviation,
+    sample.trunkInclination != null ? Number(sample.trunkInclination) * 0.45 : null,
+  );
+}
+
+function webcamMlProxy(sample = {}) {
+  return firstFinite(
+    sample.ml,
+    sample.bodyCenterX != null ? (Number(sample.bodyCenterX) - 0.5) * 22 : null,
+    sample.hipCenterX != null ? (Number(sample.hipCenterX) - 0.5) * 22 : null,
+    sample.shoulderCenterX != null ? (Number(sample.shoulderCenterX) - 0.5) * 18 : null,
+    sample.shoulderAsymmetry != null ? Number(sample.shoulderAsymmetry) * 0.35 : null,
+  );
+}
+
+function generateDemoSwayTrace(results = {}) {
+  const score = Number(results.totalBalanceScore ?? 76);
+  const amplitude = score >= 80 ? 2.2 : score >= 65 ? 5.2 : 8.8;
+  const count = Math.max(90, Number(results.durationSeconds ?? 30) * 3);
+  const generated = Array.from({ length: count }, (_, index) => {
+    const drift = score < 65 ? Math.sin(index * 0.045) * 2.4 : Math.sin(index * 0.035) * 0.8;
+    const ap = Math.sin(index * 0.22) * amplitude + Math.sin(index * 0.071) * amplitude * 0.48 + drift;
+    const ml = Math.cos(index * 0.19) * amplitude * 0.82 + Math.sin(index * 0.053) * amplitude * 0.38 - drift * 0.42;
+    return { t: round1(index / 3), ap: round1(ap), ml: round1(ml), resultant: round1(Math.hypot(ap, ml)) };
+  });
+  return smoothSwaySamples(centerSwaySamples(generated));
+}
+
+function sourceLabelForTrace(trace, t) {
+  if (trace.source === "esp32") return t.sourceEsp32SerialBoard ?? "Source: ESP32 serial board";
+  if (trace.source === "webcam") return t.sourceMediaPipeWebcam ?? "Source: MediaPipe webcam";
+  if (trace.source === "demo") return t.sourceDemoData ?? "Source: Demo data";
+  return t.sourceNoRecordedSamples ?? "Source: No recorded samples";
+}
+
+function centerSwaySamples(samples) {
+  if (!samples.length) return samples;
+  const baseAp = samples[0].ap;
+  const baseMl = samples[0].ml;
+  return samples.map((sample) => ({
+    ...sample,
+    ap: round1(sample.ap - baseAp),
+    ml: round1(sample.ml - baseMl),
+    resultant: round1(Math.hypot(sample.ap - baseAp, sample.ml - baseMl)),
+  }));
+}
+
+function smoothSwaySamples(samples) {
+  return samples.map((sample, index) => {
+    const window = samples.slice(Math.max(0, index - 2), Math.min(samples.length, index + 3));
+    const ap = average(window.map((item) => item.ap));
+    const ml = average(window.map((item) => item.ml));
+    return { ...sample, ap: round1(ap), ml: round1(ml), resultant: round1(Math.hypot(ap, ml)) };
+  });
+}
+
+function buildSwaySummaryMetrics(results = {}, samples = []) {
+  const apValues = samples.map((sample) => Math.abs(Number(sample.ap))).filter(Number.isFinite);
+  const mlValues = samples.map((sample) => Math.abs(Number(sample.ml))).filter(Number.isFinite);
+  const resultantValues = samples.map((sample) => sample.resultant).filter(Number.isFinite);
+  const pathLength = results.pathLength ?? samples.slice(1).reduce((sum, sample, index) => {
+    const prev = samples[index];
+    return sum + Math.hypot(sample.ap - prev.ap, sample.ml - prev.ml);
+  }, 0);
+  const duration = Math.max(1, samples.at(-1)?.t ?? results.durationSeconds ?? 30);
+  const threshold = results.totalBalanceScore >= 80 ? 3 : results.totalBalanceScore >= 65 ? 6 : 9;
+  return {
+    meanAp: round1(results.meanSwayAp ?? average(apValues)),
+    meanMl: round1(results.meanSwayMl ?? average(mlValues)),
+    meanSway: round1(results.meanResultantSway ?? average(resultantValues)),
+    maxSway: round1(results.maxResultantSway ?? Math.max(0, ...resultantValues)),
+    pathLength: round1(pathLength),
+    velocity: round1(results.swayVelocity ?? pathLength / duration),
+    instabilityEvents: results.instabilityEvents ?? samples.filter((sample) => sample.resultant > threshold * 1.5).length,
+    quality: results.sensorQuality ?? results.trackingQuality?.usablePercent ?? 88,
+    threshold,
+  };
+}
+
+function swayClassification(score, t = {}) {
+  const numeric = Number(score) || 0;
+  if (numeric >= 80) return { label: t.stableResult ?? "Stable", color: "#43AA8B" };
+  if (numeric >= 65) return { label: t.moderateInstability ?? "Moderate", color: "#F9C74F" };
+  return { label: t.highInstability ?? "High instability", color: "#F94144" };
+}
+
+function swaySvgPoints(samples, width, height, radius) {
+  const cx = width / 2;
+  const cy = height / 2;
+  const maxAxis = Math.max(1, ...samples.flatMap((sample) => [Math.abs(sample.ap), Math.abs(sample.ml)]));
+  const scale = radius / Math.max(4, maxAxis * 1.18);
+  return samples.map((sample) => ({
+    x: cx + sample.ml * scale,
+    y: cy - sample.ap * scale,
+  }));
+}
+
+function swaySpreadRadius(points) {
+  if (!points.length) return 0;
+  const cx = average(points.map((point) => point.x));
+  const cy = average(points.map((point) => point.y));
+  return Math.max(...points.map((point) => Math.hypot(point.x - cx, point.y - cy)));
+}
+
+function firstFinite(...values) {
+  for (const value of values) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return null;
+}
+
+function average(values) {
+  const finiteValues = values.map(Number).filter(Number.isFinite);
+  if (!finiteValues.length) return 0;
+  return finiteValues.reduce((sum, value) => sum + value, 0) / finiteValues.length;
+}
+
+function buildSwayDensity(samples, size = 7) {
   const cells = Array.from({ length: size * size }, (_, index) => ({ x: index % size, y: Math.floor(index / size), count: 0, intensity: 0 }));
   const maxAxis = Math.max(1, ...samples.flatMap((sample) => [Math.abs(sample.ap), Math.abs(sample.ml)]));
   samples.forEach((sample) => {
@@ -1565,6 +1866,21 @@ function buildSwayDensity(samples) {
   });
   const maxCount = Math.max(1, ...cells.map((cell) => cell.count));
   return cells.map((cell) => ({ ...cell, intensity: cell.count / maxCount }));
+}
+
+function swayHeatColor(intensity) {
+  const value = Math.max(0, Math.min(1, Number(intensity) || 0));
+  if (value < 0.33) return interpolateHex("#277DA1", "#43AA8B", value / 0.33);
+  if (value < 0.66) return interpolateHex("#43AA8B", "#F9C74F", (value - 0.33) / 0.33);
+  return interpolateHex("#F9C74F", "#F94144", (value - 0.66) / 0.34);
+}
+
+function interpolateHex(from, to, amount) {
+  const parse = (hex) => [1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16));
+  const a = parse(from);
+  const b = parse(to);
+  const rgb = a.map((channel, index) => Math.round(channel + (b[index] - channel) * amount));
+  return `rgb(${rgb.join(",")})`;
 }
 
 function FullBodyAnalysisPanel({ t, results, analytics }) {
@@ -1712,7 +2028,7 @@ function AnalyticsChartCard({ title, children, size = "medium", className = "" }
   );
 }
 
-function BodyCenterHeatmap({ samples }) {
+function BodyCenterHeatmap({ samples, t }) {
   const cells = samples.slice(-40);
   return (
     <div className="grid h-full grid-cols-8 gap-1">
@@ -1720,7 +2036,205 @@ function BodyCenterHeatmap({ samples }) {
         const intensity = Math.min(1, Math.abs(sample.centerAbs ?? 0) / 18);
         const color = intensity > 0.72 ? "#F94144" : intensity > 0.42 ? "#F8961E" : intensity > 0.22 ? "#F9C74F" : "#43AA8B";
         return <div key={`${sample.t}-${index}`} className="rounded-md" style={{ backgroundColor: color, opacity: 0.35 + intensity * 0.65 }} title={`${sample.centerAbs}%`} />;
-      }) : <div className="col-span-8 grid place-items-center rounded-xl border border-dashed border-white/20 text-sm font-semibold text-slate-300">No recorded samples</div>}
+      }) : <div className="col-span-8 grid place-items-center rounded-xl border border-dashed border-white/20 text-sm font-semibold text-slate-300">{t.commonUi?.noRecordedSamples}</div>}
+    </div>
+  );
+}
+
+function ClinicalPosturographyPanel({ t, results, analytics, acquisitionMode, trace }) {
+  const traceInfo = trace ?? buildAssessmentSwayTrace(results, acquisitionMode);
+  const samples = traceInfo.samples;
+  const density = buildSwayDensity(samples, 9);
+  const classification = swayClassification(results.totalBalanceScore ?? 0, t);
+  const metrics = buildSwaySummaryMetrics(results, samples);
+  const sourceLabel = sourceLabelForTrace(traceInfo, t);
+  const hasSamples = samples.length > 0;
+
+  return (
+    <section className="space-y-5">
+      <AnalyticsSectionHeader
+        title={t.posturographicAnalysis ?? "Estimated posturographic analysis"}
+        subtitle={sourceLabel}
+      />
+      <ClinicalCard className={`p-4 ${traceInfo.fallbackUsed ? "border-amber-200 bg-amber-50" : hasSamples ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"}`}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-rehab-ink">{traceInfo.realSamplesUsed ? (t.recordedSessionData ?? "Données issues de la session enregistrée") : traceInfo.fallbackUsed ? (t.demoDataSourceActive ?? "Demo data") : (t.noRecordedSamplesAvailable ?? "No recorded samples available for this session.")}</p>
+            <p className="mt-1 text-xs font-semibold text-rehab-muted">
+              {t.acquisitionMode ?? "Acquisition mode"}: {acquisitionLabelForResults(acquisitionMode ?? results.acquisitionMode, t)} · MediaPipe: {traceInfo.mediaPipeSamples} · ESP32: {traceInfo.esp32Samples} · Fallback: {traceInfo.fallbackUsed ? "yes" : "no"}
+            </p>
+          </div>
+          <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-rehab-muted">{sourceLabel}</span>
+        </div>
+      </ClinicalCard>
+
+      <ClinicalCard className="border-0 bg-white p-5 shadow-sm">
+        <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
+          <ClinicalScoreTile label={t.totalBalanceScore ?? "Global balance score"} value={`${Math.round(results.totalBalanceScore ?? 0)}/100`} color={classification.color} />
+          <ClinicalScoreTile label={t.stabilityClassification ?? "Classification"} value={classification.label} color={classification.color} />
+          <ClinicalScoreTile label={t.meanSway ?? "Mean sway"} value={formatMetricValue(metrics.meanSway, "cm")} color="#43AA8B" />
+          <ClinicalScoreTile label={t.maxSway ?? "Max sway"} value={formatMetricValue(metrics.maxSway, "cm")} color="#F8961E" />
+          <ClinicalScoreTile label={t.pathLength ?? "Path length"} value={formatMetricValue(metrics.pathLength, "cm")} color="#577590" />
+          <ClinicalScoreTile label={t.swayVelocity ?? "Sway velocity"} value={formatMetricValue(metrics.velocity, "cm/s")} color="#577590" />
+          <ClinicalScoreTile label={t.instabilityEvents ?? "Instability events"} value={metrics.instabilityEvents} color="#F94144" />
+          <ClinicalScoreTile label={t.sensorQuality ?? "Tracking/sensor quality"} value={formatMetricValue(metrics.quality, "%")} color="#90BE6D" />
+        </div>
+        <p className="mt-4 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs font-semibold leading-5 text-blue-900">
+          {t.pdfEstimatedIndicatorLimit ?? "Les indicateurs présentés sont estimés à partir de la webcam et/ou des capteurs ultrasoniques. Ils ne sont pas équivalents à une mesure médicale du centre de pression par plateforme de force certifiée."}
+        </p>
+      </ClinicalCard>
+
+      {!hasSamples ? (
+        <ClinicalCard className="border-dashed border-rose-200 bg-white p-8 text-center">
+          <p className="text-lg font-semibold text-rehab-ink">{t.noRecordedSamplesAvailable ?? "No recorded samples available for this session."}</p>
+          <p className="mt-2 text-sm font-medium text-rehab-muted">{t.noFakeGraphWarning ?? "Graphs were not generated because this real session does not contain usable recorded AP/ML or posture samples."}</p>
+        </ClinicalCard>
+      ) : (
+      <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
+        <AnalyticsChartCard title={t.balanceFootprintMap ?? "Foot support map with estimated sway trace"} size="large">
+          <FootSupportSwayMap samples={samples} classification={classification} t={t} />
+        </AnalyticsChartCard>
+
+        <AnalyticsChartCard title={t.apMlTrajectory ?? "AP / ML sway trajectory"} size="large">
+          <SwayTrajectoryPlot samples={samples} classification={classification} t={t} />
+        </AnalyticsChartCard>
+
+        <AnalyticsChartCard title={t.apStabilogram ?? "AP stabilogram over time"} size="medium">
+          <SwayLineChart samples={samples} dataKey="ap" color="#F8961E" reference={metrics.threshold} label={`${t.apSway} (cm)`} timeLabel={t.commonUi?.time} />
+        </AnalyticsChartCard>
+
+        <AnalyticsChartCard title={t.mlStabilogram ?? "ML stabilogram over time"} size="medium">
+          <SwayLineChart samples={samples} dataKey="ml" color="#577590" reference={metrics.threshold} label={`${t.mlSway} (cm)`} timeLabel={t.commonUi?.time} />
+        </AnalyticsChartCard>
+
+        <AnalyticsChartCard title={t.resultantSwayOverTime ?? "Resultant sway over time"} size="medium">
+          <SwayLineChart samples={samples} dataKey="resultant" color="#F94144" reference={metrics.threshold * 1.25} label={`${t.commonUi?.resultantSway} (cm)`} timeLabel={t.commonUi?.time} />
+        </AnalyticsChartCard>
+
+        <AnalyticsChartCard title={t.swayDensityHeatmap ?? "Sway density heatmap"} size="medium">
+          <SwayDensityHeatmap density={density} t={t} />
+        </AnalyticsChartCard>
+      </div>
+      )}
+    </section>
+  );
+}
+
+function ClinicalScoreTile({ label, value, color }) {
+  return (
+    <div className="rounded-xl border border-rehab-line bg-white p-3">
+      <span className="block h-1 w-9 rounded-full" style={{ backgroundColor: color }} />
+      <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-rehab-muted">{label}</p>
+      <p className="mt-1 text-lg font-semibold leading-tight text-rehab-ink">{value}</p>
+    </div>
+  );
+}
+
+function FootSupportSwayMap({ samples, classification, t }) {
+  const points = swaySvgPoints(samples, 520, 330, 142);
+  const path = points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
+  const start = points[0];
+  const end = points.at(-1);
+  const envelope = Math.max(18, Math.min(130, swaySpreadRadius(points)));
+
+  return (
+    <svg viewBox="0 0 520 330" className="h-full w-full rounded-xl bg-[#FBFDFD]" role="img" aria-label="Estimated sway trace on foot support map">
+      <defs>
+        <pattern id="foot-map-grid" width="26" height="26" patternUnits="userSpaceOnUse">
+          <path d="M 26 0 L 0 0 0 26" fill="none" stroke="#E2E8F0" strokeWidth="1" />
+        </pattern>
+        <linearGradient id="foot-trace" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#43AA8B" />
+          <stop offset="55%" stopColor="#F9C74F" />
+          <stop offset="100%" stopColor={classification.color} />
+        </linearGradient>
+      </defs>
+      <rect x="24" y="18" width="472" height="292" rx="18" fill="url(#foot-map-grid)" stroke="#CBD5E1" />
+      <ellipse cx="206" cy="166" rx="46" ry="112" fill="#F8FAFC" stroke="#CBD5E1" strokeWidth="2" />
+      <ellipse cx="314" cy="166" rx="46" ry="112" fill="#F8FAFC" stroke="#CBD5E1" strokeWidth="2" />
+      <line x1="260" x2="260" y1="34" y2="296" stroke="#577590" strokeDasharray="6 6" />
+      <line x1="54" x2="466" y1="166" y2="166" stroke="#577590" strokeDasharray="6 6" />
+      <circle cx="260" cy="166" r="94" fill="none" stroke="#43AA8B" strokeOpacity="0.55" strokeDasharray="8 6" />
+      <circle cx="260" cy="166" r={envelope} fill={classification.color} opacity="0.08" stroke={classification.color} strokeWidth="2" />
+      {path ? <path d={path} fill="none" stroke="url(#foot-trace)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" /> : null}
+      {points.map((point, index) => <circle key={`${point.x}-${point.y}-${index}`} cx={point.x} cy={point.y} r="1.8" fill="#577590" opacity="0.22" />)}
+      {start ? <circle cx={start.x} cy={start.y} r="6" fill="#43AA8B" stroke="#FFFFFF" strokeWidth="2" /> : null}
+      {end ? <circle cx={end.x} cy={end.y} r="7" fill="#F94144" stroke="#FFFFFF" strokeWidth="2" /> : null}
+      <text x="260" y="30" textAnchor="middle" fill="#334155" fontSize="13" fontWeight="700">{t.commonUi?.anterior}</text>
+      <text x="260" y="316" textAnchor="middle" fill="#334155" fontSize="13" fontWeight="700">{t.commonUi?.posterior}</text>
+      <text x="42" y="170" textAnchor="middle" fill="#334155" fontSize="13" fontWeight="700">{t.commonUi?.left}</text>
+      <text x="478" y="170" textAnchor="middle" fill="#334155" fontSize="13" fontWeight="700">{t.commonUi?.right}</text>
+    </svg>
+  );
+}
+
+function SwayTrajectoryPlot({ samples, classification, t }) {
+  const points = swaySvgPoints(samples, 520, 330, 130);
+  const path = points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
+  const start = points[0];
+  const end = points.at(-1);
+
+  return (
+    <svg viewBox="0 0 520 330" className="h-full w-full rounded-xl bg-white" role="img" aria-label="AP ML estimated sway trajectory">
+      <rect x="44" y="22" width="430" height="268" rx="14" fill="#FBFDFD" stroke="#CBD5E1" />
+      {[1, 2, 3].map((i) => (
+        <g key={i}>
+          <line x1={44 + (430 / 4) * i} x2={44 + (430 / 4) * i} y1="22" y2="290" stroke="#E2E8F0" />
+          <line x1="44" x2="474" y1={22 + (268 / 4) * i} y2={22 + (268 / 4) * i} stroke="#E2E8F0" />
+        </g>
+      ))}
+      <line x1="259" x2="259" y1="22" y2="290" stroke="#577590" strokeDasharray="6 6" />
+      <line x1="44" x2="474" y1="156" y2="156" stroke="#577590" strokeDasharray="6 6" />
+      <circle cx="259" cy="156" r="54" fill="#43AA8B" opacity="0.08" stroke="#43AA8B" />
+      <circle cx="259" cy="156" r="96" fill="none" stroke="#F9C74F" strokeDasharray="7 5" />
+      {path ? <path d={path} fill="none" stroke={classification.color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" opacity="0.95" /> : null}
+      {start ? <circle cx={start.x} cy={start.y} r="6" fill="#43AA8B" stroke="#FFFFFF" strokeWidth="2" /> : null}
+      {end ? <circle cx={end.x} cy={end.y} r="7" fill="#F94144" stroke="#FFFFFF" strokeWidth="2" /> : null}
+      <text x="259" y="316" textAnchor="middle" fill="#577590" fontSize="13" fontWeight="700">{t.mlSway} (cm)</text>
+      <text x="18" y="156" textAnchor="middle" fill="#577590" fontSize="13" fontWeight="700" transform="rotate(-90 18 156)">{t.apSway} (cm)</text>
+    </svg>
+  );
+}
+
+function SwayLineChart({ samples, dataKey, color, reference, label, timeLabel }) {
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <LineChart data={samples} margin={{ top: 10, right: 24, bottom: 24, left: 0 }}>
+        <CartesianGrid stroke="#E2E8F0" strokeDasharray="3 3" />
+        <XAxis dataKey="t" stroke="#577590" tick={{ fontSize: 12 }}>
+          <Label value={`${timeLabel} (s)`} offset={-10} position="insideBottom" fill="#577590" />
+        </XAxis>
+        <YAxis stroke="#577590" tick={{ fontSize: 12 }}>
+          <Label value={label} angle={-90} position="insideLeft" fill="#577590" />
+        </YAxis>
+        <ReferenceArea y1={-reference} y2={reference} fill="#43AA8B" fillOpacity={0.10} />
+        <ReferenceLine y={0} stroke="#577590" strokeDasharray="4 4" />
+        <ReferenceLine y={reference} stroke="#F8961E" strokeDasharray="4 4" />
+        <ReferenceLine y={-reference} stroke="#F8961E" strokeDasharray="4 4" />
+        <Line type="monotone" dataKey={dataKey} stroke={color} strokeWidth={3} dot={false} isAnimationActive={false} />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function SwayDensityHeatmap({ density, t }) {
+  return (
+    <div className="flex h-full flex-col gap-3 rounded-xl border border-rehab-line bg-white p-3">
+      <div className="grid min-h-0 flex-1 grid-cols-9 grid-rows-9 gap-1">
+        {density.map((cell) => (
+          <div
+            key={`${cell.x}-${cell.y}`}
+            className="rounded-md"
+            style={{ backgroundColor: swayHeatColor(cell.intensity), opacity: 0.28 + cell.intensity * 0.72 }}
+            title={`${cell.count} samples`}
+          />
+        ))}
+      </div>
+      <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-rehab-muted">
+        <span>{t.commonUi?.low}</span>
+        <span className="h-2 flex-1 rounded-full bg-[linear-gradient(90deg,#577590,#43AA8B,#F9C74F,#F94144)]" />
+        <span>{t.commonUi?.high}</span>
+      </div>
     </div>
   );
 }
@@ -2134,6 +2648,11 @@ function formatDelta(delta, unit) {
 
 function roundDelta(value) {
   return Math.round(Number(value) * 10) / 10;
+}
+
+function round1(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.round(numeric * 10) / 10 : 0;
 }
 
 function ResultsCharts({ samples, boardAvailable, t = {} }) {

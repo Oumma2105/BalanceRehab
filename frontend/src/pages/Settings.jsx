@@ -304,7 +304,7 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
 
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#F9C74F]/25 bg-[#F9C74F]/10 px-4 py-3">
             <p className="max-w-3xl text-sm font-semibold leading-5 text-[#8A6B00]">
-              {movementAi.model?.note ?? movementAi.readiness?.note ?? t.intentModelNotTrained ?? "Experimental model. Add clinician labels before using predictions."}
+              {t.intentModelNotTrained ?? movementAi.model?.note ?? movementAi.readiness?.note}
             </p>
             <Button onClick={handleTrainMovementModel} disabled={movementAi.state === "training" || movementAi.state === "loading"}>
               {movementAi.state === "training" ? (t.trainingModel ?? "Training...") : (t.trainMovementModel ?? "Train model")}
@@ -313,7 +313,7 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
 
           {movementAi.state === "not-ready" ? (
             <p className="mt-3 text-sm font-semibold text-[#8A6B00]">
-              {movementAi.model?.reason ?? t.notEnoughLabelsToTrain ?? "Not enough labeled voluntary and involuntary samples to train yet."}
+              {t.notEnoughLabelsToTrain ?? movementAi.model?.reason}
             </p>
           ) : null}
           {movementAi.state === "error" ? (
@@ -382,7 +382,7 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
                   onChange={(event) => setEsp32((current) => ({ ...current, selectedPort: event.target.value }))}
                   className="mt-1 w-full rounded-lg border border-rehab-line bg-white px-3 py-2 text-sm font-semibold text-rehab-ink outline-none focus:border-rehab-teal"
                 >
-                  {esp32.selectedPort ? <option value={esp32.selectedPort}>{esp32.selectedPort}</option> : <option value="">Select port</option>}
+                  {esp32.selectedPort ? <option value={esp32.selectedPort}>{esp32.selectedPort}</option> : <option value="">{t.commonUi?.selectPort ?? t.selectPort}</option>}
                   {esp32.ports.map((port) => (
                     <option key={port.device} value={port.device}>{port.device} · {port.description}</option>
                   ))}

@@ -260,6 +260,60 @@ export function reportDataFromApi(reportData) {
   };
 }
 
+export function rehabSessionFromApi(session) {
+  return {
+    id: session.id,
+    patientId: session.patient_id,
+    gameType: session.game_type,
+    difficulty: session.difficulty,
+    durationSeconds: session.duration_seconds,
+    acquisitionMode: session.acquisition_mode,
+    score: session.score,
+    accuracy: session.accuracy,
+    stability: session.stability,
+    smoothness: session.smoothness,
+    reactionTimeMs: session.reaction_time_ms,
+    successRate: session.success_rate,
+    trackingQuality: session.tracking_quality,
+    exits: session.exits,
+    targetsHit: session.targets_hit,
+    targetsMissed: session.targets_missed,
+    samples: parseJsonArray(session.samples_json),
+    createdAt: session.created_at,
+  };
+}
+
+export function rehabSessionToApi(session) {
+  return {
+    patient_id: session.patientId,
+    game_type: session.gameType,
+    difficulty: session.difficulty ?? "medium",
+    duration_seconds: session.durationSeconds ?? 60,
+    acquisition_mode: session.acquisitionMode ?? "webcam",
+    score: session.score ?? null,
+    accuracy: session.accuracy ?? null,
+    stability: session.stability ?? null,
+    smoothness: session.smoothness ?? null,
+    reaction_time_ms: session.reactionTimeMs ?? null,
+    success_rate: session.successRate ?? null,
+    tracking_quality: session.trackingQuality ?? null,
+    exits: session.exits ?? null,
+    targets_hit: session.targetsHit ?? session.successfulTargets ?? null,
+    targets_missed: session.targetsMissed ?? session.missedTargets ?? null,
+    samples_json: session.samples ? JSON.stringify(session.samples.slice(-600)) : null,
+  };
+}
+
+function parseJsonArray(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function apiStatusToResultStatus(status) {
   if (status === "Stable" || status === "Improving") return "Stable";
   if (status === "Follow-up") return "Moderate instability";

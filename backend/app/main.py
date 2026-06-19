@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import board, demo, health, ml, patients, placeholders, reports, serial, sessions
+from app.api import board, demo, health, ml, patients, placeholders, rehab_games, reports, serial, sessions
 from app.database import init_db
 
 
@@ -37,4 +37,5 @@ app.include_router(ml.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
 app.include_router(serial.router, prefix="/api")
 app.include_router(placeholders.router, prefix="/api")
+app.include_router(rehab_games.router, prefix="/api")
 app.include_router(board.router)

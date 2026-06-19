@@ -9,6 +9,7 @@ import { BalanceAssessmentPage } from "./pages/BalanceAssessment";
 import { PatientsPage } from "./pages/Patients";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { ProgressAnalyticsPage } from "./pages/ProgressAnalytics";
+import { RehabilitationGamesPage } from "./pages/RehabilitationGames";
 import { SettingsPage } from "./pages/Settings";
 import { downloadSessionReport } from "./utils/report";
 import { loadPersistedState, resetPersistedState, savePersistedState } from "./utils/storage";
@@ -17,7 +18,7 @@ const pages = [
   "dashboard",
   "patients",
   "balanceAssessment",
-  "progressAnalytics",
+  "rehabGames",
   "about",
   "settings",
 ];
@@ -38,6 +39,8 @@ export default function App() {
   const [patientProfileRequest, setPatientProfileRequest] = useState(null);
   const [assessmentFocus, setAssessmentFocus] = useState(false);
   const [backendReady, setBackendReady] = useState(false);
+  const [rehabSessions, setRehabSessions] = useState([]);
+  const [rehabPatientId, setRehabPatientId] = useState(null);
 
   const t = translations[language];
 
@@ -126,16 +129,18 @@ export default function App() {
 
       try {
         const backendPatients = await api.patients();
-        const [backendSessions, backendReports, backendDashboardSummary] = await Promise.all([
+        const [backendSessions, backendReports, backendDashboardSummary, backendRehabSessions] = await Promise.all([
           api.sessions(backendPatients),
           api.reports(),
           api.dashboardSummary(),
+          api.rehabSessions?.().catch(() => []),
         ]);
         if (!cancelled) {
           setPatients(backendPatients);
           setSessions(backendSessions);
           setReports(backendReports);
           setDashboardSummary(backendDashboardSummary);
+          setRehabSessions(backendRehabSessions ?? []);
         }
       } catch (error) {
         console.warn("Backend data loading failed, keeping local state.", error);
@@ -165,6 +170,7 @@ export default function App() {
           t={t}
           patients={patients}
           sessions={sessions}
+          rehabSessions={rehabSessions}
           reports={reports}
           dashboardSummary={dashboardSummary}
           onDownloadReport={downloadReportBySessionId}
@@ -193,6 +199,7 @@ export default function App() {
           t={t}
           patients={patients}
           sessions={sessions}
+          rehabSessions={rehabSessions}
           reports={reports}
           onAddPatient={async (payload) => {
             if (backendReady) {
@@ -238,6 +245,10 @@ export default function App() {
           onStartAssessment={(id) => {
             setPreselectedPatientId(id);
             setActivePage("balanceAssessment");
+          }}
+          onStartRehabGame={(id) => {
+            setRehabPatientId(id);
+            setActivePage("rehabGames");
           }}
           onLoadPatientSessions={backendReady ? loadPatientSessions : null}
           onDownloadSessionReport={downloadReportForSession}
@@ -291,6 +302,37 @@ export default function App() {
           onReturnToPatientProfile={(patientId, tab = "overview") => {
             setPatientProfileRequest({ patientId, tab, requestedAt: Date.now() });
             setActivePage("patients");
+          }}
+          onStartRehabGame={(patientId) => {
+            setRehabPatientId(patientId);
+            setActivePage("rehabGames");
+          }}
+        />
+      );
+    }
+
+    if (activePage === "rehabGames") {
+      return (
+        <RehabilitationGamesPage
+          t={t}
+          patients={patients}
+          sessions={sessions}
+          rehabilitationSessions={rehabSessions}
+          preselectedPatientId={rehabPatientId}
+          onWorkflowFocusChange={setAssessmentFocus}
+          onOpenPatientRehabilitation={(patientId) => {
+            setPatientProfileRequest({ patientId, tab: "rehabilitation", requestedAt: Date.now() });
+            setActivePage("patients");
+          }}
+          onSaveRehabilitationSession={async (session) => {
+            if (backendReady && api.createRehabSession) {
+              const saved = await api.createRehabSession(session);
+              setRehabSessions((current) => [saved, ...current]);
+              return saved;
+            }
+            const local = { ...session, id: Date.now(), createdAt: new Date().toISOString() };
+            setRehabSessions((current) => [local, ...current]);
+            return local;
           }}
         />
       );

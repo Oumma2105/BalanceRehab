@@ -26,6 +26,9 @@ def list_patients(
 def create_patient(payload: PatientCreate, db: Session = Depends(get_db)) -> Patient:
     data = payload.model_dump()
     data["patient_code"] = data.get("patient_code") or next_patient_code(db)
+    existing = db.scalar(select(Patient).where(Patient.patient_code == data["patient_code"]))
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="Patient code already exists")
     patient = Patient(**data)
     db.add(patient)
     db.commit()

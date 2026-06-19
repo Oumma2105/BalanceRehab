@@ -77,6 +77,10 @@ def ensure_sqlite_columns() -> None:
             "downloadable": "BOOLEAN DEFAULT 1",
             "summary": "TEXT",
         },
+        "rehab_game_sessions": {
+            "tracking_quality": "FLOAT",
+            "samples_json": "TEXT",
+        },
     }
 
     with engine.begin() as connection:

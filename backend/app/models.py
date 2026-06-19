@@ -28,6 +28,7 @@ class Patient(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
     sessions: Mapped[list["Session"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
+    rehab_sessions: Mapped[list["RehabGameSession"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
 
 
 class Session(Base):
@@ -164,3 +165,28 @@ class Recommendation(Base):
     priority: Mapped[str] = mapped_column(String(16), default="medium")
 
     session: Mapped["Session"] = relationship(back_populates="recommendations")
+
+
+class RehabGameSession(Base):
+    __tablename__ = "rehab_game_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), index=True)
+    game_type: Mapped[str] = mapped_column(String(64))
+    difficulty: Mapped[str] = mapped_column(String(32), default="medium")
+    duration_seconds: Mapped[int] = mapped_column(Integer, default=60)
+    acquisition_mode: Mapped[str] = mapped_column(String(16), default="webcam")
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    accuracy: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stability: Mapped[float | None] = mapped_column(Float, nullable=True)
+    smoothness: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reaction_time_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    success_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tracking_quality: Mapped[float | None] = mapped_column(Float, nullable=True)
+    exits: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    targets_hit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    targets_missed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    samples_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+    patient: Mapped["Patient"] = relationship(back_populates="rehab_sessions")
