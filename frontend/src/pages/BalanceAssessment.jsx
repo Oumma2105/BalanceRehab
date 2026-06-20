@@ -980,7 +980,7 @@ function LiveCopMiniPlot({ samples, light = false }) {
   const text = light ? "#577590" : "rgba(255,255,255,0.72)";
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full rounded-lg" role="img" aria-label="Live COP-style estimated sway path">
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full rounded-lg" role="img" aria-label="Live estimated CoP-like sway path">
       <rect x="1" y="1" width={width - 2} height={height - 2} rx="12" fill={light ? "#F8FAFC" : "rgba(255,255,255,0.06)"} stroke={light ? "#E2E8F0" : "rgba(255,255,255,0.16)"} />
       {[-2, -1, 1, 2].map((step) => (
         <g key={step}>
@@ -1527,7 +1527,7 @@ function BoardSwayReportPanel({ t, results }) {
         <MiniOutcome label={t.sensorQuality ?? "Sensor quality"} value={formatMetricValue(results.sensorQuality, "%")} score={results.sensorQuality} />
       </div>
       <div className="grid gap-5 lg:grid-cols-2">
-        <AnalyticsChartCard title={t.copStyleTrajectory ?? "COP-style estimated sway trajectory"} size="medium">
+        <AnalyticsChartCard title={t.copStyleTrajectory ?? "Estimated CoP-like sway trajectory"} size="medium">
           <CopStyleSwayPlot samples={samples} t={t} />
         </AnalyticsChartCard>
         <AnalyticsChartCard title={t.swayDensityMap ?? "Sway distribution density"} size="medium">
@@ -1624,14 +1624,14 @@ function CopStyleSwayPlot({ samples, t = {} }) {
     <div className="flex h-full min-h-[19rem] flex-col rounded-lg border border-rehab-line bg-[#FBFDFD] p-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">
-          {t.estimatedCopNotice ?? "Estimated board sway, not medical force-plate CoP"}
+          {t.estimatedCopNotice ?? "Estimated sway proxy, not a certified force-platform measurement"}
         </p>
         <div className="flex gap-2 text-[11px] font-semibold text-rehab-muted">
           <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#2F7D67]" /> {t.commonUi?.start}</span>
           <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#F94144]" /> {t.commonUi?.end}</span>
         </div>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="min-h-0 flex-1" role="img" aria-label="COP-style estimated sway trajectory">
+      <svg viewBox={`0 0 ${width} ${height}`} className="min-h-0 flex-1" role="img" aria-label="Estimated CoP-like sway trajectory">
         <defs>
           <pattern id="cop-grid" width="24" height="24" patternUnits="userSpaceOnUse">
             <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#E2E8F0" strokeWidth="1" />
@@ -1677,12 +1677,14 @@ function buildAssessmentSwayTrace(results = {}, acquisitionMode = results.acquis
   const mergedPosture = mergedRaw.filter(hasWebcamPosture);
   const boardSamples = normalizeRecordedSwaySamples(sensorRaw.length ? sensorRaw : mergedBoard, "esp32");
   const webcamSamples = normalizeRecordedSwaySamples(postureRaw.length ? postureRaw : mergedPosture, "webcam");
+  const hasBoard = boardSamples.length > 0;
+  const hasWebcam = webcamSamples.length > 0;
   const selected =
-    boardSamples.length && (mode === acquisitionModes.board || mode === acquisitionModes.combined || results.availableMetrics?.board)
-      ? { source: "esp32", samples: boardSamples }
-      : webcamSamples.length
+    hasBoard && (mode === acquisitionModes.board || mode === acquisitionModes.combined || results.availableMetrics?.board)
+      ? { source: hasWebcam && mode === acquisitionModes.combined ? "combined" : "esp32", samples: boardSamples }
+      : hasWebcam
         ? { source: "webcam", samples: webcamSamples }
-        : boardSamples.length
+        : hasBoard
           ? { source: "esp32", samples: boardSamples }
           : { source: isDemo ? "demo" : "none", samples: [] };
 
@@ -1700,6 +1702,11 @@ function buildAssessmentSwayTrace(results = {}, acquisitionMode = results.acquis
     fallbackUsed: selected.source === "demo" && samples.length > 0,
     mediaPipeSamples: postureRaw.length || mergedPosture.length,
     esp32Samples: sensorRaw.length || mergedBoard.length,
+    webcamSamples,
+    boardSamples,
+    fusionMethod: selected.source === "combined"
+      ? "ESP32 board AP/ML sway drives the CoP-like trajectory; MediaPipe webcam samples remain separate posture indicators."
+      : null,
   };
 }
 
@@ -1734,6 +1741,8 @@ function hasWebcamPosture(sample = {}) {
 
 function webcamApProxy(sample = {}) {
   return firstFinite(
+    sample.apSwayProxy,
+    sample.ap_sway_proxy,
     sample.ap,
     sample.bodyCenterY != null ? (0.5 - Number(sample.bodyCenterY)) * 22 : null,
     sample.hipCenterY != null ? (0.5 - Number(sample.hipCenterY)) * 22 : null,
@@ -1745,6 +1754,8 @@ function webcamApProxy(sample = {}) {
 
 function webcamMlProxy(sample = {}) {
   return firstFinite(
+    sample.mlSwayProxy,
+    sample.ml_sway_proxy,
     sample.ml,
     sample.bodyCenterX != null ? (Number(sample.bodyCenterX) - 0.5) * 22 : null,
     sample.hipCenterX != null ? (Number(sample.hipCenterX) - 0.5) * 22 : null,
@@ -1767,6 +1778,7 @@ function generateDemoSwayTrace(results = {}) {
 }
 
 function sourceLabelForTrace(trace, t) {
+  if (trace.source === "combined") return t.sourceCombined ?? "Source: Combined";
   if (trace.source === "esp32") return t.sourceEsp32SerialBoard ?? "Source: ESP32 serial board";
   if (trace.source === "webcam") return t.sourceMediaPipeWebcam ?? "Source: MediaPipe webcam";
   if (trace.source === "demo") return t.sourceDemoData ?? "Source: Demo data";
@@ -1798,20 +1810,22 @@ function buildSwaySummaryMetrics(results = {}, samples = []) {
   const apValues = samples.map((sample) => Math.abs(Number(sample.ap))).filter(Number.isFinite);
   const mlValues = samples.map((sample) => Math.abs(Number(sample.ml))).filter(Number.isFinite);
   const resultantValues = samples.map((sample) => sample.resultant).filter(Number.isFinite);
-  const pathLength = results.pathLength ?? samples.slice(1).reduce((sum, sample, index) => {
+  const hasSamples = samples.length > 0;
+  const pathLengthFromSamples = samples.slice(1).reduce((sum, sample, index) => {
     const prev = samples[index];
     return sum + Math.hypot(sample.ap - prev.ap, sample.ml - prev.ml);
   }, 0);
+  const pathLength = hasSamples ? pathLengthFromSamples : results.pathLength;
   const duration = Math.max(1, samples.at(-1)?.t ?? results.durationSeconds ?? 30);
   const threshold = results.totalBalanceScore >= 80 ? 3 : results.totalBalanceScore >= 65 ? 6 : 9;
   return {
-    meanAp: round1(results.meanSwayAp ?? average(apValues)),
-    meanMl: round1(results.meanSwayMl ?? average(mlValues)),
-    meanSway: round1(results.meanResultantSway ?? average(resultantValues)),
-    maxSway: round1(results.maxResultantSway ?? Math.max(0, ...resultantValues)),
+    meanAp: round1(hasSamples ? average(apValues) : results.meanSwayAp),
+    meanMl: round1(hasSamples ? average(mlValues) : results.meanSwayMl),
+    meanSway: round1(hasSamples ? average(resultantValues) : results.meanResultantSway),
+    maxSway: round1(hasSamples ? Math.max(0, ...resultantValues) : results.maxResultantSway),
     pathLength: round1(pathLength),
-    velocity: round1(results.swayVelocity ?? pathLength / duration),
-    instabilityEvents: results.instabilityEvents ?? samples.filter((sample) => sample.resultant > threshold * 1.5).length,
+    velocity: round1(hasSamples ? pathLength / duration : results.swayVelocity),
+    instabilityEvents: hasSamples ? samples.filter((sample) => sample.resultant > threshold * 1.5).length : (results.instabilityEvents ?? 0),
     quality: results.sensorQuality ?? results.trackingQuality?.usablePercent ?? 88,
     threshold,
   };
@@ -2043,12 +2057,37 @@ function BodyCenterHeatmap({ samples, t }) {
 
 function ClinicalPosturographyPanel({ t, results, analytics, acquisitionMode, trace }) {
   const traceInfo = trace ?? buildAssessmentSwayTrace(results, acquisitionMode);
-  const samples = traceInfo.samples;
+  const realSamples = traceInfo.samples;
+  const hasSamples = realSamples.length > 0;
+  const isDemo = (acquisitionMode ?? results?.acquisitionMode) === acquisitionModes.demo;
+  const samples = hasSamples ? realSamples : (isDemo ? generateDemoSwayTrace(results) : []);
+  const isDemoFallback = isDemo && !hasSamples && samples.length > 0;
+  const noRealSamples = !isDemo && !hasSamples;
   const density = buildSwayDensity(samples, 9);
   const classification = swayClassification(results.totalBalanceScore ?? 0, t);
   const metrics = buildSwaySummaryMetrics(results, samples);
   const sourceLabel = sourceLabelForTrace(traceInfo, t);
-  const hasSamples = samples.length > 0;
+
+  if (noRealSamples) {
+    return (
+      <section className="space-y-5">
+        <AnalyticsSectionHeader
+          title={t.posturographicAnalysis ?? "Estimated posturographic analysis"}
+          subtitle={sourceLabel}
+        />
+        <ClinicalCard className="border-rose-200 bg-rose-50 p-5">
+          <p className="text-sm font-semibold text-rose-800">
+            {t.noRecordedSamplesCaptured ?? "No recorded samples were captured. Please repeat the assessment."}
+          </p>
+          <p className="mt-2 text-xs text-rose-700">
+            {t.acquisitionMode ?? "Acquisition mode"}: {acquisitionLabelForResults(acquisitionMode ?? results.acquisitionMode, t)}
+            {" · "}MediaPipe samples: {traceInfo.mediaPipeSamples}
+            {" · "}ESP32 samples: {traceInfo.esp32Samples}
+          </p>
+        </ClinicalCard>
+      </section>
+    );
+  }
 
   return (
     <section className="space-y-5">
@@ -2056,13 +2095,18 @@ function ClinicalPosturographyPanel({ t, results, analytics, acquisitionMode, tr
         title={t.posturographicAnalysis ?? "Estimated posturographic analysis"}
         subtitle={sourceLabel}
       />
-      <ClinicalCard className={`p-4 ${traceInfo.fallbackUsed ? "border-amber-200 bg-amber-50" : hasSamples ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"}`}>
+      <ClinicalCard className={`p-4 ${traceInfo.fallbackUsed || isDemoFallback ? "border-amber-200 bg-amber-50" : hasSamples ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"}`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-rehab-ink">{traceInfo.realSamplesUsed ? (t.recordedSessionData ?? "Données issues de la session enregistrée") : traceInfo.fallbackUsed ? (t.demoDataSourceActive ?? "Demo data") : (t.noRecordedSamplesAvailable ?? "No recorded samples available for this session.")}</p>
+            <p className="text-sm font-semibold text-rehab-ink">{traceInfo.realSamplesUsed ? (t.recordedSessionData ?? "Données issues de la session enregistrée") : traceInfo.fallbackUsed || isDemoFallback ? "Graphiques de démonstration — aucun échantillon enregistré disponible." : (t.noRecordedSamplesAvailable ?? "No recorded samples available for this session.")}</p>
             <p className="mt-1 text-xs font-semibold text-rehab-muted">
               {t.acquisitionMode ?? "Acquisition mode"}: {acquisitionLabelForResults(acquisitionMode ?? results.acquisitionMode, t)} · MediaPipe: {traceInfo.mediaPipeSamples} · ESP32: {traceInfo.esp32Samples} · Fallback: {traceInfo.fallbackUsed ? "yes" : "no"}
             </p>
+            {traceInfo.fusionMethod ? (
+              <p className="mt-1 text-xs font-semibold text-rehab-blue">
+                {t.combinedFusionMethod ?? traceInfo.fusionMethod}
+              </p>
+            ) : null}
           </div>
           <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-rehab-muted">{sourceLabel}</span>
         </div>
@@ -2080,42 +2124,46 @@ function ClinicalPosturographyPanel({ t, results, analytics, acquisitionMode, tr
           <ClinicalScoreTile label={t.sensorQuality ?? "Tracking/sensor quality"} value={formatMetricValue(metrics.quality, "%")} color="#90BE6D" />
         </div>
         <p className="mt-4 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs font-semibold leading-5 text-blue-900">
-          {t.pdfEstimatedIndicatorLimit ?? "Les indicateurs présentés sont estimés à partir de la webcam et/ou des capteurs ultrasoniques. Ils ne sont pas équivalents à une mesure médicale du centre de pression par plateforme de force certifiée."}
+          {t.pdfEstimatedIndicatorLimit ?? "Ces visualisations sont inspirées de la posturographie. Les indicateurs sont estimés à partir de la webcam et/ou des capteurs ultrasoniques et ne correspondent pas à une mesure médicale certifiée du centre de pression."}
         </p>
       </ClinicalCard>
 
-      {!hasSamples ? (
-        <ClinicalCard className="border-dashed border-rose-200 bg-white p-8 text-center">
-          <p className="text-lg font-semibold text-rehab-ink">{t.noRecordedSamplesAvailable ?? "No recorded samples available for this session."}</p>
-          <p className="mt-2 text-sm font-medium text-rehab-muted">{t.noFakeGraphWarning ?? "Graphs were not generated because this real session does not contain usable recorded AP/ML or posture samples."}</p>
-        </ClinicalCard>
-      ) : (
+      {isDemoFallback ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+          Graphiques de démonstration — aucun échantillon enregistré disponible.
+        </div>
+      ) : null}
       <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
-        <AnalyticsChartCard title={t.balanceFootprintMap ?? "Foot support map with estimated sway trace"} size="large">
+        <AnalyticsChartCard title={t.balanceFootprintMap ?? "Carte d'appui podal — trajectoire estimée"} size="large">
+          <SourceCaption label={sourceLabel} />
           <FootSupportSwayMap samples={samples} classification={classification} t={t} />
         </AnalyticsChartCard>
 
-        <AnalyticsChartCard title={t.apMlTrajectory ?? "AP / ML sway trajectory"} size="large">
+        <AnalyticsChartCard title={t.apMlTrajectory ?? "Trajectoire estimée type CoP"} size="large">
+          <SourceCaption label={sourceLabel} />
           <SwayTrajectoryPlot samples={samples} classification={classification} t={t} />
         </AnalyticsChartCard>
 
-        <AnalyticsChartCard title={t.apStabilogram ?? "AP stabilogram over time"} size="medium">
+        <AnalyticsChartCard title={t.apStabilogram ?? "Oscillation AP estimée"} size="medium">
+          <SourceCaption label={sourceLabel} />
           <SwayLineChart samples={samples} dataKey="ap" color="#F8961E" reference={metrics.threshold} label={`${t.apSway} (cm)`} timeLabel={t.commonUi?.time} />
         </AnalyticsChartCard>
 
-        <AnalyticsChartCard title={t.mlStabilogram ?? "ML stabilogram over time"} size="medium">
+        <AnalyticsChartCard title={t.mlStabilogram ?? "Oscillation ML estimée"} size="medium">
+          <SourceCaption label={sourceLabel} />
           <SwayLineChart samples={samples} dataKey="ml" color="#577590" reference={metrics.threshold} label={`${t.mlSway} (cm)`} timeLabel={t.commonUi?.time} />
         </AnalyticsChartCard>
 
-        <AnalyticsChartCard title={t.resultantSwayOverTime ?? "Resultant sway over time"} size="medium">
-          <SwayLineChart samples={samples} dataKey="resultant" color="#F94144" reference={metrics.threshold * 1.25} label={`${t.commonUi?.resultantSway} (cm)`} timeLabel={t.commonUi?.time} />
+        <AnalyticsChartCard title={t.resultantSwayOverTime ?? "Oscillation résultante — pics d'instabilité"} size="medium">
+          <SourceCaption label={sourceLabel} />
+          <SwayLineChart samples={samples} dataKey="resultant" color="#F94144" reference={metrics.threshold * 1.25} showPeaks label={`${t.commonUi?.resultantSway} (cm)`} timeLabel={t.commonUi?.time} />
         </AnalyticsChartCard>
 
-        <AnalyticsChartCard title={t.swayDensityHeatmap ?? "Sway density heatmap"} size="medium">
+        <AnalyticsChartCard title={t.swayDensityHeatmap ?? "Carte de densité des oscillations"} size="medium">
+          <SourceCaption label={sourceLabel} />
           <SwayDensityHeatmap density={density} t={t} />
         </AnalyticsChartCard>
       </div>
-      )}
     </section>
   );
 }
@@ -2127,6 +2175,14 @@ function ClinicalScoreTile({ label, value, color }) {
       <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-rehab-muted">{label}</p>
       <p className="mt-1 text-lg font-semibold leading-tight text-rehab-ink">{value}</p>
     </div>
+  );
+}
+
+function SourceCaption({ label }) {
+  return (
+    <p className="mb-2 inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-rehab-muted">
+      {label}
+    </p>
   );
 }
 
@@ -2164,6 +2220,8 @@ function FootSupportSwayMap({ samples, classification, t }) {
       <text x="260" y="316" textAnchor="middle" fill="#334155" fontSize="13" fontWeight="700">{t.commonUi?.posterior}</text>
       <text x="42" y="170" textAnchor="middle" fill="#334155" fontSize="13" fontWeight="700">{t.commonUi?.left}</text>
       <text x="478" y="170" textAnchor="middle" fill="#334155" fontSize="13" fontWeight="700">{t.commonUi?.right}</text>
+      <text x="206" y="248" textAnchor="middle" fill="#94A3B8" fontSize="11" fontWeight="700">G</text>
+      <text x="314" y="248" textAnchor="middle" fill="#94A3B8" fontSize="11" fontWeight="700">D</text>
     </svg>
   );
 }
@@ -2187,6 +2245,8 @@ function SwayTrajectoryPlot({ samples, classification, t }) {
       <line x1="44" x2="474" y1="156" y2="156" stroke="#577590" strokeDasharray="6 6" />
       <circle cx="259" cy="156" r="54" fill="#43AA8B" opacity="0.08" stroke="#43AA8B" />
       <circle cx="259" cy="156" r="96" fill="none" stroke="#F9C74F" strokeDasharray="7 5" />
+      <text x="316" y="151" textAnchor="start" fill="#3D7A5E" fontSize="10" fontWeight="600">Zone sécurisée</text>
+      <text x="358" y="137" textAnchor="start" fill="#9A7600" fontSize="10" fontWeight="600">Zone de vigilance</text>
       {path ? <path d={path} fill="none" stroke={classification.color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" opacity="0.95" /> : null}
       {start ? <circle cx={start.x} cy={start.y} r="6" fill="#43AA8B" stroke="#FFFFFF" strokeWidth="2" /> : null}
       {end ? <circle cx={end.x} cy={end.y} r="7" fill="#F94144" stroke="#FFFFFF" strokeWidth="2" /> : null}
@@ -2196,7 +2256,7 @@ function SwayTrajectoryPlot({ samples, classification, t }) {
   );
 }
 
-function SwayLineChart({ samples, dataKey, color, reference, label, timeLabel }) {
+function SwayLineChart({ samples, dataKey, color, reference, label, timeLabel, showPeaks = false }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
       <LineChart data={samples} margin={{ top: 10, right: 24, bottom: 24, left: 0 }}>
@@ -2208,6 +2268,7 @@ function SwayLineChart({ samples, dataKey, color, reference, label, timeLabel })
           <Label value={label} angle={-90} position="insideLeft" fill="#577590" />
         </YAxis>
         <ReferenceArea y1={-reference} y2={reference} fill="#43AA8B" fillOpacity={0.10} />
+        {showPeaks ? <ReferenceArea y1={reference} fill="#F94144" fillOpacity={0.09} /> : null}
         <ReferenceLine y={0} stroke="#577590" strokeDasharray="4 4" />
         <ReferenceLine y={reference} stroke="#F8961E" strokeDasharray="4 4" />
         <ReferenceLine y={-reference} stroke="#F8961E" strokeDasharray="4 4" />

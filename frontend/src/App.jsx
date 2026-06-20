@@ -405,10 +405,9 @@ export default function App() {
       onPageChange={setActivePage}
       t={t}
       status={status}
-      focused={activePage === "balanceAssessment" && assessmentFocus}
+      focused={(activePage === "balanceAssessment" || activePage === "rehabGames") && assessmentFocus}
       onExitFocus={() => {
         setAssessmentFocus(false);
-        setActivePage("balanceAssessment");
       }}
     >
       {renderPage()}

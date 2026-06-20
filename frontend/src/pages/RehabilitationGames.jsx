@@ -381,73 +381,64 @@ function RehabTrainingStep({ currentStepLabel, session, selectedGame, games, onB
   const [paused, setPaused] = useState(false);
 
   return (
-    <div className="min-h-screen bg-rehab-surface text-rehab-ink">
-      <section className="grid min-h-screen lg:grid-cols-[minmax(0,1fr)_24rem]">
-        <main className="relative min-h-screen overflow-hidden border-r border-rehab-line bg-slate-950">
-      <div className="absolute left-5 top-5 z-30 flex max-w-[min(48rem,calc(100%-2rem))] flex-wrap items-center justify-between gap-3 rounded-xl border border-white/70 bg-white/92 px-4 py-3 text-rehab-ink shadow-clinical backdrop-blur-md">
-        <div className="flex items-center gap-3">
-          <span className="grid h-11 w-11 place-items-center rounded-xl text-white" style={{ backgroundColor: game.color }}>
-            <Icon size={19} />
-          </span>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">
-              {currentStepLabel}
-            </p>
-            <h2 className="text-xl font-semibold text-rehab-ink">{game.title}</h2>
+    <div className="min-h-screen bg-slate-950 text-rehab-ink">
+      <section className="grid min-h-screen lg:grid-cols-[minmax(0,1fr)_17rem]">
+        <main className="relative min-h-screen overflow-hidden bg-slate-950">
+          <div className="absolute left-3 top-3 z-30 flex items-center gap-1.5 rounded-lg border border-white/50 bg-white/90 px-2.5 py-1.5 shadow-sm backdrop-blur-md">
+            <button type="button" onClick={onBack} className="rounded-md px-2.5 py-1 text-xs font-semibold text-rehab-ink transition hover:bg-slate-100">
+              {copy.backToSetup}
+            </button>
+            <span className="h-3.5 w-px bg-slate-300" />
+            <button type="button" onClick={onRestart} className="rounded-md px-2.5 py-1 text-xs font-semibold text-rehab-ink transition hover:bg-slate-100">
+              {copy.restart}
+            </button>
+            <span className="h-3.5 w-px bg-slate-300" />
+            <button type="button" onClick={() => setFinishSignal((value) => value + 1)} className="rounded-md bg-rehab-blue px-2.5 py-1 text-xs font-semibold text-white transition hover:opacity-90">
+              {copy.endTraining}
+            </button>
+            <span className="h-3.5 w-px bg-slate-300" />
+            <span className="text-xs font-semibold tabular-nums text-rehab-muted">
+              {Math.round(liveSummary.elapsedSeconds)}s / {session.durationSeconds}s
+            </span>
           </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={onBack} className="rounded-xl border border-rehab-line bg-white px-4 py-2 text-sm font-semibold text-rehab-ink shadow-sm transition hover:border-[#43AA8B]">
-            {copy.backToSetup}
-          </button>
-          <button type="button" onClick={onRestart} className="rounded-xl border border-rehab-line bg-white px-4 py-2 text-sm font-semibold text-rehab-ink shadow-sm transition hover:border-[#F8961E]">
-            {copy.restart}
-          </button>
-          <Button onClick={() => setFinishSignal((value) => value + 1)} className="px-5 py-2.5">
-            {copy.endTraining} <ChevronRight size={16} />
-          </Button>
-        </div>
-      </div>
 
           <div className="h-screen">
-          <MotionRehabArena
-            session={session}
-            game={game}
-            t={t}
-            onLiveSummary={setLiveSummary}
-            onComplete={onComplete}
-            finishSignal={finishSignal}
-            paused={paused}
-          />
-          <div className="absolute bottom-5 left-5 right-5 z-30 grid gap-3 md:grid-cols-4 lg:right-[2rem]">
-            <LiveMetric label={copy.time} value={`${Math.round(liveSummary.elapsedSeconds)} / ${session.durationSeconds}s`} color="#577590" />
-            <LiveMetric label={copy.accuracy} value={`${formatValue(liveSummary.accuracy)}%`} color="#90BE6D" />
-            <LiveMetric label={copy.stability} value={`${formatValue(liveSummary.stability)}%`} color="#43AA8B" />
-            <LiveMetric label={copy.success} value={`${formatValue(liveSummary.successRate)}%`} color="#F8961E" />
+            <MotionRehabArena
+              session={session}
+              game={game}
+              t={t}
+              onLiveSummary={setLiveSummary}
+              onComplete={onComplete}
+              finishSignal={finishSignal}
+              paused={paused}
+            />
           </div>
-        </div>
         </main>
-        <aside className="flex max-h-screen min-h-screen flex-col gap-3 overflow-hidden border-l border-rehab-line bg-white p-3 text-rehab-ink shadow-clinical">
-          <div className="rounded-xl border border-rehab-line bg-rehab-surface p-3">
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-rehab-muted">BalanceRehab Live</p>
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <p className="text-lg font-semibold text-rehab-ink">{game.title}</p>
-                <p className="text-xs font-semibold text-rehab-muted">{game.control ?? copy.fullBodyLandmarks}</p>
-              </div>
-              <Button variant="secondary" className="px-3 py-2" onClick={() => setFinishSignal((value) => value + 1)}>
-                {copy.end}
-              </Button>
+        <aside className="flex max-h-screen min-h-screen flex-col gap-3 overflow-y-auto border-l border-rehab-line bg-white p-3 text-rehab-ink">
+          <div className="flex items-center gap-2 rounded-lg border border-rehab-line bg-rehab-surface px-3 py-2.5">
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-white" style={{ backgroundColor: game.color }}>
+              <Icon size={13} />
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-rehab-ink">{game.title}</p>
+              <p className="text-[10px] font-semibold text-rehab-muted">{currentStepLabel}</p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setPaused((value) => !value)}
-            className="rounded-xl border border-rehab-line bg-white px-3 py-2 text-sm font-semibold text-rehab-ink transition hover:border-[#43AA8B]"
-          >
-            {paused ? copy.resume : copy.pause}
-          </button>
-          <LiveMotionPanel game={game} summary={liveSummary} copy={copy} />
+
+          <LiveMotionPanel game={game} summary={liveSummary} copy={copy} elapsedSeconds={liveSummary.elapsedSeconds} durationSeconds={session.durationSeconds} />
+
+          <div className="mt-auto flex flex-col gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setPaused((value) => !value)}
+              className="rounded-lg border border-rehab-line bg-white px-3 py-1.5 text-xs font-semibold text-rehab-ink transition hover:border-[#43AA8B]"
+            >
+              {paused ? copy.resume : copy.pause}
+            </button>
+            <Button onClick={() => setFinishSignal((value) => value + 1)} className="w-full py-2 text-xs">
+              {copy.end}
+            </Button>
+          </div>
         </aside>
       </section>
     </div>
@@ -724,35 +715,43 @@ function MotionGameOverlay({ frame, game, cameraError, streamReady, countdown = 
   );
 }
 
-function LiveMotionPanel({ game, summary, copy, dark = false }) {
+function LiveMotionPanel({ game, summary, copy, dark = false, elapsedSeconds, durationSeconds }) {
   const metrics = [
     { label: copy.accuracy, value: summary.accuracy, color: "#90BE6D" },
     { label: copy.stability, value: summary.stability, color: "#43AA8B" },
-    { label: copy.smoothness, value: summary.smoothness, color: "#F8961E" },
-    { label: copy.successRate, value: summary.successRate, color: "#577590" },
+    { label: copy.success ?? copy.successRate, value: summary.successRate, color: "#F8961E" },
   ];
+  const progress = durationSeconds > 0 ? Math.min(100, ((elapsedSeconds ?? 0) / durationSeconds) * 100) : 0;
 
   return (
-    <div>
-      <p className={`text-xs font-semibold uppercase tracking-wide ${dark ? "text-cyan-100/70" : "text-rehab-muted"}`}>{copy.liveMotionMetrics}</p>
-      <p className={`mt-2 text-2xl font-semibold ${dark ? "text-white" : "text-rehab-ink"}`}>{game.title}</p>
-      <p className={`mt-1 text-xs font-semibold leading-5 ${dark ? "text-cyan-100/70" : "text-rehab-muted"}`}>{summary.feedback}</p>
-      <div className="mt-5 space-y-3.5">
+    <div className="flex flex-col gap-4">
+      {durationSeconds > 0 ? (
+        <div>
+          <div className="mb-1 flex justify-between text-xs font-semibold text-rehab-muted">
+            <span>{copy.time ?? "Time"}</span>
+            <span className="tabular-nums">{Math.round(elapsedSeconds ?? 0)}s / {durationSeconds}s</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-slate-200">
+            <div className="h-full rounded-full bg-[#577590] transition-all" style={{ width: `${progress}%` }} />
+          </div>
+        </div>
+      ) : null}
+
+      <p className={`text-xs font-semibold leading-5 ${dark ? "text-cyan-100/70" : "text-rehab-muted"}`}>{summary.feedback}</p>
+
+      <div className="space-y-3">
         {metrics.map(({ label, value, color }) => (
           <div key={label}>
-            <div className={`flex justify-between text-sm font-semibold ${dark ? "text-white" : "text-rehab-ink"}`}>
+            <div className={`flex justify-between text-xs font-semibold ${dark ? "text-white" : "text-rehab-ink"}`}>
               <span>{label}</span>
               <span style={{ color }}>{formatValue(value)}%</span>
             </div>
-            <div className={`mt-1.5 h-2 rounded-full ${dark ? "bg-white/15" : "bg-slate-200"}`}>
-              <div className="h-full rounded-full" style={{ width: `${Math.min(100, Number(value) || 0)}%`, backgroundColor: color }} />
+            <div className={`mt-1 h-1.5 rounded-full ${dark ? "bg-white/15" : "bg-slate-200"}`}>
+              <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, Number(value) || 0)}%`, backgroundColor: color }} />
             </div>
           </div>
         ))}
       </div>
-      <p className={`mt-5 rounded-xl p-3 text-xs font-semibold leading-5 ${dark ? "border border-cyan-100/15 bg-white/[0.06] text-cyan-50" : "bg-blue-50 text-blue-800"}`}>
-        {copy.estimatedSupportNote}
-      </p>
     </div>
   );
 }

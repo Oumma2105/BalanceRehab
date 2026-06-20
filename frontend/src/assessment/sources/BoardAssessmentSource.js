@@ -122,6 +122,7 @@ export class BoardAssessmentSource {
       postureStabilityScore: null,
       ...summary,
       boardUnavailableReason: boardAvailable ? null : "ESP32 USB serial stream was not received during this assessment.",
+      sensorSamples: this.samples.slice(),
       samples: this.samples.slice(),
       status: scoreStatus(summary.boardStabilityScore),
     };

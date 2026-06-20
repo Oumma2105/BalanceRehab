@@ -80,26 +80,41 @@ function drawClinicalSummaryPage(doc, { patient, session, results, generatedAt, 
   drawClinicalLimitNoteExact(doc, 246, t);
 }
 
-function drawPosturographicAnalysisPage(doc, { patient, session, samples, trace, generatedAt, clinicianName, t }) {
+function drawPosturographicAnalysisPage(doc, { patient, session, samples: incomingSamples, trace, generatedAt, clinicianName, t }) {
   drawClinicalHeader(doc, { patient, session, generatedAt, clinicianName, t, compact: true });
   let y = 42;
   y = sectionTitle(doc, t.pdfPosturographicAnalysis ?? "Posturographic Analysis", y);
+  const sourceLabel = sourceLabelForTrace(trace, t);
+  const sessionResults = session.results ?? {};
+  const isDemo = session.acquisitionModeKey === "demo" || (!session.acquisitionModeKey && incomingSamples.length === 0);
+  const samples = incomingSamples.length ? incomingSamples : (isDemo ? generateDemoClinicalSamples(sessionResults) : []);
+  const isDemoFallback = isDemo && !incomingSamples.length && samples.length > 0;
+  const dataStatus = trace.realSamplesUsed
+    ? (t.recordedSessionData ?? "Données issues de la session enregistrée")
+    : isDemoFallback
+      ? "Graphiques de démonstration — aucun échantillon enregistré disponible."
+      : trace.fallbackUsed
+        ? (t.sourceDemoData ?? "Source: Demo data")
+        : (t.noRecordedSamplesAvailable ?? "No recorded samples available for this session.");
   doc.setTextColor(...MUTED);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
-  doc.text(`${sourceLabelForTrace(trace, t)} | ${trace.realSamplesUsed ? (t.recordedSessionData ?? "Données issues de la session enregistrée") : trace.fallbackUsed ? (t.sourceDemoData ?? "Source: Demo data") : (t.noRecordedSamplesAvailable ?? "No recorded samples available for this session.")}`, MARGIN, y - 3, { maxWidth: CONTENT_W });
+  doc.text(`${sourceLabel} | ${dataStatus}`, MARGIN, y - 3, { maxWidth: CONTENT_W });
+  if (trace.fusionMethod) {
+    doc.text(t.combinedFusionMethod ?? trace.fusionMethod, MARGIN, y + 2, { maxWidth: CONTENT_W });
+  }
 
   if (!samples.length) {
     drawNoSamplesBox(doc, MARGIN, 58, CONTENT_W, 84, t);
     return;
   }
 
-  drawClinicalFootMap(doc, samples, MARGIN, 58, 85, 72, t);
-  drawClinicalTrajectory(doc, samples, MARGIN + 95, 58, 85, 72, t);
-  drawClinicalStabilogram(doc, samples, MARGIN, 152, 85, 42, "ap", ORANGE, t.apStabilogram ?? "AP stabilogram");
-  drawClinicalStabilogram(doc, samples, MARGIN + 95, 152, 85, 42, "ml", BLUE, t.mlStabilogram ?? "ML stabilogram");
-  drawClinicalStabilogram(doc, samples, MARGIN, 216, 85, 42, "resultant", RED, t.resultantSwayOverTime ?? "Resultant sway");
-  drawClinicalHeatmap(doc, samples, MARGIN + 105, 213, 58, 58, t);
+  drawClinicalFootMap(doc, samples, MARGIN, 58, 85, 72, t, sourceLabel);
+  drawClinicalTrajectory(doc, samples, MARGIN + 95, 58, 85, 72, t, sourceLabel);
+  drawClinicalStabilogram(doc, samples, MARGIN, 152, 85, 42, "ap", ORANGE, t.apStabilogram ?? "AP stabilogram", sourceLabel);
+  drawClinicalStabilogram(doc, samples, MARGIN + 95, 152, 85, 42, "ml", BLUE, t.mlStabilogram ?? "ML stabilogram", sourceLabel);
+  drawClinicalStabilogram(doc, samples, MARGIN, 216, 85, 42, "resultant", RED, t.resultantSwayOverTime ?? "Resultant sway", sourceLabel);
+  drawClinicalHeatmap(doc, samples, MARGIN + 105, 213, 58, 58, t, sourceLabel);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7.2);
   doc.setTextColor(...MUTED);
@@ -264,20 +279,23 @@ function buildDetailedIndicatorRows({ session, results, metrics, severity, t }) 
     [t.mlSway ?? "ML mean sway (estimated)", `${valueOrDash(metrics.meanMl)} cm`, "< 4 cm", statusSymbol(metrics.meanMl, 4, false, t)],
     [t.meanSway ?? "Mean resultant sway", `${valueOrDash(metrics.meanSway)} cm`, "< 6 cm", statusSymbol(metrics.meanSway, 6, false, t)],
     [t.maxSway ?? "Max resultant sway", `${valueOrDash(metrics.maxSway)} cm`, "< 10 cm", statusSymbol(metrics.maxSway, 10, false, t)],
+    [t.rmsSway ?? "RMS sway", `${valueOrDash(metrics.rmsSway)} cm`, "< 6 cm", statusSymbol(metrics.rmsSway, 6, false, t)],
     [t.pathLength ?? "Path length", `${valueOrDash(metrics.pathLength)} cm`, "< 80 cm", statusSymbol(metrics.pathLength, 80, false, t)],
     [t.swayVelocity ?? "Sway velocity", `${valueOrDash(metrics.swayVelocity)} cm/s`, "< 3 cm/s", statusSymbol(metrics.swayVelocity, 3, false, t)],
+    [t.swayArea ?? "Sway area", `${valueOrDash(metrics.swayArea)} cm²`, "< 30 cm²", statusSymbol(metrics.swayArea, 30, false, t)],
     [t.instabilityEvents ?? "Instability events", valueOrDash(metrics.instabilityEvents), "0-2", statusSymbol(metrics.instabilityEvents, 2, false, t)],
     [t.sensorQuality ?? "Tracking/sensor quality", `${valueOrDash(metrics.sensorQuality)}%`, "> 75%", statusSymbol(metrics.sensorQuality, 75, true, t)],
   ];
 }
 
-function drawClinicalFootMap(doc, samples, x, y, width, height, t) {
+function drawClinicalFootMap(doc, samples, x, y, width, height, t, sourceLabel) {
   const cx = x + width / 2;
   const cy = y + height / 2 + 4;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8.5);
   doc.setTextColor(...TEXT);
   doc.text(t.balanceFootprintMap ?? "Foot support map", x, y - 3);
+  drawGraphSourceLabel(doc, sourceLabel, x + width, y - 3);
   doc.setDrawColor(...LINE);
   doc.roundedRect(x, y, width, height, 2.5, 2.5, "S");
   doc.setDrawColor(226, 232, 240);
@@ -293,11 +311,12 @@ function drawClinicalFootMap(doc, samples, x, y, width, height, t) {
   drawStartEndMarkers(doc, samples, x + 5, y + 8, width - 10, height - 16);
 }
 
-function drawClinicalTrajectory(doc, samples, x, y, width, height, t) {
+function drawClinicalTrajectory(doc, samples, x, y, width, height, t, sourceLabel) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8.5);
   doc.setTextColor(...TEXT);
   doc.text(t.apMlTrajectory ?? "AP / ML trajectory", x, y - 3);
+  drawGraphSourceLabel(doc, sourceLabel, x + width, y - 3);
   doc.setDrawColor(...LINE);
   doc.roundedRect(x, y, width, height, 2.5, 2.5, "S");
   doc.setDrawColor(226, 232, 240);
@@ -314,11 +333,12 @@ function drawClinicalTrajectory(doc, samples, x, y, width, height, t) {
   drawStartEndMarkers(doc, samples, x + 4, y + 4, width - 8, height - 8);
 }
 
-function drawClinicalStabilogram(doc, samples, x, y, width, height, key, color, label) {
+function drawClinicalStabilogram(doc, samples, x, y, width, height, key, color, label, sourceLabel) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8.2);
   doc.setTextColor(...TEXT);
   doc.text(label, x, y - 3);
+  drawGraphSourceLabel(doc, sourceLabel, x + width, y - 3);
   doc.setDrawColor(...LINE);
   doc.roundedRect(x, y, width, height, 2, 2, "S");
   doc.setDrawColor(226, 232, 240);
@@ -340,11 +360,12 @@ function drawClinicalStabilogram(doc, samples, x, y, width, height, key, color, 
   doc.setLineWidth(0.2);
 }
 
-function drawClinicalHeatmap(doc, samples, x, y, width, height, t) {
+function drawClinicalHeatmap(doc, samples, x, y, width, height, t, sourceLabel) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8.5);
   doc.setTextColor(...TEXT);
   doc.text(t.swayDensityHeatmap ?? "Sway density heatmap", x, y - 3);
+  drawGraphSourceLabel(doc, sourceLabel, x + width, y - 3);
   const size = 8;
   const cells = Array.from({ length: size * size }, () => 0);
   const maxAxis = Math.max(1, ...samples.flatMap((sample) => [Math.abs(sample.ap), Math.abs(sample.ml)]));
@@ -363,6 +384,13 @@ function drawClinicalHeatmap(doc, samples, x, y, width, height, t) {
   });
   doc.setDrawColor(...LINE);
   doc.rect(x, y, width, height, "S");
+}
+
+function drawGraphSourceLabel(doc, sourceLabel, rightX, y) {
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(5.8);
+  doc.setTextColor(...MUTED);
+  doc.text(sourceLabel, rightX, y, { align: "right", maxWidth: 42 });
 }
 
 function drawNoSamplesBox(doc, x, y, width, height, t = {}) {
@@ -482,29 +510,39 @@ function buildClinicalReportMetrics({ session, results, samples, score }) {
   const apValues = samples.map((sample) => Math.abs(Number(sample.ap))).filter(Number.isFinite);
   const mlValues = samples.map((sample) => Math.abs(Number(sample.ml))).filter(Number.isFinite);
   const resultantValues = samples.map((sample) => sample.resultant).filter(Number.isFinite);
-  const pathLength = results.pathLength ?? samples.slice(1).reduce((sum, sample, index) => {
+  const hasSamples = samples.length > 0;
+  const pathLengthFromSamples = samples.slice(1).reduce((sum, sample, index) => {
     const prev = samples[index];
     return sum + Math.hypot(sample.ap - prev.ap, sample.ml - prev.ml);
   }, 0);
+  const pathLength = hasSamples ? pathLengthFromSamples : results.pathLength;
   const duration = Number(session.durationSeconds ?? results.durationSeconds ?? samples.at(-1)?.t ?? samples.length ?? 1) || 1;
+  const rmsFromSamples = resultantValues.length
+    ? Math.sqrt(resultantValues.reduce((sum, value) => sum + value * value, 0) / resultantValues.length)
+    : null;
+  const swayAreaFromSamples = estimateEllipseArea(samples);
   return {
     totalScore: score,
     postureScore: session.postureScore ?? results.postureStabilityScore ?? score,
     stabilityScore: session.boardScore ?? session.postureScore ?? results.boardStabilityScore ?? results.postureStabilityScore ?? score,
-    meanAp: round1(results.meanSwayAp ?? averageNumber(apValues)),
-    meanMl: round1(results.meanSwayMl ?? averageNumber(mlValues)),
-    meanSway: round1(results.meanResultantSway ?? averageNumber(resultantValues)),
-    maxSway: round1(results.maxResultantSway ?? Math.max(0, ...resultantValues)),
+    meanAp: round1(hasSamples ? averageNumber(apValues) : results.meanSwayAp),
+    meanMl: round1(hasSamples ? averageNumber(mlValues) : results.meanSwayMl),
+    meanSway: round1(hasSamples ? averageNumber(resultantValues) : results.meanResultantSway),
+    maxSway: round1(hasSamples ? Math.max(0, ...resultantValues) : results.maxResultantSway),
+    rmsSway: round1(hasSamples ? rmsFromSamples : results.rmsSway),
+    swayArea: round1(hasSamples ? swayAreaFromSamples : results.swayArea),
     pathLength: round1(pathLength),
-    swayVelocity: round1(results.swayVelocity ?? pathLength / duration),
-    instabilityEvents: Number(results.instabilityEvents ?? 0),
+    swayVelocity: round1(hasSamples ? pathLength / duration : results.swayVelocity),
+    instabilityEvents: Number(hasSamples ? countClinicalInstabilityEvents(samples) : (results.instabilityEvents ?? 0)),
     sensorQuality: round1(results.sensorQuality ?? results.trackingQuality?.usablePercent ?? 88),
   };
 }
 
 function buildClinicalSwayTrace(results = {}, session = {}) {
   const mode = session.acquisitionModeKey ?? results.acquisitionMode ?? session.acquisitionMode;
-  const isDemo = mode === "demo" || String(session.acquisitionMode ?? "").toLowerCase().includes("demo");
+  const normalizedMode = String(mode ?? "").toLowerCase();
+  const isDemo = normalizedMode === "demo" || String(session.acquisitionMode ?? "").toLowerCase().includes("demo");
+  const isCombined = normalizedMode.includes("combined");
   const sensorRaw = Array.isArray(results.sensorSamples) ? results.sensorSamples : [];
   const postureRaw = Array.isArray(results.postureSamples) ? results.postureSamples : [];
   const mergedRaw = Array.isArray(results.samples) ? results.samples : [];
@@ -512,9 +550,14 @@ function buildClinicalSwayTrace(results = {}, session = {}) {
   const mergedPosture = mergedRaw.filter(hasWebcamPosture);
   const boardSamples = normalizeRecordedClinicalSamples(sensorRaw.length ? sensorRaw : mergedBoard, "esp32");
   const webcamSamples = normalizeRecordedClinicalSamples(postureRaw.length ? postureRaw : mergedPosture, "webcam");
+  const fusionMethod = isCombined && boardSamples.length && webcamSamples.length
+    ? "ESP32 board AP/ML sway drives the CoP-like trajectory; MediaPipe webcam samples remain separate posture indicators."
+    : null;
   const selected =
-    boardSamples.length && (mode === "board" || String(mode).includes("combined") || results.availableMetrics?.board)
-      ? { source: "esp32", samples: boardSamples }
+    boardSamples.length && isCombined && webcamSamples.length
+      ? { source: "combined", samples: boardSamples }
+      : boardSamples.length && (normalizedMode === "board" || isCombined || results.availableMetrics?.board)
+        ? { source: "esp32", samples: boardSamples }
       : webcamSamples.length
         ? { source: "webcam", samples: webcamSamples }
         : boardSamples.length
@@ -533,6 +576,9 @@ function buildClinicalSwayTrace(results = {}, session = {}) {
     fallbackUsed: selected.source === "demo" && samples.length > 0,
     mediaPipeSamples: postureRaw.length || mergedPosture.length,
     esp32Samples: sensorRaw.length || mergedBoard.length,
+    webcamSamples,
+    boardSamples,
+    fusionMethod,
   };
 }
 
@@ -568,6 +614,8 @@ function hasWebcamPosture(sample = {}) {
 
 function webcamApProxy(sample = {}) {
   return firstNullableNumber(
+    sample.apSwayProxy,
+    sample.ap_sway_proxy,
     sample.ap,
     sample.bodyCenterY != null ? (0.5 - Number(sample.bodyCenterY)) * 22 : null,
     sample.hipCenterY != null ? (0.5 - Number(sample.hipCenterY)) * 22 : null,
@@ -579,6 +627,8 @@ function webcamApProxy(sample = {}) {
 
 function webcamMlProxy(sample = {}) {
   return firstNullableNumber(
+    sample.mlSwayProxy,
+    sample.ml_sway_proxy,
     sample.ml,
     sample.bodyCenterX != null ? (Number(sample.bodyCenterX) - 0.5) * 22 : null,
     sample.hipCenterX != null ? (Number(sample.hipCenterX) - 0.5) * 22 : null,
@@ -602,6 +652,7 @@ function generateDemoClinicalSamples(results = {}) {
 }
 
 function sourceLabelForTrace(trace, t = {}) {
+  if (trace.source === "combined") return t.sourceCombined ?? "Source: Combined";
   if (trace.source === "esp32") return t.sourceEsp32SerialBoard ?? "Source: ESP32 serial board";
   if (trace.source === "webcam") return t.sourceMediaPipeWebcam ?? "Source: MediaPipe webcam";
   if (trace.source === "demo") return t.sourceDemoData ?? "Source: Demo data";
@@ -626,6 +677,42 @@ function defaultRecommendations(severity, t = {}) {
     t.recoUnstableSafety ?? "Use close supervision and external support during balance exercises.",
     t.recoUnstableClinical ?? "Consider clinical follow-up before progressing to dynamic balance tasks.",
   ];
+}
+
+function countClinicalInstabilityEvents(samples) {
+  if (!samples.length) return 0;
+  const resultants = samples.map((sample) => Number(sample.resultant)).filter(Number.isFinite);
+  const threshold = Math.max(6, percentile(resultants, 0.85));
+  let events = 0;
+  let inEvent = false;
+  samples.forEach((sample) => {
+    const unstable = Number(sample.resultant) > threshold;
+    if (unstable && !inEvent) events += 1;
+    inEvent = unstable;
+  });
+  return events;
+}
+
+function estimateEllipseArea(samples) {
+  if (samples.length < 3) return null;
+  const apValues = samples.map((sample) => Number(sample.ap)).filter(Number.isFinite);
+  const mlValues = samples.map((sample) => Number(sample.ml)).filter(Number.isFinite);
+  if (apValues.length < 3 || mlValues.length < 3) return null;
+  return Math.PI * standardDeviation(apValues) * standardDeviation(mlValues);
+}
+
+function standardDeviation(values) {
+  if (!values.length) return 0;
+  const mean = averageNumber(values);
+  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
+  return Math.sqrt(variance);
+}
+
+function percentile(values, ratio) {
+  const clean = values.filter(Number.isFinite).sort((a, b) => a - b);
+  if (!clean.length) return 0;
+  const index = Math.min(clean.length - 1, Math.max(0, Math.floor((clean.length - 1) * ratio)));
+  return clean[index];
 }
 
 function heatColor(intensity) {

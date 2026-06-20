@@ -156,10 +156,30 @@ export class WebcamAssessmentSource {
         engines: sample.engines,
         quality: sample.readiness,
       })),
+      postureSamples: this.poseSamples.map((sample) => ({
+        t: sample.elapsedSeconds ?? 0,
+        timestampMs: sample.timestamp,
+        apSwayProxy: sample.apSwayProxy,
+        mlSwayProxy: sample.mlSwayProxy,
+        bodyCenterX: sample.bodyCenter?.x,
+        bodyCenterY: sample.bodyCenter?.y,
+        hipCenterX: sample.hipCenter?.x,
+        hipCenterY: sample.hipCenter?.y,
+        shoulderCenterX: sample.shoulderCenter?.x,
+        shoulderCenterY: sample.shoulderCenter?.y,
+        trunkInclination: sample.trunkInclination,
+        shoulderAsymmetry: sample.shoulderAsymmetry,
+        hipAsymmetry: sample.hipAsymmetry,
+        posture: sample.postureScore,
+        stability: sample.stabilityScore,
+      })),
       samples: this.poseSamples.slice(-60).map((sample, index) => ({
         t: sample.elapsedSeconds ?? index,
+        timestampMs: sample.timestamp,
         ap: null,
         ml: null,
+        apSwayProxy: sample.apSwayProxy,
+        mlSwayProxy: sample.mlSwayProxy,
         posture: sample.postureScore,
         stability: sample.stabilityScore,
         alignment: sample.alignmentScore,
@@ -233,17 +253,21 @@ export class WebcamAssessmentSource {
 
   previewPoseMetrics(metrics) {
     if (!metrics) return;
-    this.latestPoseMetrics = {
+    const preview = {
       ...metrics,
       elapsedSeconds: this.poseSamples.length ? round1((metrics.timestamp - this.poseSamples[0].timestamp) / 1000) : 0,
     };
+    const proxies = webcamSwayProxy(preview);
+    this.latestPoseMetrics = { ...preview, apSwayProxy: proxies.ap, mlSwayProxy: proxies.ml };
   }
 
   createPoseSample(metrics) {
-    return {
+    const sample = {
       ...metrics,
       elapsedSeconds: this.poseSamples.length ? round1((metrics.timestamp - this.poseSamples[0].timestamp) / 1000) : 0,
     };
+    const proxies = webcamSwayProxy(sample);
+    return { ...sample, apSwayProxy: proxies.ap, mlSwayProxy: proxies.ml };
   }
 
   noPoseResults() {
@@ -331,10 +355,30 @@ export class WebcamAssessmentSource {
       engineCoverage: summarizeEngineCoverage(this.poseSamples),
       boardUnavailableReason: this.t.notAvailableWebcamOnly ?? "Not available in webcam-only mode",
       status: message,
-      samples: this.poseSamples.slice(-60).map((sample, index) => ({
-        t: sample.elapsedSeconds ?? index,
+      postureSamples: this.poseSamples.map((sample) => ({
+        t: sample.elapsedSeconds ?? 0,
+        timestampMs: sample.timestamp,
+        apSwayProxy: sample.apSwayProxy,
+        mlSwayProxy: sample.mlSwayProxy,
+        bodyCenterX: sample.bodyCenter?.x,
+        bodyCenterY: sample.bodyCenter?.y,
+        hipCenterX: sample.hipCenter?.x,
+        hipCenterY: sample.hipCenter?.y,
+        shoulderCenterX: sample.shoulderCenter?.x,
+        shoulderCenterY: sample.shoulderCenter?.y,
+        trunkInclination: sample.trunkInclination,
+        shoulderAsymmetry: sample.shoulderAsymmetry,
+        hipAsymmetry: sample.hipAsymmetry,
         posture: null,
         stability: null,
+      })),
+      samples: this.poseSamples.slice(-60).map((sample, index) => ({
+        t: sample.elapsedSeconds ?? index,
+        timestampMs: sample.timestamp,
+        posture: null,
+        stability: null,
+        apSwayProxy: sample.apSwayProxy,
+        mlSwayProxy: sample.mlSwayProxy,
         bodyCenterDeviation: sample.bodyCenterDeviation,
         signedBodyCenterDeviation: sample.signedBodyCenterDeviation,
         bodyCenterX: sample.bodyCenter?.x,
@@ -428,6 +472,34 @@ function scoreStatus(score) {
 
 function round1(value) {
   return Math.round(value * 10) / 10;
+}
+
+function webcamSwayProxy(sample = {}) {
+  const body = sample.bodyCenter;
+  const hip = sample.hipCenter;
+  const shoulder = sample.shoulderCenter;
+  const ap = firstFinite(
+    body?.y != null ? (0.5 - Number(body.y)) * 22 : null,
+    hip?.y != null ? (0.5 - Number(hip.y)) * 22 : null,
+    shoulder?.y != null ? (0.5 - Number(shoulder.y)) * 18 : null,
+    sample.signedBodyCenterDeviation,
+    sample.trunkInclination != null ? Number(sample.trunkInclination) * 0.45 : null,
+  );
+  const ml = firstFinite(
+    body?.x != null ? (Number(body.x) - 0.5) * 22 : null,
+    hip?.x != null ? (Number(hip.x) - 0.5) * 22 : null,
+    shoulder?.x != null ? (Number(shoulder.x) - 0.5) * 18 : null,
+    sample.shoulderAsymmetry != null ? Number(sample.shoulderAsymmetry) * 0.35 : null,
+  );
+  return { ap, ml };
+}
+
+function firstFinite(...values) {
+  for (const value of values) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return round1(numeric);
+  }
+  return null;
 }
 
 function summarizeTrackingQuality(samples, durationSeconds = 30) {
