@@ -154,14 +154,13 @@ export function RehabilitationGamesPage({
     <div className="space-y-5">
       {step !== 1 ? <RehabStepBar activeStep={step} /> : null}
       {step === 0 ? (
-        <PatientSnapshot
+        <SetupPatientRow
           patients={patients}
           patientId={patientId}
           selectedPatient={selectedPatient}
           latestAssessment={latestAssessment}
+          analytics={patientAnalytics}
           profile={assessmentProfile}
-          games={games}
-          t={t}
           onSelectPatient={handleSelectPatient}
           onOpenProfile={() => onOpenPatientRehabilitation?.(patientId)}
         />
@@ -225,6 +224,79 @@ export function RehabilitationGamesPage({
   );
 }
 
+function SetupPatientRow({ patients, patientId, selectedPatient, latestAssessment, analytics, profile, onSelectPatient, onOpenProfile }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-slate-200 bg-white px-5 py-3.5 shadow-sm">
+      <div className="flex items-center gap-2.5">
+        <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#EEF7F4]">
+          <User size={14} className="text-[#43AA8B]" />
+        </span>
+        <select
+          value={patientId ?? ""}
+          onChange={(e) => onSelectPatient(Number(e.target.value))}
+          className="rounded-lg border border-rehab-line bg-white px-2.5 py-1.5 text-sm font-bold text-rehab-ink outline-none focus:border-rehab-teal"
+        >
+          {patients.map((p) => <option key={p.id} value={p.id}>{p.fullName}</option>)}
+        </select>
+      </div>
+      {selectedPatient && (
+        <>
+          <div className="hidden h-5 w-px bg-slate-200 sm:block" />
+          <PatientPill label="Condition" value={selectedPatient.medicalReason ?? selectedPatient.pathology ?? "—"} />
+          <PatientPill
+            label="Balance"
+            value={latestAssessment?.totalScore != null ? `${latestAssessment.totalScore}/100` : "No assessment"}
+            highlight
+          />
+          <PatientPill label="Risk" value={profile.riskLevel} accent={profile.riskColor} />
+          <PatientPill label="Sessions" value={analytics.count > 0 ? String(analytics.count) : "None"} />
+        </>
+      )}
+      <button
+        type="button"
+        onClick={onOpenProfile}
+        className="ml-auto flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-rehab-ink transition hover:border-rehab-teal hover:text-rehab-teal"
+      >
+        Profile <ChevronRight size={13} />
+      </button>
+    </div>
+  );
+}
+
+function PatientPill({ label, value, highlight, accent }) {
+  return (
+    <div>
+      <p className="text-[9px] font-bold uppercase tracking-wider text-rehab-muted">{label}</p>
+      <p
+        className={`mt-0.5 text-xs font-bold ${highlight ? "text-[#43AA8B]" : "text-rehab-ink"}`}
+        style={accent ? { color: accent } : undefined}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function CompactGameTile({ game, selected, onClick }) {
+  const Icon = game.icon;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex flex-col items-center gap-2 rounded-xl border p-3 text-center transition ${
+        selected
+          ? "border-[#43AA8B] bg-[#F2FBF8] ring-2 ring-[#43AA8B]/15 shadow-sm"
+          : "border-rehab-line bg-white hover:border-[#43AA8B]/50 hover:bg-slate-50"
+      }`}
+    >
+      <span className="grid h-10 w-10 place-items-center rounded-lg text-white" style={{ backgroundColor: game.color }}>
+        <Icon size={18} />
+      </span>
+      <span className="text-[11px] font-bold leading-tight text-rehab-ink">{game.title}</span>
+    </button>
+  );
+}
+
 function RehabSetupStep({
   selectedPatient,
   selectedGame,
@@ -243,71 +315,103 @@ function RehabSetupStep({
 }) {
   const copy = t.rehabilitationWorkspace;
   const selectedGameInfo = games[selectedGame];
-  const details = selectedGameInfo;
   const Icon = selectedGameInfo.icon;
+  const [planOpen, setPlanOpen] = useState(false);
 
   return (
-    <div className="space-y-6">
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-clinical">
-        <div className="grid lg:grid-cols-[minmax(22rem,0.9fr)_1.1fr]">
-          <ExercisePreview game={selectedGameInfo} copy={copy} />
-          <div className="flex flex-col p-6 lg:p-8">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-rehab-teal">{copy.selectedExercise}</p>
-                <div className="mt-3 flex items-center gap-3">
-                  <span className="grid h-12 w-12 place-items-center rounded-xl text-white shadow-sm" style={{ backgroundColor: selectedGameInfo.color }}>
-                    <Icon size={22} />
-                  </span>
-                  <div>
-                    <h2 className="text-2xl font-semibold text-rehab-ink">{selectedGameInfo.title}</h2>
-                    <p className="text-sm font-semibold text-rehab-muted">{details.primaryGoal}</p>
-                  </div>
-                </div>
-              </div>
-              <span className="rounded-full bg-rehab-teal/10 px-3 py-1 text-xs font-bold text-rehab-teal">{details.difficulty}</span>
-            </div>
-
-            <p className="mt-5 max-w-3xl text-sm font-medium leading-6 text-rehab-muted">{details.description}</p>
-
-            <div className="mt-6 grid gap-5 sm:grid-cols-2">
-              <TherapyList title={copy.therapeuticObjectives} items={details.objectives} />
-              <TherapyList title={copy.bodyPartsInvolved} items={details.bodyParts} />
-            </div>
-
-            <div className="mt-6">
-              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-rehab-muted">{copy.clinicalOutcomes}</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {details.outcomes.map((outcome) => (
-                  <span key={outcome} className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800">
-                    <CheckCircle2 size={13} /> {outcome}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-auto pt-7">
-              <div className="flex flex-wrap items-end justify-between gap-4 border-t border-slate-200 pt-5">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.16em] text-rehab-muted">{copy.session}</p>
-                  <p className="mt-1 text-sm font-semibold text-rehab-ink">{difficultyLabel(difficulty, copy)} · {durationSeconds} {copy.seconds} · Webcam / MediaPipe</p>
-                </div>
-                <Button onClick={onStart} disabled={!selectedPatient} className="min-h-12 px-6">
-                  <Play size={17} /> {copy.startTraining}
-                </Button>
-              </div>
-            </div>
+    <div className="space-y-4">
+      <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
+        <ClinicalCard className="p-4">
+          <p className="mb-3 text-[10px] font-black uppercase tracking-[0.16em] text-rehab-muted">{copy.exerciseLibrary}</p>
+          <div className="grid grid-cols-3 gap-2">
+            {Object.entries(games).map(([key, game]) => (
+              <CompactGameTile key={key} game={game} selected={selectedGame === key} onClick={() => onSelectGame(key)} />
+            ))}
           </div>
-        </div>
-      </section>
+        </ClinicalCard>
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(22rem,0.85fr)]">
-        <ClinicalCard className="p-5">
-          <SectionHeader title={copy.recommendedPlan} description={copy.recommendedPlanDescription} />
-          <div className="mt-5 grid gap-5 lg:grid-cols-[0.78fr_1.22fr]">
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+        <ClinicalCard className="flex flex-col p-5">
+          <div className="flex items-center gap-3">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-white shadow-sm" style={{ backgroundColor: selectedGameInfo.color }}>
+              <Icon size={20} />
+            </span>
+            <div className="min-w-0">
+              <h3 className="font-bold leading-tight text-rehab-ink">{selectedGameInfo.title}</h3>
+              <p className="mt-0.5 text-xs text-rehab-muted">{selectedGameInfo.primaryGoal}</p>
+            </div>
+            <span className="ml-auto shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-rehab-muted">{selectedGameInfo.difficulty}</span>
+          </div>
+
+          <p className="mt-4 text-sm leading-6 text-rehab-muted">{selectedGameInfo.description}</p>
+
+          {selectedGameInfo.objectives?.length ? (
+            <ul className="mt-4 space-y-1.5">
+              {selectedGameInfo.objectives.slice(0, 3).map((obj) => (
+                <li key={obj} className="flex items-start gap-2 text-xs font-semibold text-rehab-ink">
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-rehab-teal" />
+                  {obj}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          <div className="mt-auto grid gap-3 pt-5">
+            <ConfigurationSelect
+              label={copy.difficulty}
+              value={difficulty}
+              onChange={onSetDifficulty}
+              options={[
+                ["intro", copy.difficultyLabels.intro],
+                ["standard", copy.difficultyLabels.standard],
+                ["advanced", copy.difficultyLabels.advanced],
+              ]}
+            />
+            <ConfigurationSelect
+              label={copy.duration}
+              value={durationSeconds}
+              onChange={(value) => onSetDuration(Number(value))}
+              options={[
+                [30, `30 ${copy.seconds}`],
+                [45, `45 ${copy.seconds}`],
+                [60, `60 ${copy.seconds}`],
+                [90, `90 ${copy.seconds}`],
+              ]}
+            />
+          </div>
+        </ClinicalCard>
+      </div>
+
+      <button
+        type="button"
+        onClick={onStart}
+        disabled={!selectedPatient}
+        className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#43AA8B] px-8 py-5 text-base font-bold text-white shadow-md transition hover:bg-[#3b9a7e] disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <Play size={20} />
+        {copy.startTraining}
+        <ChevronRight size={18} />
+      </button>
+
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <button
+          type="button"
+          onClick={() => setPlanOpen((prev) => !prev)}
+          className="flex w-full items-center justify-between px-5 py-4 text-sm font-semibold text-rehab-ink"
+        >
+          <span className="flex items-center gap-2">
+            <BrainCircuit size={15} className="text-rehab-muted" />
+            {copy.recommendedPlan}
+          </span>
+          <ChevronRight
+            size={16}
+            className={`shrink-0 text-rehab-muted transition-transform duration-200 ${planOpen ? "rotate-90" : ""}`}
+          />
+        </button>
+        {planOpen ? (
+          <div className="border-t border-slate-200 px-5 py-4">
+            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
               <p className="text-[10px] font-black uppercase tracking-[0.16em] text-amber-800">{copy.assessmentFindings}</p>
-              <div className="mt-3 space-y-2.5">
+              <div className="mt-3 space-y-2">
                 {assessmentProfile.findings.map((finding) => (
                   <div key={finding} className="flex items-start gap-2 text-sm font-semibold text-amber-950">
                     <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[#F8961E]" />
@@ -328,47 +432,28 @@ function RehabSetupStep({
                       onSelectGame(item.gameType);
                       onSetDifficulty(item.difficulty);
                     }}
-                    className={`flex min-h-20 w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition ${
-                      selectedGame === item.gameType ? "border-rehab-teal bg-emerald-50 shadow-sm ring-2 ring-rehab-teal/10" : "border-slate-200 bg-white hover:border-rehab-teal/50"
+                    className={`flex min-h-16 w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition ${
+                      selectedGame === item.gameType
+                        ? "border-rehab-teal bg-emerald-50 ring-2 ring-rehab-teal/10"
+                        : "border-slate-200 bg-white hover:border-rehab-teal/50"
                     }`}
                   >
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-white" style={{ backgroundColor: game.color }}><ItemIcon size={17} /></span>
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white" style={{ backgroundColor: game.color }}>
+                      <ItemIcon size={15} />
+                    </span>
                     <span className="min-w-0">
                       <span className="block text-[10px] font-black uppercase tracking-wide text-rehab-muted">{copy.program} {index + 1}</span>
                       <span className="mt-0.5 block text-sm font-bold text-rehab-ink">{game.title}</span>
-                      <span className="mt-0.5 block text-xs text-rehab-muted">{copy.reason}: {item.reason}</span>
+                      <span className="mt-0.5 block text-xs text-rehab-muted">{item.reason}</span>
                     </span>
-                    <ChevronRight size={16} className="ml-auto shrink-0 text-rehab-muted" />
+                    <ChevronRight size={14} className="ml-auto shrink-0 text-rehab-muted" />
                   </button>
                 );
               })}
             </div>
           </div>
-        </ClinicalCard>
-        <ClinicalCard className="p-5">
-          <SectionHeader title={copy.sessionConfiguration} description={copy.sessionConfigurationDescription} />
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <ConfigurationSelect label={copy.difficulty} value={difficulty} onChange={onSetDifficulty} options={[
-              ["intro", copy.difficultyLabels.intro], ["standard", copy.difficultyLabels.standard], ["advanced", copy.difficultyLabels.advanced],
-            ]} />
-            <ConfigurationSelect label={copy.duration} value={durationSeconds} onChange={(value) => onSetDuration(Number(value))} options={[
-              [30, `30 ${copy.seconds}`], [45, `45 ${copy.seconds}`], [60, `60 ${copy.seconds}`], [90, `90 ${copy.seconds}`],
-            ]} />
-          </div>
-          <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs font-medium leading-5 text-rehab-muted">
-            {copy.recommendedForPatient}: <span className="font-bold text-rehab-ink">{difficultyLabel(difficulty, copy)}</span>, {copy.recommendationBasis}
-          </div>
-        </ClinicalCard>
-      </section>
-
-      <section>
-        <SectionHeader title={copy.exerciseLibrary} description={copy.exerciseLibraryDescription} />
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {Object.entries(games).map(([key, game]) => (
-            <GameCard key={key} game={game} copy={copy} selected={selectedGame === key} onClick={() => onSelectGame(key)} />
-          ))}
-        </div>
-      </section>
+        ) : null}
+      </div>
     </div>
   );
 }
