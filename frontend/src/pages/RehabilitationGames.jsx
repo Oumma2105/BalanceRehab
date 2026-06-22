@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   ArrowRightLeft,
+  Award,
   BrainCircuit,
   CheckCircle2,
   ChevronRight,
@@ -10,13 +11,16 @@ import {
   Gauge,
   Grid3X3,
   Hand,
+  Lightbulb,
   LineChart,
   Move,
   Route,
   ShieldCheck,
   Play,
   Save,
+  Star,
   Target,
+  Trophy,
   User,
   Webcam,
 } from "lucide-react";
@@ -24,6 +28,10 @@ import {
   CartesianGrid,
   Line,
   LineChart as ReLineChart,
+  PolarAngleAxis,
+  PolarGrid,
+  Radar,
+  RadarChart,
   ResponsiveContainer,
   XAxis,
   YAxis,
@@ -144,6 +152,7 @@ export function RehabilitationGamesPage({
 
   return (
     <div className="space-y-5">
+      {step !== 1 ? <RehabStepBar activeStep={step} /> : null}
       {step === 0 ? (
         <PatientSnapshot
           patients={patients}
@@ -756,6 +765,172 @@ function LiveMotionPanel({ game, summary, copy, dark = false, elapsedSeconds, du
   );
 }
 
+// ─── Workflow step bar ────────────────────────────────────────────────────────
+
+const REHAB_WORKFLOW_STEPS = ["1  Setup", "2  Training", "3  Results"];
+
+function RehabStepBar({ activeStep }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-clinical">
+      <div className="grid grid-cols-3">
+        {REHAB_WORKFLOW_STEPS.map((label, index) => (
+          <div
+            key={label}
+            className={`flex items-center gap-2.5 px-5 py-3.5 text-sm font-semibold ${
+              index === activeStep
+                ? "bg-rehab-teal text-white"
+                : index < activeStep
+                ? "bg-[#EEF7F4] text-[#43AA8B]"
+                : "bg-slate-50 text-rehab-muted"
+            } ${index > 0 ? "border-l border-slate-200" : ""}`}
+          >
+            <span
+              className={`inline-grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-bold ${
+                index === activeStep
+                  ? "bg-white/20 text-white"
+                  : index < activeStep
+                  ? "bg-[#43AA8B] text-white"
+                  : "border border-slate-200 bg-white text-rehab-muted"
+              }`}
+            >
+              {index < activeStep ? "✓" : index + 1}
+            </span>
+            {label.slice(3)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Session medal ────────────────────────────────────────────────────────────
+
+const MEDAL_TIERS = [
+  { min: 85, label: "Gold", color: "#B5860D", bg: "#FFFBEB", border: "#F9C74F", Icon: Trophy },
+  { min: 70, label: "Silver", color: "#64748B", bg: "#F8FAFC", border: "#94A3B8", Icon: Award },
+  { min: 55, label: "Bronze", color: "#C05621", bg: "#FFF7ED", border: "#F8961E", Icon: Star },
+  { min: 0,  label: "Participation", color: "#577590", bg: "#F8FAFC", border: "#CBD5E1", Icon: Activity },
+];
+
+function SessionMedal({ score }) {
+  const tier = MEDAL_TIERS.find((m) => score >= m.min) ?? MEDAL_TIERS[MEDAL_TIERS.length - 1];
+  const { label, color, bg, border, Icon } = tier;
+  return (
+    <div
+      className="flex items-center gap-1.5 rounded-full border px-3 py-1"
+      style={{ backgroundColor: bg, borderColor: border }}
+    >
+      <Icon size={13} style={{ color }} />
+      <span className="text-xs font-bold" style={{ color }}>{label}</span>
+    </div>
+  );
+}
+
+// ─── Performance radar ────────────────────────────────────────────────────────
+
+function PerformanceRadar({ session }) {
+  const reactionScore = session.reactionTimeMs != null
+    ? clamp(100 - session.reactionTimeMs / 12, 0, 100)
+    : 70;
+  const data = [
+    { axis: "Accuracy", value: Math.round(session.accuracy ?? 0) },
+    { axis: "Stability", value: Math.round(session.stability ?? 0) },
+    { axis: "Smoothness", value: Math.round(session.smoothness ?? 0) },
+    { axis: "Success", value: Math.round(session.successRate ?? session.completionRate ?? 0) },
+    { axis: "Reaction", value: Math.round(reactionScore) },
+  ];
+  return (
+    <div className="h-52">
+      <ResponsiveContainer width="100%" height="100%">
+        <RadarChart data={data} outerRadius="72%">
+          <PolarGrid stroke="#E2E8F0" />
+          <PolarAngleAxis dataKey="axis" tick={{ fontSize: 10, fill: "#64748B", fontWeight: 600 }} />
+          <Radar
+            dataKey="value"
+            stroke="#43AA8B"
+            fill="#43AA8B"
+            fillOpacity={0.18}
+            strokeWidth={2}
+            dot={{ r: 3, fill: "#43AA8B" }}
+          />
+        </RadarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ─── Clinical recommendations ─────────────────────────────────────────────────
+
+function buildRecommendations(session) {
+  const recs = [];
+  const acc = Number(session.accuracy ?? 0);
+  const stab = Number(session.stability ?? 0);
+  const sr = Number(session.successRate ?? session.completionRate ?? 0);
+  const rt = session.reactionTimeMs;
+  const score = Number(session.score ?? 0);
+
+  if (score >= 85) {
+    recs.push("Excellent performance — consider advancing to a higher difficulty level next session.");
+  } else if (score >= 70) {
+    recs.push("Good performance. Maintain this consistency and target 85+ over the next sessions.");
+  }
+
+  if (acc < 60) {
+    recs.push("Accuracy is below target — try reducing difficulty to build precise body control.");
+  } else if (acc >= 85 && recs.length < 2) {
+    recs.push("High accuracy achieved — extend session duration to build endurance.");
+  }
+
+  if (stab < 55) {
+    recs.push("Stability needs work — focus on slow, controlled holds before dynamic movement.");
+  } else if (stab >= 80 && recs.length < 2) {
+    recs.push("Strong stability — progress to path-following or obstacle-avoidance games.");
+  }
+
+  if (sr < 50 && recs.length < 3) {
+    recs.push("Success rate is low — slower, more deliberate movement patterns will help.");
+  }
+
+  if (rt != null && rt > 1200 && recs.length < 3) {
+    recs.push("Reaction time is elevated — Weight Shift Trainer and Balloon Pop can improve responsiveness.");
+  }
+
+  if (recs.length === 0) {
+    recs.push("Well-rounded session. Gradually increase challenge by adding duration or difficulty.");
+  }
+
+  return recs.slice(0, 3);
+}
+
+function RecommendationsCard({ session }) {
+  const recs = buildRecommendations(session);
+  return (
+    <ClinicalCard className="p-5">
+      <div className="flex items-center gap-2.5 border-b border-rehab-line pb-4">
+        <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#EEF7F4]">
+          <Lightbulb size={15} className="text-[#43AA8B]" />
+        </span>
+        <div>
+          <p className="text-sm font-bold text-rehab-ink">Clinical Recommendations</p>
+          <p className="text-xs text-rehab-muted">Personalised guidance based on this session</p>
+        </div>
+      </div>
+      <ul className="mt-4 space-y-3">
+        {recs.map((rec, i) => (
+          <li key={i} className="flex items-start gap-3">
+            <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#EEF7F4] text-[10px] font-bold text-[#43AA8B]">
+              {i + 1}
+            </span>
+            <p className="text-sm leading-5 text-rehab-ink">{rec}</p>
+          </li>
+        ))}
+      </ul>
+    </ClinicalCard>
+  );
+}
+
+// ─── Review step ──────────────────────────────────────────────────────────────
+
 function RehabReviewStep({ selectedPatient, session, patientSessions, analytics, games, t, saved, onSave, onNewSession, onRepeat, onOpenProfile }) {
   const copy = t.rehabilitationWorkspace;
   const game = games[session.gameType] ?? games.stability_challenge;
@@ -776,7 +951,8 @@ function RehabReviewStep({ selectedPatient, session, patientSessions, analytics,
               {selectedPatient?.fullName ?? t.patient} - {copy.estimatedIndicators}
             </p>
           </div>
-          <div className="text-right">
+          <div className="flex flex-col items-end gap-2">
+            <SessionMedal score={session.score} />
             <p className="text-3xl font-semibold text-rehab-ink">
               {Math.round(session.score)}
               <span className="text-base text-rehab-muted">/100</span>
@@ -813,6 +989,14 @@ function RehabReviewStep({ selectedPatient, session, patientSessions, analytics,
             </button>
           </div>
         </ClinicalCard>
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <ClinicalCard className="p-5">
+          <SectionHeader title="Performance Profile" description="Multi-axis analysis of this session's key metrics" />
+          <div className="mt-4"><PerformanceRadar session={session} /></div>
+        </ClinicalCard>
+        <RecommendationsCard session={session} />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
