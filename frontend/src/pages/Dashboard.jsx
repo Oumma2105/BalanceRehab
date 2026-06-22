@@ -68,13 +68,13 @@ export function Dashboard({ t, patients, sessions, reports, dashboardSummary, on
     const sessionDate = session.dateISO ?? String(session.date).slice(0, 10);
     return sessionDate >= weekStartIso && sessionDate <= today;
   }).length;
-  const todaySessions = dashboardSummary?.assessments_today ?? localTodaySessions;
-  const weekSessions = dashboardSummary?.assessments_this_week ?? localWeekSessions;
-  const averageScore = dashboardSummary?.average_stability_score ?? average(sessions.map((session) => session.totalScore));
+  const todaySessions = localTodaySessions;
+  const weekSessions = localWeekSessions;
+  const averageScore = average(sessions.map((session) => session.totalScore));
   const followUpPatients = patients.filter((patient) =>
     ["Follow-up", "Declining"].includes(patient.status) || Number(patient.latestScore) < 70,
   );
-  const followUpCount = dashboardSummary?.follow_up_queue ?? followUpPatients.length;
+  const followUpCount = followUpPatients.length;
   const latestSessions = dashboardSummary?.recent_assessments?.length ? dashboardSummary.recent_assessments.map(dashboardAssessmentFromApi) : sessions.slice(0, 5);
   const patientImprovements = patients.map((patient) => {
     const patientSessions = sessions
@@ -214,9 +214,11 @@ export function Dashboard({ t, patients, sessions, reports, dashboardSummary, on
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
                         <p className="truncate text-sm font-semibold text-rehab-ink">{patient.fullName}</p>
-                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${isDanger ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"}`}>
-                          {patient.latestScore ?? "-"}
-                        </span>
+                        {patient.latestScore != null && (
+                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${isDanger ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"}`}>
+                            {patient.latestScore}
+                          </span>
+                        )}
                       </div>
                       <p className="mt-0.5 truncate text-xs text-rehab-muted">{t.clinicalTerms?.pathologies?.[patient.pathology] ?? patient.pathology}</p>
                     </div>

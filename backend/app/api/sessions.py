@@ -58,6 +58,20 @@ def create_session(payload: SessionCreate, db: Session = Depends(get_db)) -> Ass
         previous = _latest_session_score(payload.patient_id, db)
         data["status"] = status_with_trend(data.get("total_balance_score"), previous)
 
+    posture_sample_count = len(payload.posture_samples)
+    usable = sum(1 for s in payload.posture_samples if s.posture_score is not None or s.body_center_x is not None)
+    tq = round(usable / posture_sample_count, 3) if posture_sample_count > 0 else 0.0
+    data["sample_count"] = posture_sample_count
+    data["tracking_quality"] = tq
+    if data.get("acquisition_mode") == "demo":
+        data["session_status"] = "demo"
+    elif data.get("acquisition_mode") == "webcam" and (posture_sample_count == 0 or tq < 0.15):
+        data["session_status"] = "incomplete"
+        data["total_balance_score"] = None
+        data["posture_stability_score"] = None
+    else:
+        data["session_status"] = "complete"
+
     session = AssessmentSession(**data)
     session.sensor_samples = [SensorSample(**sensor_sample_data(sample)) for sample in payload.sensor_samples]
     session.posture_samples = [PostureSample(**sample.model_dump()) for sample in payload.posture_samples]
@@ -241,9 +255,11 @@ def apply_board_computation(sensor_samples: list, data: dict) -> None:
     board_score = data.get("board_stability_score")
     posture_score = data.get("posture_stability_score")
     if data.get("acquisition_mode") in {"combined", "combined_future"} and posture_score is not None and board_score is not None:
-        data["total_balance_score"] = data.get("total_balance_score") or round((board_score * 0.6) + (posture_score * 0.4), 1)
+        if data.get("total_balance_score") is None:
+            data["total_balance_score"] = round((board_score * 0.6) + (posture_score * 0.4), 1)
     elif board_score is not None:
-        data["total_balance_score"] = data.get("total_balance_score") or board_score
+        if data.get("total_balance_score") is None:
+            data["total_balance_score"] = board_score
 
     if not data.get("interpretation"):
         data["interpretation"] = board_interpretation(data.get("total_balance_score"))
@@ -274,13 +290,20 @@ def apply_webcam_computation(payload: SessionCreate, data: dict) -> None:
     hip_values = [sample.hip_asymmetry for sample in payload.posture_samples if sample.hip_asymmetry is not None]
     center_values = [sample.body_center_deviation for sample in payload.posture_samples if sample.body_center_deviation is not None]
 
-    posture_score = data.get("posture_stability_score") or average(posture_scores)
+    posture_score = data.get("posture_stability_score")
+    if posture_score is None:
+        posture_score = average(posture_scores)
     data["posture_stability_score"] = posture_score
-    data["total_balance_score"] = data.get("total_balance_score") or posture_score
-    data["trunk_deviation"] = data.get("trunk_deviation") or average(trunk_values)
-    data["shoulder_asymmetry"] = data.get("shoulder_asymmetry") or average(shoulder_values)
-    data["hip_asymmetry"] = data.get("hip_asymmetry") or average(hip_values)
-    data["body_center_deviation"] = data.get("body_center_deviation") or average(center_values)
+    if data.get("total_balance_score") is None:
+        data["total_balance_score"] = posture_score
+    if data.get("trunk_deviation") is None:
+        data["trunk_deviation"] = average(trunk_values)
+    if data.get("shoulder_asymmetry") is None:
+        data["shoulder_asymmetry"] = average(shoulder_values)
+    if data.get("hip_asymmetry") is None:
+        data["hip_asymmetry"] = average(hip_values)
+    if data.get("body_center_deviation") is None:
+        data["body_center_deviation"] = average(center_values)
 
     if not data.get("interpretation"):
         data["interpretation"] = webcam_interpretation(data.get("total_balance_score"))
@@ -293,13 +316,18 @@ def apply_webcam_sample_computation(session: AssessmentSession, data: dict) -> N
     hip_values = [sample.hip_asymmetry for sample in session.posture_samples if sample.hip_asymmetry is not None]
     center_values = [sample.body_center_deviation for sample in session.posture_samples if sample.body_center_deviation is not None]
 
-    posture_score = average(posture_scores) or session.posture_stability_score
+    _avg = average(posture_scores)
+    posture_score = _avg if _avg is not None else session.posture_stability_score
     data["posture_stability_score"] = posture_score
     data["total_balance_score"] = posture_score
-    data["trunk_deviation"] = average(trunk_values) or session.trunk_deviation
-    data["shoulder_asymmetry"] = average(shoulder_values) or session.shoulder_asymmetry
-    data["hip_asymmetry"] = average(hip_values) or session.hip_asymmetry
-    data["body_center_deviation"] = average(center_values) or session.body_center_deviation
+    _avg = average(trunk_values)
+    data["trunk_deviation"] = _avg if _avg is not None else session.trunk_deviation
+    _avg = average(shoulder_values)
+    data["shoulder_asymmetry"] = _avg if _avg is not None else session.shoulder_asymmetry
+    _avg = average(hip_values)
+    data["hip_asymmetry"] = _avg if _avg is not None else session.hip_asymmetry
+    _avg = average(center_values)
+    data["body_center_deviation"] = _avg if _avg is not None else session.body_center_deviation
 
 
 def apply_board_sample_computation(session: AssessmentSession, data: dict) -> None:
@@ -333,6 +361,9 @@ def apply_session_metric_data(session: AssessmentSession, data: dict) -> None:
         "shoulder_asymmetry",
         "hip_asymmetry",
         "body_center_deviation",
+        "sample_count",
+        "tracking_quality",
+        "session_status",
     ]:
         setattr(session, field, data.get(field))
 
@@ -365,6 +396,9 @@ def session_to_metric_data(session: AssessmentSession) -> dict:
         "shoulder_asymmetry": session.shoulder_asymmetry,
         "hip_asymmetry": session.hip_asymmetry,
         "body_center_deviation": session.body_center_deviation,
+        "sample_count": session.sample_count,
+        "tracking_quality": session.tracking_quality,
+        "session_status": session.session_status,
     }
 
 
@@ -418,7 +452,7 @@ def average(values: list[float]) -> float | None:
 
 def generate_recommendations(data: dict) -> list[dict[str, str]]:
     recommendations: list[dict[str, str]] = []
-    if (data.get("trunk_deviation") or 0) > 8:
+    if data.get("trunk_deviation") is not None and data["trunk_deviation"] > 8:
         recommendations.append(
             {
                 "category": "posture",
@@ -427,7 +461,7 @@ def generate_recommendations(data: dict) -> list[dict[str, str]]:
                 "priority": "high",
             }
         )
-    if (data.get("shoulder_asymmetry") or 0) > 5:
+    if data.get("shoulder_asymmetry") is not None and data["shoulder_asymmetry"] > 5:
         recommendations.append(
             {
                 "category": "posture",
@@ -436,7 +470,7 @@ def generate_recommendations(data: dict) -> list[dict[str, str]]:
                 "priority": "medium",
             }
         )
-    if (data.get("hip_asymmetry") or 0) > 5:
+    if data.get("hip_asymmetry") is not None and data["hip_asymmetry"] > 5:
         recommendations.append(
             {
                 "category": "posture",
@@ -445,7 +479,7 @@ def generate_recommendations(data: dict) -> list[dict[str, str]]:
                 "priority": "medium",
             }
         )
-    if data.get("visual_condition") == "eyes_closed" and (data.get("total_balance_score") or 0) < 75:
+    if data.get("visual_condition") == "eyes_closed" and data.get("total_balance_score") is not None and data["total_balance_score"] < 75:
         recommendations.append(
             {
                 "category": "vision",
@@ -491,8 +525,8 @@ def status_with_trend(score: float | None, previous_score: float | None) -> str 
 def status_from_score(score: float | None) -> str | None:
     if score is None:
         return None
-    if score >= 80:
+    if score >= 70:
         return "Stable"
-    if score >= 65:
+    if score >= 62:
         return "Follow-up"
     return "Declining"

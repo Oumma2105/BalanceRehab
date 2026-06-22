@@ -690,8 +690,8 @@ function PatientFormModal({ t, patient, onClose, onSubmit, createdPatient, onSta
 
           <div className="mt-4 grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
             <FormGroup title={t.bodyMeasurements} icon={Activity} accent="#F8961E" compact>
-              <NumberInput label={t.heightCm} value={form.heightCm} min={50} max={240} onChange={(heightCm) => setForm({ ...form, heightCm })} />
-              <NumberInput label={t.weightKg} value={form.weightKg} min={2} max={250} onChange={(weightKg) => setForm({ ...form, weightKg })} />
+              <NumberInput label={t.heightCm} value={form.heightCm} min={50} max={250} step={1} placeholder="e.g. 170" onChange={(heightCm) => setForm({ ...form, heightCm })} />
+              <NumberInput label={t.weightKg} value={form.weightKg} min={10} max={300} step={0.5} placeholder="e.g. 72.5" onChange={(weightKg) => setForm({ ...form, weightKg })} />
             </FormGroup>
 
             <div className="rounded-xl border border-rehab-line bg-slate-50 p-4">
@@ -751,61 +751,36 @@ function FormGroup({ title, children, icon: Icon, accent = "#43AA8B", compact = 
   );
 }
 
-function AgeInput({ label, value, onChange }) {
+function AgeInput({ label, value, onChange, required }) {
   return (
     <NumberInput
       label={label}
       value={value}
       min={1}
       max={120}
+      step={1}
+      placeholder="e.g. 65"
       onChange={onChange}
+      required={required}
     />
   );
 }
 
-function NumberInput({ label, value, min, max, onChange }) {
-  const update = (nextValue) => {
-    if (nextValue === "") {
-      onChange("");
-      return;
-    }
-
-    const numeric = Number(nextValue);
-    if (!Number.isFinite(numeric)) return;
-    onChange(String(Math.min(max, Math.max(min, Math.round(numeric)))));
-  };
-
+function NumberInput({ label, value, min, max, step = 1, placeholder, onChange, required }) {
   return (
     <label className="text-sm font-semibold">
       {label}
-      <div className="mt-1 flex overflow-hidden rounded-lg border border-rehab-line bg-white focus-within:border-rehab-teal">
-        <button
-          type="button"
-          className="px-3 text-rehab-muted hover:bg-slate-50"
-          onClick={() => update(value === "" ? min : Number(value) - 1)}
-          aria-label={`Decrease ${label}`}
-        >
-          -
-        </button>
-        <input
-          type="number"
-          min={min}
-          max={max}
-          step="1"
-          value={value ?? ""}
-          onChange={(event) => update(event.target.value)}
-          onBlur={(event) => update(event.target.value)}
-          className="min-w-0 flex-1 border-x border-rehab-line px-3 py-2 text-center font-normal outline-none"
-        />
-        <button
-          type="button"
-          className="px-3 text-rehab-muted hover:bg-slate-50"
-          onClick={() => update(value === "" ? min : Number(value) + 1)}
-          aria-label={`Increase ${label}`}
-        >
-          +
-        </button>
-      </div>
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        placeholder={placeholder}
+        required={required}
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-1 w-full rounded-lg border border-rehab-line px-3 py-2 font-normal outline-none focus:border-rehab-teal"
+      />
     </label>
   );
 }

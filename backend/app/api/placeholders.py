@@ -21,16 +21,16 @@ def dashboard_summary(db: Session = Depends(get_db)):
     reports = list(db.scalars(select(Report).order_by(Report.generated_at.desc()).limit(4)))
     patient_lookup = {patient.id: patient for patient in patients}
     scores = [session.total_balance_score for session in sessions if session.total_balance_score is not None]
-    follow_up_patient_ids = {
-        session.patient_id
-        for session in sessions
-        if session.status in {"Follow-up", "Declining"} or (session.total_balance_score is not None and session.total_balance_score < 70)
-    }
     today_count = sum(1 for session in sessions if session.created_at.date() == today)
     week_count = sum(1 for session in sessions if week_start <= session.created_at.date() <= today)
     latest_by_patient: dict[int, AssessmentSession] = {}
     for session in sessions:
         latest_by_patient.setdefault(session.patient_id, session)
+    follow_up_patient_ids = {
+        session.patient_id
+        for session in latest_by_patient.values()
+        if session.status in {"Follow-up", "Declining"} or (session.total_balance_score is not None and session.total_balance_score < 70)
+    }
     declining_patients = sum(1 for session in latest_by_patient.values() if session.status == "Declining")
     recent_assessments = [
         {

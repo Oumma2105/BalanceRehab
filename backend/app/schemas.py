@@ -277,6 +277,9 @@ class SessionRead(SessionBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    sample_count: int | None = None
+    tracking_quality: float | None = None
+    session_status: str | None = None
     created_at: datetime
     updated_at: datetime
     sensor_samples: list[SensorSampleRead] = Field(default_factory=list)

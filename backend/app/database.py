@@ -53,6 +53,9 @@ def ensure_sqlite_columns() -> None:
             "rms_sway": "FLOAT",
             "path_length": "FLOAT",
             "sensor_quality": "FLOAT",
+            "sample_count": "INTEGER",
+            "tracking_quality": "FLOAT",
+            "session_status": "VARCHAR(32)",
         },
         "posture_samples": {
             "stability_score": "FLOAT",
