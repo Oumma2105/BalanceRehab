@@ -44,6 +44,7 @@ import { SectionHeader } from "../components/clinical/SectionHeader";
 import { StatusBadge } from "../components/clinical/StatusBadge";
 import { useMediaPipePose } from "../webcam/useMediaPipePose";
 import { webcamVideoConstraints } from "../webcam/webcamConfig";
+import { ObstacleAvoidanceGame } from "../games/ObstacleAvoidanceGame";
 
 // ─── Game catalogue ───────────────────────────────────────────────────────────
 
@@ -474,6 +475,19 @@ function RehabTrainingStep({ currentStepLabel, session, selectedGame, games, onB
   });
   const [paused, setPaused] = useState(false);
 
+  if (session?.gameType === "obstacle_avoidance") {
+    return (
+      <ObstacleAvoidanceArena
+        session={session}
+        games={games}
+        onBack={onBack}
+        onRestart={onRestart}
+        onComplete={onComplete}
+        t={t}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-rehab-ink">
       <section className="grid min-h-screen lg:grid-cols-[minmax(0,1fr)_17rem]">
@@ -535,6 +549,103 @@ function RehabTrainingStep({ currentStepLabel, session, selectedGame, games, onB
           </div>
         </aside>
       </section>
+    </div>
+  );
+}
+
+// ─── Obstacle Avoidance Arena ─────────────────────────────────────────────────
+
+function ObstacleAvoidanceArena({ session, games, onBack, onRestart, onComplete, t }) {
+  const copy = t.rehabilitationWorkspace;
+  const game = games["obstacle_avoidance"] ?? games.stability_challenge;
+  const Icon = game.icon;
+  const [stream, setStream] = useState(null);
+  const [cameraError, setCameraError] = useState("");
+  const [demoMode, setDemoMode] = useState(false);
+  const streamRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function startCamera() {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ video: webcamVideoConstraints, audio: false });
+        streamRef.current = s;
+        if (!cancelled) setStream(s);
+      } catch (err) {
+        if (!cancelled) setCameraError(err.message || copy.webcamAccessFailed || "Camera unavailable");
+      }
+    }
+    startCamera();
+    return () => {
+      cancelled = true;
+      streamRef.current?.getTracks?.().forEach((track) => track.stop());
+    };
+  }, []);
+
+  const handleComplete = useCallback((result) => {
+    streamRef.current?.getTracks?.().forEach((track) => track.stop());
+    onComplete({ ...session, ...result });
+  }, [onComplete, session]);
+
+  const handleBack = useCallback(() => {
+    streamRef.current?.getTracks?.().forEach((track) => track.stop());
+    onBack();
+  }, [onBack]);
+
+  if (cameraError && !demoMode) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-5 bg-slate-950 p-8 text-center text-white">
+        <Webcam size={38} className="text-slate-400" />
+        <p className="text-xl font-semibold">{copy.webcamUnavailable}</p>
+        <p className="max-w-sm text-sm text-white/60">{cameraError}</p>
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={() => setDemoMode(true)}
+            className="rounded-xl bg-white px-6 py-3 text-sm font-semibold text-slate-900"
+          >
+            {copy.useDemoSimulation}
+          </button>
+          <button
+            type="button"
+            onClick={handleBack}
+            className="rounded-xl border border-white/25 px-6 py-3 text-sm font-semibold text-white"
+          >
+            {copy.backToSetup}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative min-h-screen overflow-hidden bg-slate-950">
+      <div className="absolute left-3 top-3 z-30 flex items-center gap-1.5 rounded-lg border border-white/50 bg-white/90 px-2.5 py-1.5 shadow-sm backdrop-blur-md">
+        <div className="flex items-center gap-1.5 pr-1">
+          <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-white" style={{ backgroundColor: game.color }}>
+            <Icon size={11} />
+          </span>
+          <span className="text-xs font-semibold text-rehab-ink">{game.title}</span>
+        </div>
+        <span className="h-3.5 w-px bg-slate-300" />
+        <button type="button" onClick={handleBack} className="rounded-md px-2.5 py-1 text-xs font-semibold text-rehab-ink transition hover:bg-slate-100">
+          {copy.backToSetup}
+        </button>
+        <span className="h-3.5 w-px bg-slate-300" />
+        <button type="button" onClick={onRestart} className="rounded-md px-2.5 py-1 text-xs font-semibold text-rehab-ink transition hover:bg-slate-100">
+          {copy.restart}
+        </button>
+      </div>
+      <div className="h-screen">
+        <ObstacleAvoidanceGame
+          stream={demoMode ? null : stream}
+          patient={session}
+          difficulty={session.difficulty === "advanced" ? "advanced" : session.difficulty === "intro" ? "intro" : "standard"}
+          durationSeconds={session.durationSeconds ?? 60}
+          onComplete={handleComplete}
+          onCancel={handleBack}
+        />
+      </div>
     </div>
   );
 }
