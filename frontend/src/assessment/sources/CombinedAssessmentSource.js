@@ -134,9 +134,15 @@ export class CombinedAssessmentSource extends WebcamAssessmentSource {
     const sample = {
       t: elapsedSeconds,
       timestampMs,
+      fl: finiteOrNull(packet.front_left ?? packet.fl),
+      fr: finiteOrNull(packet.front_right ?? packet.fr),
+      rl: finiteOrNull(packet.rear_left ?? packet.rl),
+      rr: finiteOrNull(packet.rear_right ?? packet.rr),
       ap: finiteOrNull(packet.ap ?? packet.anterior_posterior_sway),
       ml: finiteOrNull(packet.ml ?? packet.medial_lateral_sway),
+      resultant: finiteOrNull(packet.resultant_sway ?? packet.resultant),
       stability: finiteOrNull(packet.stability ?? packet.stability_score),
+      quality: packet.quality ?? null,
       boardMetrics: packet.session_metrics ?? null,
     };
     this.boardSamples.push(sample);
@@ -195,9 +201,16 @@ export class CombinedAssessmentSource extends WebcamAssessmentSource {
       meanSwayMl: boardSummary.meanSwayMl,
       maxSwayAp: boardSummary.maxSwayAp,
       maxSwayMl: boardSummary.maxSwayMl,
+      meanResultantSway: boardSummary.meanResultantSway,
+      maxResultantSway: boardSummary.maxResultantSway,
+      rmsSway: boardSummary.rmsSway,
+      pathLength: boardSummary.pathLength,
       swayVelocity: boardSummary.swayVelocity,
       instabilityEvents: boardSummary.instabilityEvents,
+      sensorQuality: boardSummary.sensorQuality,
       boardUnavailableReason: boardAvailable ? null : "ESP32 board stream was not received during this assessment.",
+      postureSamples: webcamResults.samples ?? [],
+      sensorSamples: this.boardSamples.slice(),
       samples: mergeSamplesBySecond(webcamResults.samples ?? [], this.boardSamples),
     };
     const status = scoreStatus(totalBalanceScore);
@@ -234,18 +247,35 @@ export class CombinedAssessmentSource extends WebcamAssessmentSource {
 }
 
 function summarizeBoardSamples(samples) {
-  const apValues = samples.map((sample) => sample.ap).filter(Number.isFinite);
-  const mlValues = samples.map((sample) => sample.ml).filter(Number.isFinite);
+  const clean = samples.filter((sample) => Number.isFinite(sample.ap) && Number.isFinite(sample.ml));
+  const apValues = clean.map((sample) => sample.ap);
+  const mlValues = clean.map((sample) => sample.ml);
+  const resultantValues = clean.map((sample) => Number.isFinite(sample.resultant) ? sample.resultant : Math.hypot(sample.ap, sample.ml));
   const stabilityValues = samples.map((sample) => sample.stability).filter(Number.isFinite);
+  const pathLength = computePathLength(clean);
+  const duration = clean.length > 1 ? Math.max(0, clean[clean.length - 1].t - clean[0].t) : 0;
   return {
-    boardStabilityScore: average(stabilityValues),
+    boardStabilityScore: average(stabilityValues) ?? scoreFromResultant(average(resultantValues)),
     meanSwayAp: average(apValues.map(Math.abs)),
     meanSwayMl: average(mlValues.map(Math.abs)),
     maxSwayAp: maxAbs(apValues),
     maxSwayMl: maxAbs(mlValues),
-    swayVelocity: swayVelocity(samples),
-    instabilityEvents: countInstabilityEvents(samples),
+    meanResultantSway: average(resultantValues),
+    maxResultantSway: maxAbs(resultantValues),
+    rmsSway: resultantValues.length ? round1(Math.sqrt(resultantValues.reduce((sum, value) => sum + value * value, 0) / resultantValues.length)) : null,
+    pathLength: round1(pathLength),
+    swayVelocity: duration > 0 ? round1(pathLength / duration) : 0,
+    instabilityEvents: countInstabilityEvents(clean),
+    sensorQuality: average(stabilityValues),
   };
+}
+
+function computePathLength(samples) {
+  let distance = 0;
+  for (let index = 1; index < samples.length; index++) {
+    distance += Math.hypot(samples[index].ap - samples[index - 1].ap, samples[index].ml - samples[index - 1].ml);
+  }
+  return distance;
 }
 
 function mergeSamplesBySecond(postureSamples, boardSamples) {
@@ -306,6 +336,11 @@ function countInstabilityEvents(samples) {
     inEvent = unstable;
   });
   return events;
+}
+
+function scoreFromResultant(value) {
+  if (!Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(100, round1(100 - value * 2.2)));
 }
 
 function finiteOrNull(value) {

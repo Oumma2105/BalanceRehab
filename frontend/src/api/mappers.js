@@ -114,8 +114,11 @@ export function sessionFromApi(session, patientLookup = new Map()) {
       })),
       postureSamples: (session.posture_samples ?? []).map((sample, index) => ({
         t: Math.round((sample.timestamp_ms ?? index * 1000) / 1000),
+        timestampMs: sample.timestamp_ms,
         ap: null,
         ml: null,
+        apSwayProxy: webcamApProxyFromSample(sample),
+        mlSwayProxy: webcamMlProxyFromSample(sample),
         posture: sample.posture_score,
         stability: sample.stability_score,
         trunkInclination: sample.trunk_inclination,
@@ -144,6 +147,13 @@ export function sessionFromApi(session, patientLookup = new Map()) {
 export function sessionToApi(session) {
   const results = session.results ?? {};
   const acquisitionMode = session.acquisitionModeKey ?? results.acquisitionMode ?? "webcam";
+  const postureSourceSamples = Array.isArray(results.postureSamples) && results.postureSamples.length
+    ? results.postureSamples
+    : results.samples ?? [];
+  const sensorSourceSamples = Array.isArray(results.sensorSamples) && results.sensorSamples.length
+    ? results.sensorSamples
+    : results.samples ?? [];
+  const canSendSensorSamples = acquisitionMode === "board" || acquisitionMode === "combined" || acquisitionMode === "demo";
 
   return {
     patient_id: session.patientId,
@@ -174,10 +184,10 @@ export function sessionToApi(session) {
     hip_asymmetry: results.hipAsymmetry ?? null,
     body_center_deviation: results.bodyCenterDeviation ?? null,
     interpretation: session.interpretation ?? session.clinician_impression ?? results.interpretation ?? null,
-    posture_samples: (results.samples ?? [])
+    posture_samples: postureSourceSamples
       .filter((sample) => sample.posture != null || sample.postureScore != null || sample.trunkInclination != null || sample.trunkDeviation != null || sample.bodyCenterX != null)
       .map((sample, index) => ({
-        timestamp_ms: Math.round((sample.t ?? index) * 1000),
+        timestamp_ms: Number.isFinite(Number(sample.timestampMs)) ? Math.round(Number(sample.timestampMs)) : Math.round((sample.t ?? index) * 1000),
         trunk_inclination: sample.trunkInclination ?? sample.trunkDeviation ?? results.trunkDeviation ?? results.trunkInclination ?? null,
         shoulder_asymmetry: sample.shoulderAsymmetry ?? results.shoulderAsymmetry ?? null,
         hip_asymmetry: sample.hipAsymmetry ?? results.hipAsymmetry ?? null,
@@ -199,18 +209,18 @@ export function sessionToApi(session) {
         label_confidence: sample.labelConfidence ?? null,
         raw_landmarks_json: sample.rawLandmarks ? JSON.stringify(sample.rawLandmarks) : null,
       })),
-    sensor_samples: (results.samples ?? [])
-      .filter((sample) => sample.ap != null || sample.ml != null || sample.stability != null)
+    sensor_samples: canSendSensorSamples ? sensorSourceSamples
+      .filter((sample) => sample.ap != null || sample.ml != null || sample.anteriorPosteriorSway != null || sample.medialLateralSway != null || sample.fl != null || sample.frontLeft != null || sample.front_left != null)
       .map((sample, index) => ({
-        timestamp_ms: Math.round((sample.t ?? index) * 1000),
-        anterior_posterior_sway: sample.ap ?? null,
-        medial_lateral_sway: sample.ml ?? null,
-      stability_score: sample.stability ?? null,
-      front_left: sample.fl ?? sample.frontLeft ?? null,
-      front_right: sample.fr ?? sample.frontRight ?? null,
-      rear_left: sample.rl ?? sample.rearLeft ?? null,
-      rear_right: sample.rr ?? sample.rearRight ?? null,
-    })),
+        timestamp_ms: Number.isFinite(Number(sample.timestampMs)) ? Math.round(Number(sample.timestampMs)) : Math.round((sample.t ?? index) * 1000),
+        anterior_posterior_sway: sample.ap ?? sample.anteriorPosteriorSway ?? sample.anterior_posterior_sway ?? null,
+        medial_lateral_sway: sample.ml ?? sample.medialLateralSway ?? sample.medial_lateral_sway ?? null,
+        stability_score: sample.stability ?? null,
+        front_left: sample.fl ?? sample.frontLeft ?? sample.front_left ?? null,
+        front_right: sample.fr ?? sample.frontRight ?? sample.front_right ?? null,
+        rear_left: sample.rl ?? sample.rearLeft ?? sample.rear_left ?? null,
+        rear_right: sample.rr ?? sample.rearRight ?? sample.rear_right ?? null,
+      })) : [],
     recommendations: (results.recommendations ?? []).map((text) => ({
       category: "rehabilitation",
       recommendation_en: text,
@@ -345,6 +355,8 @@ function mergeApiSamples(postureSamples, sensorSamples) {
       headCenterX: sample.head_center_x,
       headCenterY: sample.head_center_y,
       estimatedBodySway: sample.estimated_body_sway,
+      apSwayProxy: webcamApProxyFromSample(sample),
+      mlSwayProxy: webcamMlProxyFromSample(sample),
       handArmCompensation: sample.hand_arm_compensation,
       movementLabel: sample.movement_label,
       movementIntent: sample.movement_intent,
@@ -372,6 +384,34 @@ function resultant(ap, ml) {
   const a = Number(ap);
   const m = Number(ml);
   return Number.isFinite(a) && Number.isFinite(m) ? Math.round(Math.hypot(a, m) * 10) / 10 : null;
+}
+
+function webcamApProxyFromSample(sample = {}) {
+  return firstFinite(
+    sample.ap_sway_proxy,
+    sample.body_center_y != null ? (0.5 - Number(sample.body_center_y)) * 22 : null,
+    sample.hip_center_y != null ? (0.5 - Number(sample.hip_center_y)) * 22 : null,
+    sample.shoulder_center_y != null ? (0.5 - Number(sample.shoulder_center_y)) * 18 : null,
+    sample.trunk_inclination != null ? Number(sample.trunk_inclination) * 0.45 : null,
+  );
+}
+
+function webcamMlProxyFromSample(sample = {}) {
+  return firstFinite(
+    sample.ml_sway_proxy,
+    sample.body_center_x != null ? (Number(sample.body_center_x) - 0.5) * 22 : null,
+    sample.hip_center_x != null ? (Number(sample.hip_center_x) - 0.5) * 22 : null,
+    sample.shoulder_center_x != null ? (Number(sample.shoulder_center_x) - 0.5) * 18 : null,
+    sample.shoulder_asymmetry != null ? Number(sample.shoulder_asymmetry) * 0.35 : null,
+  );
+}
+
+function firstFinite(...values) {
+  for (const value of values) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return Math.round(numeric * 10) / 10;
+  }
+  return null;
 }
 
 function titleCase(value) {
