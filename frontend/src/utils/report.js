@@ -1,4 +1,19 @@
 import { jsPDF } from "jspdf";
+import _logoSrc from "../assets/balancerehab-logo.png";
+
+// Preload logo at module import — ready long before any user triggers a PDF download
+let _logoDataUrl = null;
+(() => {
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement("canvas");
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    c.getContext("2d").drawImage(img, 0, 0);
+    _logoDataUrl = c.toDataURL("image/png");
+  };
+  img.src = _logoSrc;
+})();
 
 const PRIMARY = [67, 170, 139];
 const TEXT = [30, 41, 59];
@@ -183,7 +198,11 @@ function drawClinicalHeader(doc, { patient, session, generatedAt, clinicianName,
   // Logo: 13mm for full header, 9mm for compact
   const logoSize = compact ? 9 : 13;
   const logoY = compact ? 5 : 6;
-  drawPdfLogo(doc, MARGIN, logoY, logoSize);
+  if (_logoDataUrl) {
+    doc.addImage(_logoDataUrl, "PNG", MARGIN, logoY, logoSize, logoSize);
+  } else {
+    drawPdfLogo(doc, MARGIN, logoY, logoSize);
+  }
   const textX = MARGIN + logoSize + 2;
 
   doc.setTextColor(...PRIMARY);

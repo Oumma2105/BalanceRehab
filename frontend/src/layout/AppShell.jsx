@@ -1,5 +1,5 @@
 import { BarChart3, Bell, ChevronDown, ClipboardCheck, Gamepad2, Home, Info, Settings, UsersRound } from "lucide-react";
-import { BalanceLogo } from "../components/BalanceLogo";
+import balanceRehabLogo from "../assets/balancerehab-logo.png";
 
 const icons = {
   dashboard: Home,
@@ -26,7 +26,7 @@ export function AppShell({
       <aside className="fixed inset-y-0 left-0 hidden w-60 border-r border-rehab-line bg-white px-4 py-5 lg:block">
         <div className="mb-8">
           <div className="flex items-center gap-3">
-            <BalanceLogo size={44} />
+            <img src={balanceRehabLogo} alt="BalanceRehab" className="h-11 w-11 object-contain" />
             <div>
               <p className="text-lg font-semibold">{t.appName}</p>
               <p className="text-xs font-medium text-rehab-muted">{t.productSubtitle}</p>

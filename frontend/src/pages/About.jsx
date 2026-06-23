@@ -1,4 +1,4 @@
-import { BalanceLogo } from "../components/BalanceLogo";
+import balanceRehabLogo from "../assets/balancerehab-logo.png";
 import {
   Activity,
   ArrowDown,
@@ -83,7 +83,7 @@ export function AboutPage({ t }) {
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-clinical">
         <div className="grid lg:grid-cols-[1.15fr_0.85fr]">
           <div className="p-8">
-            <BalanceLogo size={52} className="mb-5" />
+            <img src={balanceRehabLogo} alt="BalanceRehab" className="mb-5 h-14 w-14 object-contain" />
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rehab-teal">{c.overviewEyebrow}</p>
             <h2 className="mt-3 text-3xl font-semibold text-rehab-ink">BalanceRehab</h2>
             <p className="mt-2 text-lg font-semibold text-rehab-blue">{c.platformTitle}</p>
