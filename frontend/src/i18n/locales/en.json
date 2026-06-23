@@ -1348,6 +1348,8 @@
   "calibrating": "Calibrating…",
   "startCalibration": "Start calibration",
   "zeroBaseline": "Zero baseline",
+  "scanError": "Port scan failed. Make sure the backend server is running.",
+  "noPortsFound": "No ports detected. Make sure the device is plugged in via USB.",
   "latestPacket": "Latest packet",
   "waitingForBoardStream": "Waiting for board stream",
   "esp32UsbReady": "ESP32 USB ready",

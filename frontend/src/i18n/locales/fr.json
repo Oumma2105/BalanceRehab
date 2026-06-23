@@ -1348,6 +1348,8 @@
   "calibrating": "Calibration…",
   "startCalibration": "Démarrer la calibration",
   "zeroBaseline": "Mettre la référence à zéro",
+  "scanError": "La recherche de ports a échoué. Vérifiez que le serveur backend est démarré.",
+  "noPortsFound": "Aucun port détecté. Assurez-vous que le dispositif est branché en USB.",
   "latestPacket": "Dernier paquet",
   "waitingForBoardStream": "En attente du flux du plateau",
   "esp32UsbReady": "ESP32 USB prêt",

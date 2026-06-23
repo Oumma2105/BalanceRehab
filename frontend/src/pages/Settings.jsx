@@ -77,6 +77,7 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
     baudRate: Number(window.localStorage.getItem("balancerehab_esp32_baud") ?? 115200),
     status: null,
     state: "idle",
+    hasScanned: false,
   });
 
   const refreshMovementAi = async () => {
@@ -116,7 +117,7 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
   };
 
   const scanEsp32Ports = async () => {
-    setEsp32((current) => ({ ...current, state: "scanning" }));
+    setEsp32((current) => ({ ...current, state: "scanning", hasScanned: false }));
     try {
       const response = await api.esp32Ports();
       setEsp32((current) => ({
@@ -124,10 +125,11 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
         ports: response.ports ?? [],
         selectedPort: current.selectedPort || response.ports?.[0]?.device || "",
         state: "idle",
+        hasScanned: true,
       }));
     } catch (error) {
       console.warn("ESP32 port scan failed.", error);
-      setEsp32((current) => ({ ...current, state: "error" }));
+      setEsp32((current) => ({ ...current, state: "scanError", hasScanned: true }));
     }
   };
 
@@ -414,7 +416,15 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
               </Button>
             </div>
 
-            {esp32.status?.error ? (
+            {esp32.state === "scanError" ? (
+              <p className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
+                {t.scanError ?? "La recherche de ports a échoué. Vérifiez que le serveur backend est démarré."}
+              </p>
+            ) : esp32.hasScanned && esp32.ports.length === 0 && !esp32.status?.connected ? (
+              <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700">
+                {t.noPortsFound ?? "Aucun port détecté. Assurez-vous que le dispositif est branché en USB."}
+              </p>
+            ) : esp32.status?.error ? (
               <p className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{esp32.status.error}</p>
             ) : (
               <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold text-rehab-muted">
