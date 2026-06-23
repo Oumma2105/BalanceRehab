@@ -37,7 +37,24 @@ async function request(path, options = {}) {
 export const api = {
   health: () => request("/health"),
   status: () => request("/settings/status"),
-  dashboardSummary: () => request("/dashboard/summary"),
+  dashboardSummary: async () => {
+    const [kpis, clinicTrend, statusDistribution, scoreDistribution, pathologyBreakdown, recentAssessments] = await Promise.all([
+      request("/dashboard/kpis"),
+      request("/dashboard/clinic-trend?weeks=12"),
+      request("/dashboard/patient-status-distribution"),
+      request("/dashboard/score-distribution"),
+      request("/dashboard/pathology-breakdown"),
+      request("/dashboard/recent-assessments?limit=8"),
+    ]);
+    return {
+      kpis,
+      clinicTrend,
+      statusDistribution,
+      scoreDistribution,
+      pathologyBreakdown,
+      recentAssessments,
+    };
+  },
   seedDemoData: (reset = false) => request(`/demo/seed?reset=${reset}`, { method: "POST" }),
   patients: async () => (await request("/patients")).map(patientFromApi),
   createPatient: async (patient) => patientFromApi(await request("/patients", { method: "POST", body: JSON.stringify(patientToApi(patient)) })),
@@ -52,6 +69,11 @@ export const api = {
     return (await request(`/patients/${patientId}/sessions`)).map((session) => sessionFromApi(session, patientLookup));
   },
   patientProgress: (patientId) => request(`/patients/${patientId}/progress`),
+  patientProfile: (patientId) => request(`/patients/${patientId}/profile`),
+  patientSessionTrend: (patientId) => request(`/patients/${patientId}/session-trend`),
+  patientRadarLatest: (patientId) => request(`/patients/${patientId}/radar-latest`),
+  sessionFullResults: (sessionId) => request(`/sessions/${sessionId}/full-results`),
+  sessionSwayPath: (sessionId) => request(`/sessions/${sessionId}/sway-path`),
   sessionReportData: async (sessionId) => reportDataFromApi(await request(`/sessions/${sessionId}/report-data`)),
   createSession: async (session, patients = []) => {
     const patientLookup = new Map(patients.map((patient) => [patient.id, patient]));

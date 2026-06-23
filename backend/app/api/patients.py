@@ -1,9 +1,12 @@
+from datetime import datetime, timezone
+from math import hypot
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.models import Patient, Session as AssessmentSession
+from app.models import Patient, RehabGameSession, Session as AssessmentSession
 from app.schemas import PatientCreate, PatientRead, PatientUpdate, ProgressAnalyticsRead, ProgressPoint, SessionRead
 
 router = APIRouter(prefix="/patients", tags=["patients"])
@@ -42,7 +45,11 @@ def get_patient(patient_id: int, db: Session = Depends(get_db)) -> PatientRead:
 
 
 @router.get("/{patient_id}/sessions", response_model=list[SessionRead])
-def get_patient_sessions(patient_id: int, db: Session = Depends(get_db)) -> list[AssessmentSession]:
+def get_patient_sessions(
+    patient_id: int,
+    include_metrics: bool = Query(default=False),
+    db: Session = Depends(get_db),
+) -> list[AssessmentSession]:
     find_patient(patient_id, db)
     return list(
         db.scalars(
@@ -56,6 +63,87 @@ def get_patient_sessions(patient_id: int, db: Session = Depends(get_db)) -> list
             .order_by(AssessmentSession.created_at.desc())
         )
     )
+
+
+@router.get("/{patient_id}/profile")
+def get_patient_profile(patient_id: int, db: Session = Depends(get_db)) -> dict:
+    patient = find_patient(patient_id, db)
+    sessions = patient_sessions_asc(patient_id, db)
+    rehab_sessions = list(
+        db.scalars(
+            select(RehabGameSession)
+            .where(RehabGameSession.patient_id == patient_id)
+            .order_by(RehabGameSession.created_at.asc())
+        )
+    )
+    scores = [session.total_balance_score for session in sessions if session.total_balance_score is not None]
+    latest = sessions[-1] if sessions else None
+    first = sessions[0] if sessions else None
+    best = max(sessions, key=lambda item: item.total_balance_score or -1, default=None)
+    worst = min(sessions, key=lambda item: item.total_balance_score or 101, default=None)
+    now = datetime.now(timezone.utc)
+    first_date = first.created_at.replace(tzinfo=timezone.utc) if first and first.created_at.tzinfo is None else first.created_at if first else None
+    program_duration = (now - first_date).days if first_date else 0
+    avg = round(sum(scores) / len(scores), 1) if scores else None
+    return {
+        "patient": PatientRead.model_validate(
+            {
+                **patient.__dict__,
+                "latest_score": latest.total_balance_score if latest else None,
+                "last_assessment_date": latest.created_at if latest else None,
+                "status": latest.status if latest else "No sessions",
+            }
+        ).model_dump(mode="json"),
+        "stats": {
+            "session_count": len(sessions),
+            "rehab_session_count": len(rehab_sessions),
+            "avg_score": avg,
+            "best_score": best.total_balance_score if best else None,
+            "best_date": best.created_at if best else None,
+            "worst_score": worst.total_balance_score if worst else None,
+            "worst_date": worst.created_at if worst else None,
+            "first_session_date": first.created_at if first else None,
+            "last_session_date": latest.created_at if latest else None,
+            "program_duration_days": program_duration,
+            "trend": round((latest.total_balance_score or 0) - (first.total_balance_score or 0), 1) if latest and first else None,
+            "risk": risk_label(latest.total_balance_score if latest else None),
+            "bmi": round(patient.weight_kg / ((patient.height_cm / 100) ** 2), 1)
+            if patient.height_cm and patient.weight_kg
+            else None,
+        },
+        "sessions": [session_chart_payload(session, index) for index, session in enumerate(sessions)],
+        "rehab_sessions": [
+            {
+                "id": item.id,
+                "game_type": item.game_type,
+                "date": item.created_at,
+                "duration_seconds": item.duration_seconds,
+                "score": item.score,
+                "accuracy": item.accuracy,
+                "stability": item.stability,
+                "smoothness": item.smoothness,
+            }
+            for item in rehab_sessions
+        ],
+    }
+
+
+@router.get("/{patient_id}/session-trend")
+def get_patient_session_trend(patient_id: int, db: Session = Depends(get_db)) -> list[dict]:
+    find_patient(patient_id, db)
+    return [session_chart_payload(session, index) for index, session in enumerate(patient_sessions_asc(patient_id, db))]
+
+
+@router.get("/{patient_id}/radar-latest")
+def get_patient_radar_latest(patient_id: int, db: Session = Depends(get_db)) -> dict:
+    find_patient(patient_id, db)
+    sessions = patient_sessions_asc(patient_id, db)
+    latest = sessions[-1] if sessions else None
+    previous = sessions[-2] if len(sessions) > 1 else None
+    return {
+        "latest": radar_payload(latest),
+        "previous": radar_payload(previous),
+    }
 
 
 @router.get("/{patient_id}/progress", response_model=ProgressAnalyticsRead)
@@ -163,3 +251,66 @@ def average_score(sessions: list[AssessmentSession]) -> float | None:
     if not scores:
         return None
     return round(sum(scores) / len(scores), 1)
+
+
+def patient_sessions_asc(patient_id: int, db: Session) -> list[AssessmentSession]:
+    return list(
+        db.scalars(
+            select(AssessmentSession)
+            .where(AssessmentSession.patient_id == patient_id)
+            .order_by(AssessmentSession.created_at.asc())
+        )
+    )
+
+
+def risk_label(score: float | None) -> str:
+    if score is None:
+        return "Unknown"
+    if score >= 75:
+        return "Low"
+    if score >= 60:
+        return "Moderate"
+    return "High"
+
+
+def session_chart_payload(session: AssessmentSession, index: int) -> dict:
+    return {
+        "id": session.id,
+        "session_number": index + 1,
+        "date": session.created_at,
+        "test_type": session.test_type,
+        "vision_condition": session.visual_condition,
+        "acquisition_mode": session.acquisition_mode,
+        "status": session.status,
+        "balance_score": session.total_balance_score,
+        "posture_score": session.posture_stability_score,
+        "stability_score": session.board_stability_score,
+        "ap_sway": session.mean_sway_ap,
+        "ml_sway": session.mean_sway_ml,
+        "sway_velocity": session.sway_velocity,
+        "instability_events": session.instability_events,
+        "trunk_deviation": session.trunk_deviation,
+        "shoulder_asymmetry": session.shoulder_asymmetry,
+        "hip_asymmetry": session.hip_asymmetry,
+        "body_center_deviation": session.body_center_deviation,
+        "resultant_sway": hypot(session.mean_sway_ap or 0, session.mean_sway_ml or 0),
+    }
+
+
+def normalize_positive(value: float | None, best: float, worst: float) -> float:
+    if value is None:
+        return 0
+    return round(max(0, min(100, 100 - ((value - best) / max(0.01, worst - best)) * 100)), 1)
+
+
+def radar_payload(session: AssessmentSession | None) -> list[dict]:
+    if session is None:
+        return []
+    return [
+        {"axis": "Balance", "value": session.total_balance_score or 0},
+        {"axis": "Posture", "value": session.posture_stability_score or 0},
+        {"axis": "Stability", "value": session.board_stability_score or 0},
+        {"axis": "AP Control", "value": normalize_positive(session.mean_sway_ap, 0.5, 8)},
+        {"axis": "ML Control", "value": normalize_positive(session.mean_sway_ml, 0.3, 6)},
+        {"axis": "Alignment", "value": normalize_positive(session.trunk_deviation, 0, 20)},
+    ]

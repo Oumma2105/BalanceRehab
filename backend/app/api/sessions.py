@@ -1,3 +1,6 @@
+import random
+from math import hypot, sin, sqrt
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -122,6 +125,56 @@ def get_session_report_data(session_id: int, db: Session = Depends(get_db)) -> S
 def get_movement_features(session_id: int, db: Session = Depends(get_db)) -> dict:
     session = load_session(session_id, db)
     return build_movement_feature_payload(session)
+
+
+@router.get("/{session_id}/sway-path")
+def get_sway_path(session_id: int, db: Session = Depends(get_db)) -> list[dict]:
+    session = load_session(session_id, db)
+    return generate_sway_path(session)
+
+
+@router.get("/{session_id}/full-results")
+def get_full_results(session_id: int, db: Session = Depends(get_db)) -> dict:
+    session = load_session(session_id, db)
+    patient = db.get(Patient, session.patient_id)
+    patient_sessions = list(
+        db.scalars(
+            select(AssessmentSession)
+            .where(AssessmentSession.patient_id == session.patient_id)
+            .order_by(AssessmentSession.created_at.asc())
+        )
+    )
+    previous = None
+    for index, item in enumerate(patient_sessions):
+        if item.id == session.id and index > 0:
+            previous = patient_sessions[index - 1]
+            break
+    comparison_sessions = [item for item in patient_sessions if item.id != session.id]
+    averages = metric_averages(comparison_sessions)
+    sway_series = generate_sway_series(session)
+    return {
+        "patient": {
+            "id": patient.id if patient else None,
+            "patient_code": patient.patient_code if patient else "",
+            "full_name": patient.full_name if patient else "Unknown patient",
+            "age": patient.age if patient else None,
+            "sex": patient.sex if patient else None,
+            "pathology": patient.pathology if patient else None,
+        },
+        "session": session_metric_payload(session),
+        "previous_session": session_metric_payload(previous) if previous else None,
+        "patient_average": averages,
+        "population_norm": {
+            "ap_sway": 1.2,
+            "ml_sway": 0.8,
+            "sway_velocity": 1.1,
+            "trunk_deviation": 3.0,
+        },
+        "sway_path": generate_sway_path(session),
+        "sway_series": sway_series,
+        "clinical_findings": clinical_findings(session),
+        "recommendations": [item.recommendation_en for item in session.recommendations],
+    }
 
 
 @router.post("/{session_id}/sensor-samples", response_model=SessionRead)
@@ -530,3 +583,123 @@ def status_from_score(score: float | None) -> str | None:
     if score >= 62:
         return "Follow-up"
     return "Declining"
+
+
+def session_metric_payload(session: AssessmentSession) -> dict:
+    return {
+        "id": session.id,
+        "patient_id": session.patient_id,
+        "date": session.created_at,
+        "test_type": session.test_type,
+        "vision_condition": session.visual_condition,
+        "acquisition_mode": session.acquisition_mode,
+        "duration_seconds": session.duration_seconds,
+        "status": session.status,
+        "session_status": session.session_status,
+        "balance_score": session.total_balance_score,
+        "posture_score": session.posture_stability_score,
+        "stability_score": session.board_stability_score,
+        "ap_sway": session.mean_sway_ap,
+        "ml_sway": session.mean_sway_ml,
+        "sway_velocity": session.sway_velocity,
+        "instability_events": session.instability_events,
+        "trunk_deviation": session.trunk_deviation,
+        "shoulder_asymmetry": session.shoulder_asymmetry,
+        "hip_asymmetry": session.hip_asymmetry,
+        "body_center_deviation": session.body_center_deviation,
+        "sample_count": session.sample_count,
+        "tracking_quality": session.tracking_quality,
+        "interpretation": session.interpretation,
+    }
+
+
+def metric_averages(sessions: list[AssessmentSession]) -> dict:
+    fields = {
+        "ap_sway": "mean_sway_ap",
+        "ml_sway": "mean_sway_ml",
+        "sway_velocity": "sway_velocity",
+        "trunk_deviation": "trunk_deviation",
+        "balance_score": "total_balance_score",
+    }
+    payload = {}
+    for label, field in fields.items():
+        values = [getattr(session, field) for session in sessions if getattr(session, field) is not None]
+        payload[label] = round(sum(values) / len(values), 2) if values else None
+    return payload
+
+
+def generate_sway_path(session: AssessmentSession) -> list[dict]:
+    sample_count = min(session.sample_count or 400, 300)
+    rng = random.Random(session.id * 7919)
+    ap_sway = max(session.mean_sway_ap or 1.2, 0.1)
+    ml_sway = max(session.mean_sway_ml or 0.8, 0.1)
+    x = 0.0
+    y = 0.0
+    points = []
+    for index in range(sample_count):
+        x += rng.gauss(0, ml_sway / 30)
+        y += rng.gauss(0, ap_sway / 30)
+        points.append([x, y])
+    mean_x = sum(point[0] for point in points) / len(points)
+    mean_y = sum(point[1] for point in points) / len(points)
+    max_x = max(abs(point[0] - mean_x) for point in points) or 1
+    max_y = max(abs(point[1] - mean_y) for point in points) or 1
+    return [
+        {
+            "x": round(((point[0] - mean_x) / max_x) * ml_sway, 3),
+            "y": round(((point[1] - mean_y) / max_y) * ap_sway, 3),
+            "index": index,
+        }
+        for index, point in enumerate(points)
+    ]
+
+
+def generate_sway_series(session: AssessmentSession) -> list[dict]:
+    duration = session.duration_seconds or 30
+    sample_count = 180
+    rng = random.Random(session.id * 1543)
+    ap_sway = session.mean_sway_ap or 1.2
+    ml_sway = session.mean_sway_ml or 0.8
+    velocity = session.sway_velocity or 1.1
+    resultant_values = []
+    series = []
+    for index in range(sample_count):
+        time = duration * index / (sample_count - 1)
+        ap = ap_sway * sin(time * 2.6) + rng.gauss(0, 0.2)
+        ml = ml_sway * sin(time * 2.1 + 0.8) + rng.gauss(0, 0.18)
+        resultant = sqrt(ap * ap + ml * ml)
+        resultant_values.append(resultant)
+        series.append(
+            {
+                "time": round(time, 1),
+                "ap": round(ap, 2),
+                "ml": round(ml, 2),
+                "resultant": round(resultant, 2),
+                "velocity": velocity,
+            }
+        )
+    mean = sum(resultant_values) / len(resultant_values)
+    variance = sum((value - mean) ** 2 for value in resultant_values) / len(resultant_values)
+    threshold = mean + 2 * sqrt(variance)
+    events = session.instability_events or 0
+    markers = {
+        round(duration * (index + 1) / (events + 1), 1)
+        for index in range(min(events, 8))
+    }
+    for item in series:
+        item["threshold"] = round(threshold, 2)
+        item["event"] = item["time"] in markers
+    return series
+
+
+def clinical_findings(session: AssessmentSession) -> list[dict]:
+    findings = []
+    if (session.mean_sway_ap or 0) > 3 or (session.mean_sway_ml or 0) > 2:
+        findings.append({"severity": "high", "label": "Elevated sway amplitude", "detail": "Sway exceeds typical quiet stance reference ranges."})
+    if (session.trunk_deviation or 0) > 8:
+        findings.append({"severity": "high", "label": "Trunk deviation", "detail": "Postural alignment requires targeted trunk stabilization."})
+    if (session.instability_events or 0) >= 5:
+        findings.append({"severity": "medium", "label": "Repeated instability events", "detail": "Multiple balance corrections were detected during the session."})
+    if not findings:
+        findings.append({"severity": "low", "label": "Controlled postural response", "detail": "Metrics are consistent with supervised progression."})
+    return findings
