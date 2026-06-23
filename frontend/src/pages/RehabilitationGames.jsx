@@ -375,12 +375,12 @@ function RehabSetupStep({
               <span className="text-sm font-bold text-rehab-ink">{selectedPatient.fullName}</span>
             </div>
             <div className="hidden h-5 w-px bg-slate-200 sm:block" />
-            <PatientPill label="Condition" value={selectedPatient.medicalReason ?? selectedPatient.pathology ?? "—"} />
-            <PatientPill label="Balance" value={latestAssessment?.totalScore != null ? `${latestAssessment.totalScore}/100` : "No assessment"} highlight />
-            <PatientPill label="Risk" value={profile.riskLevel} accent={profile.riskColor} />
-            <PatientPill label="Sessions" value={analytics.count > 0 ? String(analytics.count) : "None"} />
+            <PatientPill label={copy.condition ?? t.pathology ?? "Condition"} value={selectedPatient.medicalReason ?? selectedPatient.pathology ?? "—"} />
+            <PatientPill label={t.balanceScore ?? "Balance"} value={latestAssessment?.totalScore != null ? `${latestAssessment.totalScore}/100` : (copy.noAssessment ?? t.noAssessmentsYet ?? "No assessment")} highlight />
+            <PatientPill label={t.riskShort ?? "Risk"} value={profile.riskLevel} accent={profile.riskColor} />
+            <PatientPill label={t.sessions ?? "Sessions"} value={analytics.count > 0 ? String(analytics.count) : (copy.none ?? t.noSessionsYet ?? "None")} />
             <button type="button" onClick={onOpenProfile} className="ml-auto flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-rehab-ink transition hover:border-rehab-teal hover:text-rehab-teal">
-              Profile <ChevronRight size={13} />
+              {copy.profile ?? t.profile ?? "Profile"} <ChevronRight size={13} />
             </button>
           </div>
         ) : null}
@@ -391,7 +391,7 @@ function RehabSetupStep({
           disabled={!selectedPatient}
           className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#43AA8B] px-8 py-4 text-base font-bold text-white shadow-md transition hover:bg-[#3b9a7e] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Choose Exercise <ChevronRight size={18} />
+          {copy.chooseExercise ?? "Choose Exercise"} <ChevronRight size={18} />
         </button>
       </div>
     );
@@ -537,7 +537,7 @@ function RehabSetupStep({
   }
 
   // ── Sub-step 2: Preview + calibration ─────────────────────────────────────
-  const CALIBRATION_ITEMS = [
+  const CALIBRATION_ITEMS = copy.calibrationItems ?? [
     "Full body visible in camera — head to feet",
     "Stand 2 – 3 m from the camera",
     "Good ambient lighting, avoid strong backlighting",
@@ -1200,15 +1200,18 @@ function RehabStepBar({ activeStage, t }) {
 
 // ─── Session medal ────────────────────────────────────────────────────────────
 
-const MEDAL_TIERS = [
-  { min: 85, label: "Gold", color: "#B5860D", bg: "#FFFBEB", border: "#F9C74F", Icon: Trophy },
-  { min: 70, label: "Silver", color: "#64748B", bg: "#F8FAFC", border: "#94A3B8", Icon: Award },
-  { min: 55, label: "Bronze", color: "#C05621", bg: "#FFF7ED", border: "#F8961E", Icon: Star },
-  { min: 0,  label: "Participation", color: "#577590", bg: "#F8FAFC", border: "#CBD5E1", Icon: Activity },
-];
+function getMedalTiers(copy) {
+  return [
+    { min: 85, label: copy?.medalGold ?? "Gold", color: "#B5860D", bg: "#FFFBEB", border: "#F9C74F", Icon: Trophy },
+    { min: 70, label: copy?.medalSilver ?? "Silver", color: "#64748B", bg: "#F8FAFC", border: "#94A3B8", Icon: Award },
+    { min: 55, label: copy?.medalBronze ?? "Bronze", color: "#C05621", bg: "#FFF7ED", border: "#F8961E", Icon: Star },
+    { min: 0,  label: copy?.medalParticipation ?? "Participation", color: "#577590", bg: "#F8FAFC", border: "#CBD5E1", Icon: Activity },
+  ];
+}
 
-function SessionMedal({ score }) {
-  const tier = MEDAL_TIERS.find((m) => score >= m.min) ?? MEDAL_TIERS[MEDAL_TIERS.length - 1];
+function SessionMedal({ score, t }) {
+  const tiers = getMedalTiers(t?.rehabilitationWorkspace);
+  const tier = tiers.find((m) => score >= m.min) ?? tiers[tiers.length - 1];
   const { label, color, bg, border, Icon } = tier;
   return (
     <div
@@ -1223,16 +1226,17 @@ function SessionMedal({ score }) {
 
 // ─── Performance radar ────────────────────────────────────────────────────────
 
-function PerformanceRadar({ session }) {
+function PerformanceRadar({ session, t }) {
+  const copy = t?.rehabilitationWorkspace;
   const reactionScore = session.reactionTimeMs != null
     ? clamp(100 - session.reactionTimeMs / 12, 0, 100)
     : 70;
   const data = [
-    { axis: "Accuracy", value: Math.round(session.accuracy ?? 0) },
-    { axis: "Stability", value: Math.round(session.stability ?? 0) },
-    { axis: "Smoothness", value: Math.round(session.smoothness ?? 0) },
-    { axis: "Success", value: Math.round(session.successRate ?? session.completionRate ?? 0) },
-    { axis: "Reaction", value: Math.round(reactionScore) },
+    { axis: copy?.accuracy ?? "Accuracy", value: Math.round(session.accuracy ?? 0) },
+    { axis: copy?.stability ?? "Stability", value: Math.round(session.stability ?? 0) },
+    { axis: copy?.smoothness ?? "Smoothness", value: Math.round(session.smoothness ?? 0) },
+    { axis: copy?.success ?? "Success", value: Math.round(session.successRate ?? session.completionRate ?? 0) },
+    { axis: copy?.reaction ?? "Reaction", value: Math.round(reactionScore) },
   ];
   return (
     <div className="h-52">
@@ -1297,7 +1301,7 @@ function buildRecommendations(session) {
   return recs.slice(0, 3);
 }
 
-function RecommendationsCard({ session }) {
+function RecommendationsCard({ session, t }) {
   const recs = buildRecommendations(session);
   return (
     <ClinicalCard className="p-5">
@@ -1306,8 +1310,8 @@ function RecommendationsCard({ session }) {
           <Lightbulb size={15} className="text-[#43AA8B]" />
         </span>
         <div>
-          <p className="text-sm font-bold text-rehab-ink">Clinical Recommendations</p>
-          <p className="text-xs text-rehab-muted">Personalised guidance based on this session</p>
+          <p className="text-sm font-bold text-rehab-ink">{t?.recommendations ?? "Clinical Recommendations"}</p>
+          <p className="text-xs text-rehab-muted">{t?.recommendationsDesc ?? "Personalised guidance based on this session"}</p>
         </div>
       </div>
       <ul className="mt-4 space-y-3">
@@ -1347,7 +1351,7 @@ function RehabReviewStep({ selectedPatient, session, patientSessions, analytics,
             </p>
           </div>
           <div className="flex flex-col items-end gap-2">
-            <SessionMedal score={session.score} />
+            <SessionMedal score={session.score} t={t} />
             <p className="text-3xl font-semibold text-rehab-ink">
               {Math.round(session.score)}
               <span className="text-base text-rehab-muted">/100</span>
@@ -1388,10 +1392,10 @@ function RehabReviewStep({ selectedPatient, session, patientSessions, analytics,
 
       <div className="grid gap-5 xl:grid-cols-2">
         <ClinicalCard className="p-5">
-          <SectionHeader title="Performance Profile" description="Multi-axis analysis of this session's key metrics" />
-          <div className="mt-4"><PerformanceRadar session={session} /></div>
+          <SectionHeader title={copy.performanceProfile ?? "Performance Profile"} description={copy.performanceProfileDesc ?? "Multi-axis analysis of this session's key metrics"} />
+          <div className="mt-4"><PerformanceRadar session={session} t={t} /></div>
         </ClinicalCard>
-        <RecommendationsCard session={session} />
+        <RecommendationsCard session={session} t={t} />
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
