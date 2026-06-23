@@ -83,7 +83,7 @@ export function AboutPage({ t }) {
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-clinical">
         <div className="grid lg:grid-cols-[1.15fr_0.85fr]">
           <div className="p-8">
-            <img src={balanceRehabLogo} alt="BalanceRehab" className="mb-5 h-36 w-36 object-contain" />
+            <img src={balanceRehabLogo} alt="BalanceRehab" className="mb-5 h-24 w-24 object-contain" />
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rehab-teal">{c.overviewEyebrow}</p>
             <h2 className="mt-3 text-3xl font-semibold text-rehab-ink">BalanceRehab</h2>
             <p className="mt-2 text-lg font-semibold text-rehab-blue">{c.platformTitle}</p>
