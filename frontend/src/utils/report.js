@@ -144,19 +144,55 @@ function drawIndicatorsRecommendationsPage(doc, { patient, session, results, sev
   drawClinicalSignatureBlock(doc, { clinicianName, clinicianRole, generatedAt, t }, y + 23);
 }
 
+function drawPdfLogo(doc, ox, oy, logoSize) {
+  const s = logoSize / 40;
+
+  // Hemisphere pivot (#577590): half-ellipse from (11,27) through (20,34) to (29,27)
+  doc.setFillColor(87, 117, 144);
+  const hemiSteps = 18;
+  const hemi = [];
+  for (let i = 0; i <= hemiSteps; i++) {
+    const θ = Math.PI * (1 - i / hemiSteps);
+    hemi.push([20 + 9 * Math.cos(θ), 27 + 7 * Math.sin(θ)]);
+  }
+  const hemiSegs = hemi.slice(1).map((pt, i) => [(pt[0] - hemi[i][0]) * s, (pt[1] - hemi[i][1]) * s]);
+  doc.lines(hemiSegs, ox + hemi[0][0] * s, oy + hemi[0][1] * s, [1, 1], "F", true);
+
+  // Board platform (#43AA8B): rect(9,21,22×5) corners rotated -17° around (20,23.5)
+  doc.setFillColor(67, 170, 139);
+  const bc = [[8.75, 24.33], [29.79, 17.89], [31.25, 22.68], [10.21, 29.11]];
+  const boardSegs = bc.slice(1).map((pt, i) => [(pt[0] - bc[i][0]) * s, (pt[1] - bc[i][1]) * s]);
+  doc.lines(boardSegs, ox + bc[0][0] * s, oy + bc[0][1] * s, [1, 1], "F", true);
+
+  // Motion arc (#43AA8B): quadratic M 5 24 Q 20 7 35 16 → cubic CP1=(15,12.67) CP2=(25,10)
+  doc.setDrawColor(67, 170, 139);
+  doc.setLineWidth(3 * s);
+  doc.setLineCap(1);
+  doc.lines([[10 * s, -11.33 * s, 20 * s, -14 * s, 30 * s, -8 * s]], ox + 5 * s, oy + 24 * s, [1, 1], "S", false);
+
+  doc.setLineCap(0);
+  doc.setLineWidth(0.2);
+}
+
 function drawClinicalHeader(doc, { patient, session, generatedAt, clinicianName, t, compact = false }) {
   doc.setFillColor(255, 255, 255);
   doc.rect(0, 0, PAGE_W, PAGE_H, "F");
   doc.setDrawColor(...LINE);
   doc.line(MARGIN, compact ? 28 : 38, PAGE_W - MARGIN, compact ? 28 : 38);
 
+  // Logo: 13mm for full header, 9mm for compact
+  const logoSize = compact ? 9 : 13;
+  const logoY = compact ? 5 : 6;
+  drawPdfLogo(doc, MARGIN, logoY, logoSize);
+  const textX = MARGIN + logoSize + 2;
+
   doc.setTextColor(...PRIMARY);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(compact ? 16 : 21);
-  doc.text("BalanceRehab", MARGIN, compact ? 17 : 19);
+  doc.text("BalanceRehab", textX, compact ? 17 : 19);
   doc.setTextColor(...TEXT);
   doc.setFontSize(compact ? 10 : 12);
-  doc.text(t.pdfReportSubtitle ?? "Clinical Balance Assessment Report", MARGIN, compact ? 24 : 28);
+  doc.text(t.pdfReportSubtitle ?? "Clinical Balance Assessment Report", textX, compact ? 24 : 28);
 
   const rightX = PAGE_W - MARGIN;
   doc.setTextColor(...TEXT);
@@ -169,7 +205,6 @@ function drawClinicalHeader(doc, { patient, session, generatedAt, clinicianName,
   if (!compact) {
     doc.text(`${clinicianName} | ${acquisitionModeLabel(t, session)}`, rightX, 29, { align: "right" });
   }
-
 }
 
 function drawClinicalInfoPill(doc, label, value, x, y, width) {

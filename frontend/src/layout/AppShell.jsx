@@ -1,4 +1,5 @@
-import { Activity, BarChart3, Bell, ChevronDown, ClipboardCheck, Gamepad2, Home, Info, Settings, UsersRound } from "lucide-react";
+import { BarChart3, Bell, ChevronDown, ClipboardCheck, Gamepad2, Home, Info, Settings, UsersRound } from "lucide-react";
+import { BalanceLogo } from "../components/BalanceLogo";
 
 const icons = {
   dashboard: Home,
@@ -25,9 +26,7 @@ export function AppShell({
       <aside className="fixed inset-y-0 left-0 hidden w-60 border-r border-rehab-line bg-white px-4 py-5 lg:block">
         <div className="mb-8">
           <div className="flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-lg bg-rehab-teal text-white">
-              <Activity size={22} />
-            </div>
+            <BalanceLogo size={44} />
             <div>
               <p className="text-lg font-semibold">{t.appName}</p>
               <p className="text-xs font-medium text-rehab-muted">{t.productSubtitle}</p>
