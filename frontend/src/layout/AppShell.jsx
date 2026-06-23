@@ -25,8 +25,8 @@ export function AppShell({
       {!focused ? (
       <aside className="fixed inset-y-0 left-0 hidden w-60 border-r border-rehab-line bg-white px-4 py-5 lg:block">
         <div className="mb-8">
-          <div className="flex items-center gap-3">
-            <img src={balanceRehabLogo} alt="BalanceRehab" className="h-16 w-16 object-contain" />
+          <div className="flex items-center gap-1">
+            <img src={balanceRehabLogo} alt="BalanceRehab" className="h-20 w-20 object-contain" />
             <div>
               <p className="text-lg font-semibold">{t.appName}</p>
               <p className="text-xs font-medium text-rehab-muted">{t.productSubtitle}</p>
