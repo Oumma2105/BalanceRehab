@@ -38,6 +38,7 @@ class SerialState:
     calibration: dict[str, Any] = field(default_factory=lambda: {"active": False, "samples": 0, "duration_seconds": 0})
     samples_read: int = 0
     invalid_json_count: int = 0
+    _consecutive_errors: int = 0
     started_at: float | None = None
 
 
@@ -176,7 +177,7 @@ class SerialAcquisitionService:
 
             if not raw:
                 continue
-            line = raw.decode("utf-8", errors="replace").strip()
+            line = raw.decode("latin-1").encode("ascii", errors="ignore").decode("ascii").strip()
             if not line:
                 continue
             self._handle_line(line)
@@ -187,7 +188,9 @@ class SerialAcquisitionService:
         except json.JSONDecodeError:
             with self._lock:
                 self._state.invalid_json_count += 1
-                self._state.error = f"Invalid JSON from ESP32: {line[:120]}"
+                self._state._consecutive_errors += 1
+                if self._state._consecutive_errors >= 5:
+                    self._state.error = f"Invalid JSON from ESP32: {line[:120]}"
             return
 
         packet = self._normalize_serial_packet(data)
@@ -200,6 +203,8 @@ class SerialAcquisitionService:
             self._state.samples_read += 1
             self._state.latest_packet = packet
             self._state.sensor_health = packet.get("quality", {})
+            self._state._consecutive_errors = 0
+            self._state.error = None
             self._maybe_update_calibration(packet)
             session_id = self._state.session_id
 
