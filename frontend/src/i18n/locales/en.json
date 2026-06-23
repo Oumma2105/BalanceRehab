@@ -839,8 +839,10 @@
     }
   },
   "rehabilitationWorkspace": {
-    "steps": [
-      "Setup",
+    "workflowSteps": [
+      "Patient",
+      "Exercise",
+      "Preview",
       "Training",
       "Review"
     ],

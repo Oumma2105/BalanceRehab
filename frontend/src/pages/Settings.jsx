@@ -186,11 +186,6 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
 
   return (
     <div className="space-y-6">
-      <section>
-        <h1 className="text-3xl font-semibold tracking-normal text-rehab-ink">{t.settings}</h1>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-rehab-muted">{t.settingsSubtitle}</p>
-      </section>
-
       <ClinicalCard className="p-5">
         <SectionHeader title={t.general} description={t.generalDesc} />
         <div className="mt-5">

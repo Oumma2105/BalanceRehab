@@ -25,7 +25,7 @@ const pages = [
 
 export default function App() {
   const initialData = useMemo(() => loadPersistedState(), []);
-  const [language, setLanguage] = useState("en");
+  const [language, setLanguage] = useState("fr");
   const [webcamViewMode, setWebcamViewMode] = useState(() => localStorage.getItem("balancerehab_webcam_view") ?? "mirrored");
   const [activePage, setActivePage] = useState("dashboard");
   const [health, setHealth] = useState(null);
@@ -129,7 +129,7 @@ export default function App() {
 
       try {
         const backendPatients = await api.patients();
-        const [backendSessions, backendReports, backendDashboardSummary, backendRehabSessions] = await Promise.all([
+        const [backendSessionsResult, backendReportsResult, backendDashboardSummaryResult, backendRehabSessionsResult] = await Promise.allSettled([
           api.sessions(backendPatients),
           api.reports(),
           api.dashboardSummary(),
@@ -137,10 +137,14 @@ export default function App() {
         ]);
         if (!cancelled) {
           setPatients(backendPatients);
-          setSessions(backendSessions);
-          setReports(backendReports);
-          setDashboardSummary(backendDashboardSummary);
-          setRehabSessions(backendRehabSessions ?? []);
+          if (backendSessionsResult.status === "fulfilled") {
+            setSessions(backendSessionsResult.value);
+          }
+          if (backendReportsResult.status === "fulfilled") {
+            setReports(backendReportsResult.value);
+          }
+          setDashboardSummary(backendDashboardSummaryResult.status === "fulfilled" ? backendDashboardSummaryResult.value : null);
+          setRehabSessions(backendRehabSessionsResult.status === "fulfilled" ? (backendRehabSessionsResult.value ?? []) : []);
         }
       } catch (error) {
         console.warn("Backend data loading failed, keeping local state.", error);

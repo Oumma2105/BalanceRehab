@@ -839,10 +839,12 @@
     }
   },
   "rehabilitationWorkspace": {
-    "steps": [
-      "Configuration",
+    "workflowSteps": [
+      "Patient",
+      "Exercice",
+      "Aperçu",
       "Entraînement",
-      "Bilan"
+      "Résultats"
     ],
     "patientSnapshot": "Aperçu du patient",
     "snapshotDescription": "Contexte clinique guidant le programme de rééducation du jour.",
