@@ -1,5 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, AlertTriangle, ArrowLeft, ClipboardList, Edit, FileText, Plus, Search, Target, Trash2, UsersRound } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, ClipboardList, Download, Edit, FileText, Plus, Search, Target, Trash2, UsersRound } from "lucide-react";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  Brush,
+  CartesianGrid,
+  ComposedChart,
+  Label,
+  Legend,
+  Line,
+  LineChart,
+  PolarAngleAxis,
+  PolarGrid,
+  Radar,
+  RadarChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import { Button } from "../components/clinical/Button";
 import { ClinicalCard } from "../components/clinical/ClinicalCard";
@@ -7,6 +28,7 @@ import { ClinicalTable } from "../components/clinical/ClinicalTable";
 import { EmptyState } from "../components/clinical/EmptyState";
 import { SectionHeader } from "../components/clinical/SectionHeader";
 import { StatusBadge } from "../components/clinical/StatusBadge";
+import { api } from "../api/client.js";
 import { clinicalGoals, pathologyOptions } from "../data/demoPatients.js";
 import { PatientRehabilitationPanel } from "./RehabilitationGames.jsx";
 
@@ -81,14 +103,25 @@ export function PatientsPage({
   }, [selectedId, onLoadPatientSessions]);
 
   const selectedPatient = patients.find((patient) => patient.id === selectedId);
+  const patientCards = useMemo(
+    () => patients.map((patient) => buildPatientCardModel(patient, sessions, rehabSessions)),
+    [patients, sessions, rehabSessions],
+  );
   const filteredPatients = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    let list = statusFilter !== "all" ? patients.filter((p) => p.status === statusFilter) : patients;
+    let list = statusFilter !== "all" ? patientCards.filter((p) => p.status === statusFilter) : patientCards;
     if (!normalized) return list;
     return list.filter((patient) =>
-      [patient.fullName, patient.patientCode].join(" ").toLowerCase().includes(normalized),
+      [patient.fullName, patient.patientCode, patient.pathology, patient.clinicalGoal].join(" ").toLowerCase().includes(normalized),
     );
-  }, [patients, query, statusFilter]);
+  }, [patientCards, query, statusFilter]);
+  const attentionPatients = useMemo(
+    () => patientCards
+      .filter((patient) => patient.status === "Declining" || patient.status === "Follow-up" || Number(patient.latestScore) < 65)
+      .sort((a, b) => riskRank(a) - riskRank(b))
+      .slice(0, 6),
+    [patientCards],
+  );
   const activePatients = patients.filter((patient) => patient.status !== "No sessions").length;
   const followUpPatients = patients.filter((patient) => patient.status === "Follow-up" || patient.status === "Declining" || Number(patient.latestScore) < 70).length;
   const averageScore = averageScoreValue(patients.map((patient) => patient.latestScore));
@@ -131,15 +164,50 @@ export function PatientsPage({
 
       {/* KPI strip */}
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <PatientKpi icon={UsersRound} label={t.totalPatients} value={patients.length} helper={t.patientsInProgram ?? "in program"} color="#277DA1" />
+        <PatientKpi icon={UsersRound} label={t.totalPatients} value={patients.length} helper={t.patientsInProgram ?? "in program"} color="#577590" />
         <PatientKpi icon={Activity} label={t.activePatients} value={activePatients} helper={t.withRecentActivity ?? "with recent activity"} color="#43AA8B" />
-        <PatientKpi icon={AlertTriangle} label={t.followUpQueue} value={followUpPatients} helper={t.patientsToReview ?? "need review"} color="#F8961E" />
+        <PatientKpi icon={AlertTriangle} label={t.followUpQueue} value={followUpPatients} helper={t.patientsToReview ?? "need review"} color={followUpPatients > 8 ? "#F94144" : "#F8961E"} />
         <PatientKpi icon={Target} label={t.averageScore} value={averageScore ? `${averageScore}/100` : "-"} helper={t.acrossAllPatients ?? "across all patients"} color="#90BE6D" />
       </section>
 
       <ClinicalCard className="p-5">
+        <SectionHeader title={t.patientsRequiringAttention} description={t.attentionDesc} />
+        <div className="mt-4">
+          {attentionPatients.length === 0 ? (
+            <div className="rounded-lg bg-emerald-50 px-4 py-5 text-sm font-semibold text-emerald-700">
+              {t.allPatientsStable}
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {attentionPatients.map((patient) => (
+                <button
+                  key={patient.id}
+                  type="button"
+                  onClick={() => setSelectedId(patient.id)}
+                  className="rounded-lg border bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md"
+                  style={{ borderColor: `${statusColor(patient)}55` }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-rehab-ink">{patient.fullName}</p>
+                      <p className="mt-1 text-xs text-rehab-muted">{clinicalTerm(t, "pathologies", patient.pathology) || "-"}</p>
+                    </div>
+                    <ScorePill score={patient.latestScore} status={patient.status} />
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+                    <TrendIndicator trend={patient.trend} />
+                    <span className="font-semibold" style={{ color: statusColor(patient) }}>{statusLabel(t, patient.status)}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </ClinicalCard>
+
+      <ClinicalCard className="p-5">
         {/* Search + filter row */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-rehab-muted" size={16} />
             <input
@@ -149,6 +217,11 @@ export function PatientsPage({
               className="w-full rounded-lg border border-rehab-line bg-white py-2.5 pl-9 pr-3 text-sm outline-none transition focus:border-rehab-teal focus:ring-2 focus:ring-rehab-teal/10"
             />
           </div>
+          <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs font-semibold text-rehab-muted">
+            {filteredPatients.length} / {patients.length} {t.patients}
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <div className="flex flex-wrap gap-1.5">
             {["all", "Stable", "Improving", "Follow-up", "Declining"].map((f) => (
               <button
@@ -186,35 +259,55 @@ export function PatientsPage({
                     key={patient.id}
                     type="button"
                     onClick={() => setSelectedId(patient.id)}
-                    className="group relative flex items-start gap-4 overflow-hidden rounded-xl border border-rehab-line bg-white p-4 text-left shadow-card transition hover:border-rehab-teal/40 hover:shadow-md"
+                    className="group relative overflow-hidden rounded-xl border border-rehab-line bg-white p-4 text-left shadow-card transition hover:-translate-y-0.5 hover:border-rehab-teal/40 hover:shadow-md"
                   >
-                    {/* Status accent strip */}
                     <span className="absolute inset-y-0 left-0 w-1 rounded-l-xl" style={{ backgroundColor: sc }} />
-                    {/* Avatar */}
-                    <span
-                      className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-xl text-sm font-bold text-white"
-                      style={{ backgroundColor: sc }}
-                    >
-                      {initials(patient.fullName)}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate font-semibold text-rehab-ink">{patient.fullName}</p>
-                          <p className="text-xs text-rehab-muted">{patient.patientCode}</p>
+                    <div className="pl-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <span
+                            className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-sm font-bold text-white"
+                            style={{ backgroundColor: sc }}
+                          >
+                            {initials(patient.fullName)}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-rehab-ink">{patient.fullName}</p>
+                            <p className="text-xs text-rehab-muted">{patient.patientCode} - {clinicalTerm(t, "pathologies", patient.pathology) || "-"}</p>
+                          </div>
                         </div>
                         <StatusBadge tone={statusTone[patient.status] ?? "neutral"}>
                           {statusLabel(t, patient.status)}
                         </StatusBadge>
                       </div>
-                      <p className="mt-1.5 truncate text-xs text-rehab-muted">{clinicalTerm(t, "pathologies", patient.pathology) || "-"}</p>
-                      {patient.latestScore != null ? (
-                        <div className="mt-2">
-                          <div className="mb-1 flex items-center justify-between gap-2">
-                            <span className="text-xs font-semibold text-rehab-ink">{patient.latestScore}/100</span>
-                            <span className="text-xs text-rehab-muted">{patient.lastAssessmentDate ?? "-"}</span>
+
+                      <div className="mt-4 grid grid-cols-[auto_1fr] gap-4">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-rehab-muted">{t.balanceScore}</p>
+                          <p className="mt-1 text-3xl font-semibold tabular-nums" style={{ color: sc }}>
+                            {patient.latestScore != null ? Math.round(Number(patient.latestScore)) : "-"}
+                            <span className="text-sm text-rehab-muted">/100</span>
+                          </p>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <TrendIndicator trend={patient.trend} />
+                            <span className="text-xs text-rehab-muted">{formatShortDate(patient.lastAssessmentDate)}</span>
                           </div>
-                          <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                          <div className="mt-3 h-14">
+                            <PatientSparkline data={patient.scoreHistory} color={sc} />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                        <ClinicalMiniStat label={t.rehabilitation ?? "Rehab"} value={patient.rehabStatus} color={patient.rehabCount > 0 ? "#43AA8B" : "#F8961E"} />
+                        <ClinicalMiniStat label={t.lastAssessment} value={formatShortDate(patient.lastAssessmentDate)} color="#577590" />
+                      </div>
+
+                      {patient.latestScore != null ? (
+                        <div className="mt-4">
+                          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
                             <div
                               className="h-full rounded-full transition-all"
                               style={{ width: `${Math.min(100, Math.max(0, Number(patient.latestScore)))}%`, backgroundColor: sc }}
@@ -276,16 +369,120 @@ export function PatientsPage({
   );
 }
 
-function PatientDetail({ t, patient, requestedTab, sessions, rehabSessions, reports, onBack, onEdit, onDelete, onStartAssessment, onStartRehabGame, onDownloadSessionReport }) {
-  const [tab, setTab] = useState("overview");
-  const latestSession = sessions[0];
-  const tabs = ["overview", "sessions", "progress", "rehabilitation", "reports"];
+function buildPatientCardModel(patient, sessions, rehabSessions) {
+  const patientSessions = sessions
+    .filter((session) => session.patientId === patient.id)
+    .sort((a, b) => new Date(a.date ?? a.createdAt ?? a.created_at ?? 0) - new Date(b.date ?? b.createdAt ?? b.created_at ?? 0));
+  const scoreHistory = patientSessions
+    .map((session, index) => ({
+      index,
+      score: Number(session.totalScore ?? session.results?.totalBalanceScore ?? session.balance_score),
+    }))
+    .filter((point) => Number.isFinite(point.score))
+    .slice(-8);
+  const firstScore = scoreHistory[0]?.score;
+  const lastScore = scoreHistory[scoreHistory.length - 1]?.score ?? Number(patient.latestScore);
+  const delta = Number.isFinite(firstScore) && Number.isFinite(lastScore) ? Math.round((lastScore - firstScore) * 10) / 10 : null;
+  const rehabForPatient = rehabSessions.filter((session) => session.patientId === patient.id || session.patient_id === patient.id);
+  const lastRehab = rehabForPatient
+    .slice()
+    .sort((a, b) => new Date(b.createdAt ?? b.created_at ?? 0) - new Date(a.createdAt ?? a.created_at ?? 0))[0];
+  return {
+    ...patient,
+    latestScore: Number.isFinite(lastScore) ? Math.round(lastScore * 10) / 10 : patient.latestScore,
+    lastAssessmentDate: patientSessions[patientSessions.length - 1]?.date ?? patientSessions[patientSessions.length - 1]?.createdAt ?? patient.lastAssessmentDate,
+    scoreHistory,
+    trend: delta,
+    rehabCount: rehabForPatient.length,
+    rehabStatus: rehabForPatient.length
+      ? `${rehabForPatient.length} sessions - ${formatNumber(lastRehab?.score)}/100`
+      : "Not started",
+  };
+}
+
+function ScorePill({ score, status }) {
+  const color = statusColor({ latestScore: score, status });
+  return (
+    <span className="rounded-full px-2.5 py-1 text-xs font-semibold text-white" style={{ backgroundColor: color }}>
+      {score != null ? `${Math.round(Number(score))}/100` : "-"}
+    </span>
+  );
+}
+
+function TrendIndicator({ trend }) {
+  const numeric = Number(trend);
+  if (!Number.isFinite(numeric)) {
+    return <span className="text-xs font-semibold text-rehab-muted">No trend yet</span>;
+  }
+  const stable = Math.abs(numeric) < 2;
+  const color = stable ? "#577590" : numeric > 0 ? "#43AA8B" : "#F94144";
+  const arrow = stable ? "→" : numeric > 0 ? "↑" : "↓";
+  return (
+    <span className="text-xs font-semibold" style={{ color }}>
+      {arrow} {numeric > 0 ? "+" : ""}{numeric} pts
+    </span>
+  );
+}
+
+function PatientSparkline({ data, color }) {
+  if (!data?.length) {
+    return <div className="grid h-full place-items-center rounded-lg bg-slate-50 text-xs font-semibold text-rehab-muted">No assessments</div>;
+  }
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <AreaChart data={data} margin={{ top: 4, right: 2, bottom: 0, left: 2 }}>
+        <Area type="monotone" dataKey="score" stroke={color} fill={color} fillOpacity={0.14} strokeWidth={2.5} dot={data.length <= 3} />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+function ClinicalMiniStat({ label, value, color }) {
+  return (
+    <div className="rounded-lg bg-slate-50 px-3 py-2">
+      <div className="flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-rehab-muted">{label}</p>
+      </div>
+      <p className="mt-1 truncate text-xs font-semibold text-rehab-ink">{value}</p>
+    </div>
+  );
+}
+
+function riskRank(patient) {
+  if (patient.status === "Declining") return 0;
+  if (Number(patient.latestScore) < 55) return 1;
+  if (patient.status === "Follow-up") return 2;
+  return 3;
+}
+
+function PatientDetail({ t, patient, sessions, rehabSessions, reports, onBack, onEdit, onDelete, onStartAssessment, onStartRehabGame, onDownloadSessionReport }) {
+  const [profile, setProfile] = useState(null);
+  const [showSway, setShowSway] = useState(false);
+  const localChronological = useMemo(() => [...sessions].reverse().map((session, index) => sessionToProfilePoint(session, index)), [sessions]);
 
   useEffect(() => {
-    if (tabs.includes(requestedTab)) {
-      setTab(requestedTab);
-    }
-  }, [requestedTab]);
+    let cancelled = false;
+    api.patientProfile?.(patient.id)
+      .then((payload) => {
+        if (!cancelled) setProfile(payload);
+      })
+      .catch(() => {
+        if (!cancelled) setProfile(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [patient.id]);
+
+  const clinicalPatient = profile?.patient ?? patient;
+  const chartSessions = profile?.sessions?.length ? profile.sessions : localChronological;
+  const latest = chartSessions[chartSessions.length - 1];
+  const stats = profile?.stats ?? buildLocalProfileStats(patient, chartSessions, rehabSessions);
+  const radar = latest ? buildRadar(latest) : [];
+  const previousRadar = chartSessions.length > 1 ? buildRadar(chartSessions[chartSessions.length - 2]) : [];
+  const averages = metricAverages(chartSessions);
+  const rehabData = profile?.rehab_sessions?.length ? profile.rehab_sessions : rehabSessions;
 
   return (
     <div className="space-y-5">
@@ -295,131 +492,344 @@ function PatientDetail({ t, patient, requestedTab, sessions, rehabSessions, repo
 
       <ClinicalCard className="p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-semibold text-rehab-teal">{patient.patientCode}</p>
-            <h1 className="mt-1 text-3xl font-semibold text-rehab-ink">{patient.fullName}</h1>
-            <p className="mt-2 text-sm text-rehab-muted">
-              {patient.age} {t.years} - {displaySex(t, patient.sex)} - {clinicalTerm(t, "pathologies", patient.pathology) || t.noSessions}
-            </p>
+          <div className="flex items-start gap-4">
+            <span className="grid h-16 w-16 shrink-0 place-items-center rounded-xl text-lg font-bold text-white" style={{ backgroundColor: statusColor(patient) }}>
+              {initials(clinicalPatient.full_name ?? clinicalPatient.fullName)}
+            </span>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-3xl font-semibold text-rehab-ink">{clinicalPatient.full_name ?? clinicalPatient.fullName}</h1>
+                <StatusBadge tone={statusTone[patient.status] ?? "neutral"}>{statusLabel(t, patient.status)}</StatusBadge>
+              </div>
+              <p className="mt-2 text-sm text-rehab-muted">
+                {(clinicalPatient.patient_code ?? patient.patientCode)} - {(clinicalPatient.age ?? patient.age)} {t.years} - {displaySex(t, clinicalPatient.sex ?? patient.sex)} - {clinicalTerm(t, "pathologies", clinicalPatient.pathology ?? patient.pathology)}
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <ProfileChip value={`${stats.session_count ?? chartSessions.length} ${t.sessions}`} />
+                <ProfileChip value={`${t.avg ?? "Avg"}: ${formatNumber(stats.avg_score)}/100`} />
+                <ProfileChip value={`${t.last ?? "Last"}: ${formatShortDate(stats.last_session_date ?? latest?.date)}`} />
+                <ProfileChip value={`${t.riskShort ?? "Risk"}: ${stats.risk ?? riskFromScore(latest?.balance_score)}`} />
+              </div>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button className="px-6 py-3 text-base" onClick={onStartAssessment}>{t.newAssessment}</Button>
-            <Button variant="secondary" onClick={onEdit}>
-              <Edit size={16} /> {t.edit}
+            <Button onClick={onStartAssessment}>{t.newAssessment}</Button>
+            <Button variant="secondary" onClick={onStartRehabGame}>{t.newRehabSession}</Button>
+            <Button variant="secondary" onClick={() => latest && onDownloadSessionReport({ patient, session: sessions.find((item) => item.id === latest.id) ?? sessions[0] })}>
+              <Download size={16} /> {t.downloadReport}
             </Button>
-            <Button variant="secondary" onClick={onDelete}>
-              <Trash2 size={16} /> {t.delete}
-            </Button>
+            <Button variant="secondary" onClick={onEdit}><Edit size={16} /> {t.edit}</Button>
+            <Button variant="secondary" onClick={onDelete}><Trash2 size={16} /> {t.delete}</Button>
           </div>
-        </div>
-
-        <div className="mt-5 flex flex-wrap gap-2 border-t border-rehab-line pt-4">
-          {tabs.map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => setTab(item)}
-              className={`rounded-lg px-3 py-2 text-sm font-semibold capitalize ${
-                tab === item ? "bg-rehab-teal text-white" : "bg-slate-100 text-rehab-muted"
-              }`}
-            >
-              {t[item] ?? item}
-            </button>
-          ))}
         </div>
       </ClinicalCard>
 
-      {tab === "overview" ? (
+      <section className="grid gap-4 xl:grid-cols-[0.8fr_1.45fr_0.9fr]">
         <ClinicalCard className="p-5">
-          <SectionHeader title={t.overview} description={t.currentPatientStatus} />
-          <div className="mt-5 grid gap-4 lg:grid-cols-2">
-            <PatientInfoPanel t={t} patient={patient} />
-            <ClinicalInfoPanel t={t} patient={patient} />
+          <SectionHeader title={t.patientInformation} description={t.patientInfoDesc} />
+          <div className="mt-4 space-y-4">
+            <InfoBlock title={t.clinicalProfile} rows={[
+              [t.pathology, clinicalTerm(t, "pathologies", clinicalPatient.pathology ?? patient.pathology)],
+              [t.clinicalGoal, clinicalPatient.clinical_goal ?? patient.clinicalGoal ?? "-"],
+              [t.dominantSide, clinicalPatient.dominant_side ?? patient.dominantSide ?? "-"],
+              [t.clinicalNotes, clinicalPatient.clinical_notes ?? patient.clinicalNotes ?? "-"],
+            ]} />
+            <InfoBlock title={t.bodyMeasurements} rows={[
+              [t.pdfHeight ?? "Height", patient.heightCm ? `${patient.heightCm} cm` : "-"],
+              [t.pdfWeight ?? "Weight", patient.weightKg ? `${patient.weightKg} kg` : "-"],
+              ["BMI", stats.bmi ?? "-"],
+            ]} />
+            <InfoBlock title={t.programSummary} rows={[
+              [t.firstSession, formatShortDate(stats.first_session_date)],
+              [t.totalSessions, stats.session_count ?? chartSessions.length],
+              [t.rehabSessionsCount, stats.rehab_session_count ?? rehabData.length],
+              [t.programDuration, `${stats.program_duration_days ?? 0} ${t.days}`],
+            ]} />
           </div>
-          {sessions.length === 0 ? (
-            <div className="mt-5">
-              <EmptyState
-                title={t.noAssessmentsYet}
-                description={t.firstAssessmentBaseline}
-                actionLabel={t.startFirstAssessment}
-                onAction={onStartAssessment}
-              />
-            </div>
-          ) : (
-            <div className="mt-5 grid gap-4 md:grid-cols-3">
-              <Summary label={t.currentBalanceScore} value={`${latestSession.totalScore}/100`} />
-              <Summary label={t.lastTest} value={`${testTypeLabel(t, latestSession.testType)} - ${conditionLabel(t, latestSession.condition)}`} />
-              <Summary label={t.recommendationCount} value={latestSession.results.recommendations.length} />
-              <div className="rounded-lg border border-rehab-line p-4 md:col-span-3">
-                <p className="font-semibold">{t.latestRecommendations}</p>
-                <ul className="mt-2 space-y-1 text-sm text-rehab-muted">
-                  {latestSession.results.recommendations.slice(0, 3).map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-              <div className="md:col-span-3 rounded-lg bg-slate-50 p-4 text-sm text-rehab-muted">
-                <p className="mb-2 font-semibold text-rehab-ink">{t.lastAssessmentSummary}</p>
-                {latestSession.results.interpretation}
-              </div>
-            </div>
-          )}
         </ClinicalCard>
-      ) : null}
 
-      {tab === "sessions" ? (
-        <SessionsPanel t={t} patient={patient} sessions={sessions} onDownloadSessionReport={onDownloadSessionReport} />
-      ) : null}
-
-      {tab === "progress" ? (
-        <ProgressPanel t={t} patient={patient} sessions={sessions} onStartAssessment={onStartAssessment} />
-      ) : null}
-
-      {tab === "rehabilitation" ? (
-        <PatientRehabilitationPanel
-          t={t}
-          patient={patient}
-          sessions={rehabSessions}
-          assessments={sessions}
-          onStartRehabilitation={onStartRehabGame}
-        />
-      ) : null}
-
-      {tab === "reports" ? (
         <ClinicalCard className="p-5">
-          <SectionHeader title={t.reports} description={t.generatedPdfReports} />
-          <div className="mt-5 grid gap-3">
-            {reports.length === 0 ? (
-              <EmptyState
-                title={t.reports}
-                description={t.completedSessionsAppear}
-                actionLabel={t.startFirstAssessment}
-                onAction={onStartAssessment}
-              />
-            ) : reports.map((report) => {
-              const session = sessions.find((item) => item.id === report.sessionId);
-              return (
-                <div key={report.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rehab-line p-4">
-                  <div className="flex items-start gap-3">
-                    <FileText size={18} className="text-rehab-blue" />
-                    <div>
-                      <p className="font-semibold">{report.reportId ?? report.id}</p>
-                      <p className="text-sm text-rehab-muted">{localizedDate(t, report.generatedAt ?? report.createdAt)}</p>
-                      <p className="mt-1 text-sm text-rehab-muted">{acquisitionModeLabel(t, report.acquisitionModeKey ?? session?.acquisitionModeKey, report.acquisitionMode ?? session?.acquisitionMode)}</p>
-                      <p className="mt-1 max-w-2xl text-sm text-rehab-ink">{report.summary ?? "-"}</p>
-                    </div>
-                  </div>
-                  <Button variant="secondary" onClick={() => session && onDownloadSessionReport({ patient, session })} disabled={!session}>
-                    {t.download}
-                  </Button>
+          <SectionHeader title={t.balanceScoreEvolution} description={t.balanceScoreEvolutionDesc} />
+          {chartSessions.length ? (
+            <>
+              <div className="mt-4 h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={chartSessions} margin={{ top: 12, right: 16, bottom: 24, left: 0 }}>
+                    <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                    <XAxis dataKey="session_number" stroke="#577590"><Label value={t.sessionLabel} offset={-14} position="insideBottom" fill="#577590" /></XAxis>
+                    <YAxis domain={[0, 100]} stroke="#577590"><Label value={t.scorePerHundred} angle={-90} position="insideLeft" fill="#577590" /></YAxis>
+                    <Tooltip content={<ProfileTooltip unit="pts" />} />
+                    <Legend />
+                    <ReferenceLine y={75} stroke="#90BE6D" strokeDasharray="5 5" label={t.clinicalTarget} />
+                    <ReferenceLine y={50} stroke="#F94144" strokeDasharray="5 5" label={t.riskThreshold} />
+                    <Area type="monotone" dataKey="balance_score" name={t.balanceScore} stroke="#43AA8B" fill="#43AA8B" fillOpacity={0.2} strokeWidth={3} />
+                    <Line type="monotone" dataKey="posture_score" name={t.postureScore} stroke="#577590" strokeDasharray="6 4" dot={false} />
+                    <Line type="monotone" dataKey="stability_score" name={t.stability} stroke="#F8961E" strokeDasharray="6 4" dot={false} />
+                    <Brush height={22} stroke="#577590" />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+              <button type="button" onClick={() => setShowSway((value) => !value)} className="mt-3 rounded-lg border border-rehab-line px-3 py-2 text-sm font-semibold text-rehab-blue hover:bg-slate-50">
+                {showSway ? (t.hideSwayMetrics ?? "Hide sway metrics") : (t.showSwayMetrics ?? "Show sway metrics")}
+              </button>
+              {showSway ? (
+                <div className="mt-4 h-56">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chartSessions} margin={{ top: 12, right: 16, bottom: 24, left: 0 }}>
+                      <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                      <XAxis dataKey="session_number" stroke="#577590"><Label value={t.sessionLabel} offset={-14} position="insideBottom" fill="#577590" /></XAxis>
+                      <YAxis stroke="#577590"><Label value={t.swayMetricsLabel} angle={-90} position="insideLeft" fill="#577590" /></YAxis>
+                      <Tooltip content={<ProfileTooltip />} />
+                      <Legend />
+                      <Line type="monotone" dataKey="ap_sway" name={t.apSwayLabel} stroke="#F94144" strokeWidth={2} />
+                      <Line type="monotone" dataKey="ml_sway" name={t.mlSwayLabel} stroke="#577590" strokeWidth={2} />
+                      <Line type="monotone" dataKey="sway_velocity" name={t.swayVelocityLabel} stroke="#F8961E" strokeWidth={2} />
+                    </LineChart>
+                  </ResponsiveContainer>
                 </div>
-              );
-            })}
+              ) : null}
+            </>
+          ) : <EmptyState title={t.noAssessmentsYet} description={t.firstAssessmentBaseline} actionLabel={t.startFirstAssessment} onAction={onStartAssessment} />}
+        </ClinicalCard>
+
+        <ClinicalCard className="p-5">
+          <SectionHeader title={t.latestScoresSection} description={t.latestScoresDesc} />
+          <div className="mt-4 grid gap-3">
+            <ScoreStrip label={t.balanceScore} value={latest?.balance_score} />
+            <ScoreStrip label={t.postureScore} value={latest?.posture_score} />
+            <ScoreStrip label={t.stability} value={latest?.stability_score} />
+          </div>
+          <div className="mt-5 h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart data={mergeRadar(radar, previousRadar)}>
+                <PolarGrid stroke="#e2e8f0" />
+                <PolarAngleAxis dataKey="axis" tick={{ fontSize: 11 }} />
+                <Radar name={t.previous ?? "Previous"} dataKey="previous" stroke="#94a3b8" fill="#94a3b8" fillOpacity={0.18} />
+                <Radar name={t.latest ?? "Latest"} dataKey="latest" stroke="#43AA8B" fill="#43AA8B" fillOpacity={0.28} />
+                <Legend />
+                <Tooltip />
+              </RadarChart>
+            </ResponsiveContainer>
           </div>
         </ClinicalCard>
-      ) : null}
+      </section>
+
+      <ClinicalCard className="p-5">
+        <SectionHeader title={t.sessionHistory} description={`${chartSessions.length} ${t.sessions} - ${t.avg ?? "Avg"}: ${formatNumber(stats.avg_score)} - ${t.best ?? "Best"}: ${formatNumber(stats.best_score)} (${formatShortDate(stats.best_date)}) - ${t.worst ?? "Worst"}: ${formatNumber(stats.worst_score)} (${formatShortDate(stats.worst_date)})`} />
+        <div className="mt-4">
+          <ClinicalTable
+            columns={["#", t.date, t.test, t.conditions, t.balanceScore, t.postureScore, t.stability, t.apSway ?? "AP Sway", t.mlSway ?? "ML Sway", t.status, t.actions]}
+            rows={[...chartSessions].reverse()}
+            renderRow={(session) => (
+              <tr key={session.id} className="cursor-pointer hover:bg-slate-50">
+                <td className="px-4 py-3 font-semibold">{session.session_number}</td>
+                <td className="px-4 py-3 text-rehab-muted">{formatShortDate(session.date)}</td>
+                <td className="px-4 py-3">{titleCase(session.test_type)}</td>
+                <td className="px-4 py-3">{conditionLabel(session.vision_condition)}</td>
+                <MetricCell value={session.balance_score} average={averages.balance_score} higher />
+                <MetricCell value={session.posture_score} average={averages.posture_score} higher />
+                <MetricCell value={session.stability_score} average={averages.stability_score} higher />
+                <MetricCell value={session.ap_sway} average={averages.ap_sway} />
+                <MetricCell value={session.ml_sway} average={averages.ml_sway} />
+                <td className="px-4 py-3"><StatusBadge tone={statusTone[session.status] ?? "neutral"}>{statusLabel(t, session.status)}</StatusBadge></td>
+                <td className="px-4 py-3"><Button variant="secondary" className="px-3 py-1.5" onClick={() => onDownloadSessionReport({ patient, session: sessions.find((item) => item.id === session.id) ?? sessions[0] })}>{t.downloadReport}</Button></td>
+              </tr>
+            )}
+          />
+        </div>
+      </ClinicalCard>
+
+      <ClinicalCard className="p-5">
+        <SectionHeader title={t.rehabSessionsSection} description={t.rehabSessionsSectionDesc} />
+        {rehabData.length ? (
+          <>
+            <div className="mt-4 h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={rehabData.map((item, index) => ({ ...item, label: `R${index + 1}` }))} margin={{ top: 10, right: 16, bottom: 24, left: 0 }}>
+                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                  <XAxis dataKey="label" stroke="#577590"><Label value={t.rehabSessionLabel} offset={-14} position="insideBottom" fill="#577590" /></XAxis>
+                  <YAxis domain={[0, 100]} stroke="#577590"><Label value={t.scorePerHundred} angle={-90} position="insideLeft" fill="#577590" /></YAxis>
+                  <Tooltip content={<ProfileTooltip unit="pts" />} />
+                  <Bar dataKey="score" fill="#90BE6D" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              {rehabData.map((item) => (
+                <div key={item.id} className="rounded-lg border border-rehab-line p-4">
+                  <p className="font-semibold text-rehab-ink">{item.game_type ?? item.gameType}</p>
+                  <p className="mt-1 text-sm text-rehab-muted">{formatShortDate(item.date ?? item.createdAt)} - {item.duration_seconds ?? item.durationSeconds}s</p>
+                  <ScoreStrip label={t.performanceLabel} value={item.score} />
+                </div>
+              ))}
+            </div>
+          </>
+        ) : <EmptyState title={t.noRehabSessions} description={t.noRehabSessionsDesc} actionLabel={t.newRehabSession} onAction={onStartRehabGame} />}
+      </ClinicalCard>
     </div>
   );
+}
+
+function ProfileChip({ value }) {
+  return <span className="rounded-full border border-rehab-line bg-slate-50 px-3 py-1 text-xs font-semibold text-rehab-ink">{value}</span>;
+}
+
+function InfoBlock({ title, rows }) {
+  return (
+    <div className="rounded-lg border border-rehab-line bg-slate-50 p-4">
+      <p className="font-semibold text-rehab-ink">{title}</p>
+      <div className="mt-3 space-y-2">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex justify-between gap-3 text-sm">
+            <span className="text-rehab-muted">{label}</span>
+            <span className="text-right font-semibold text-rehab-ink">{value ?? "-"}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function sessionToProfilePoint(session, index) {
+  return {
+    id: session.id,
+    session_number: index + 1,
+    date: session.date ?? session.createdAt,
+    test_type: session.testType,
+    vision_condition: session.condition,
+    status: session.status,
+    balance_score: session.totalScore ?? session.results?.totalBalanceScore,
+    posture_score: session.postureScore ?? session.results?.postureStabilityScore,
+    stability_score: session.stabilityScore ?? session.results?.boardStabilityScore,
+    ap_sway: session.results?.meanSwayAp ?? session.meanSwayAp,
+    ml_sway: session.results?.meanSwayMl ?? session.meanSwayMl,
+    sway_velocity: session.results?.swayVelocity ?? session.swayVelocity,
+    trunk_deviation: session.trunkDeviation ?? session.results?.trunkDeviation,
+    shoulder_asymmetry: session.shoulderAsymmetry ?? session.results?.shoulderAsymmetry,
+    hip_asymmetry: session.hipAsymmetry ?? session.results?.hipAsymmetry,
+  };
+}
+
+function buildLocalProfileStats(patient, chartSessions, rehabSessions) {
+  const scores = chartSessions.map((item) => Number(item.balance_score)).filter(Number.isFinite);
+  const best = chartSessions.reduce((a, b) => Number(b.balance_score) > Number(a?.balance_score ?? -1) ? b : a, null);
+  const worst = chartSessions.reduce((a, b) => Number(b.balance_score) < Number(a?.balance_score ?? 101) ? b : a, null);
+  const first = chartSessions[0];
+  const latest = chartSessions[chartSessions.length - 1];
+  return {
+    session_count: chartSessions.length,
+    rehab_session_count: rehabSessions.length,
+    avg_score: scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null,
+    best_score: best?.balance_score,
+    best_date: best?.date,
+    worst_score: worst?.balance_score,
+    worst_date: worst?.date,
+    first_session_date: first?.date,
+    last_session_date: latest?.date,
+    program_duration_days: first ? Math.max(0, Math.round((Date.now() - new Date(first.date).getTime()) / 86400000)) : 0,
+    risk: riskFromScore(latest?.balance_score),
+    bmi: patient.heightCm && patient.weightKg ? Math.round((patient.weightKg / ((patient.heightCm / 100) ** 2)) * 10) / 10 : null,
+  };
+}
+
+function buildRadar(session) {
+  return [
+    { axis: "Balance", value: Number(session.balance_score) || 0 },
+    { axis: "Posture", value: Number(session.posture_score) || 0 },
+    { axis: "Stability", value: Number(session.stability_score) || 0 },
+    { axis: "AP Control", value: normalizeLowMetric(session.ap_sway, 0.5, 8) },
+    { axis: "ML Control", value: normalizeLowMetric(session.ml_sway, 0.3, 6) },
+    { axis: "Alignment", value: normalizeLowMetric(session.trunk_deviation, 0, 20) },
+  ];
+}
+
+function mergeRadar(latest, previous) {
+  return latest.map((item) => ({
+    axis: item.axis,
+    latest: item.value,
+    previous: previous.find((entry) => entry.axis === item.axis)?.value ?? 0,
+  }));
+}
+
+function normalizeLowMetric(value, best, worst) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.min(100, Math.round(100 - ((numeric - best) / Math.max(0.1, worst - best)) * 100)));
+}
+
+function metricAverages(rows) {
+  return ["balance_score", "posture_score", "stability_score", "ap_sway", "ml_sway"].reduce((acc, key) => {
+    const values = rows.map((row) => Number(row[key])).filter(Number.isFinite);
+    acc[key] = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    return acc;
+  }, {});
+}
+
+function ProfileTooltip({ active, payload, label, unit }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-lg border border-rehab-line bg-white px-3 py-2 text-xs shadow-card">
+      <p className="font-semibold text-rehab-ink">{label}</p>
+      {payload.map((item) => (
+        <p key={item.dataKey} className="text-rehab-muted">
+          <span className="font-semibold" style={{ color: item.color }}>{item.name ?? item.dataKey}:</span> {formatNumber(item.value)} {unit ?? ""}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function ScoreStrip({ label, value }) {
+  const score = Math.max(0, Math.min(100, Number(value) || 0));
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <span className="font-semibold text-rehab-ink">{label}</span>
+        <span className="font-semibold text-rehab-muted">{Number.isFinite(Number(value)) ? `${formatNumber(value)}/100` : "-"}</span>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+        <div className="h-full rounded-full" style={{ width: `${score}%`, backgroundColor: metricTone(score) }} />
+      </div>
+    </div>
+  );
+}
+
+function MetricCell({ value, average, higher = false }) {
+  const numeric = Number(value);
+  const avg = Number(average);
+  const better = Number.isFinite(numeric) && Number.isFinite(avg) ? (higher ? numeric >= avg : numeric <= avg) : true;
+  return (
+    <td className="px-4 py-3">
+      <span className="inline-flex items-center gap-2 font-semibold text-rehab-ink">
+        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: better ? "#43AA8B" : "#F94144" }} />
+        {formatNumber(value)}
+      </span>
+    </td>
+  );
+}
+
+function riskFromScore(score) {
+  const numeric = Number(score);
+  if (!Number.isFinite(numeric)) return "Unknown";
+  if (numeric >= 75) return "Low";
+  if (numeric >= 60) return "Moderate";
+  return "High";
+}
+
+function formatNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.round(numeric * 10) / 10 : "-";
+}
+
+function formatShortDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function titleCase(value) {
+  const text = String(value ?? "");
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "-";
 }
 
 function ProgressPanel({ t, patient, sessions, onStartAssessment }) {
@@ -912,16 +1322,16 @@ function PatientKpi({ icon: Icon, label, value, helper, color }) {
 }
 
 function statusColor(patient) {
-  if (patient.status === "Declining" || Number(patient.latestScore) < 45) return "#F94144";
-  if (patient.status === "Follow-up" || Number(patient.latestScore) < 60) return "#F8961E";
-  if (patient.status === "Stable" || Number(patient.latestScore) >= 80) return "#43AA8B";
-  if (patient.status === "Improving") return "#90BE6D";
+  if (patient.status === "Declining" || Number(patient.latestScore) < 50) return "#F94144";
+  if (patient.status === "Follow-up" || Number(patient.latestScore) < 65) return "#F8961E";
+  if (patient.status === "Improving") return "#43AA8B";
+  if (patient.status === "Stable" || Number(patient.latestScore) >= 75) return "#90BE6D";
   return "#577590";
 }
 
 function filterPillColor(f) {
-  const map = { all: "#277DA1", Stable: "#43AA8B", Improving: "#90BE6D", "Follow-up": "#F8961E", Declining: "#F94144" };
-  return map[f] ?? "#277DA1";
+  const map = { all: "#577590", Stable: "#90BE6D", Improving: "#43AA8B", "Follow-up": "#F8961E", Declining: "#F94144" };
+  return map[f] ?? "#577590";
 }
 
 function ScoreIndicator({ score }) {

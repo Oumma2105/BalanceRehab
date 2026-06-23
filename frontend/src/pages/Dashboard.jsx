@@ -47,7 +47,7 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
       <section className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-rehab-ink">{t.greeting}</h1>
-          <p className="mt-1 text-sm text-rehab-muted">Clinical analytics for risk, progress, assessments, and rehabilitation activity</p>
+          <p className="mt-1 text-sm text-rehab-muted">{t.dashboardAnalyticsSubtitle}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => onStartAssessment()}>
@@ -60,25 +60,25 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard icon={UsersRound} label="Total Patients" value={analytics.kpis.total_patients} helper={`${analytics.kpis.active_patients} active this month`} color="#577590" />
+        <KpiCard icon={UsersRound} label={t.totalPatients} value={analytics.kpis.total_patients} helper={(t.kpiActiveThisMonth ?? "{count} active this month").replace("{count}", analytics.kpis.active_patients ?? 0)} color="#577590" />
         <KpiCard
           icon={Activity}
-          label="Average Balance Score"
+          label={t.averageScore}
           value={analytics.kpis.average_score ? `${analytics.kpis.average_score} / 100` : "-"}
-          helper="Clinic-wide monthly average"
+          helper={t.kpiClinicMonthlyAverage}
           color="#43AA8B"
           trend={`${analytics.kpis.trend_direction === "up" ? "+" : "-"}${analytics.kpis.trend_value} pts`}
           trendColor={analytics.kpis.trend_direction === "up" ? "#43AA8B" : "#F94144"}
         />
-        <KpiCard icon={CalendarCheck} label="Sessions This Week" value={analytics.kpis.sessions_this_week} helper={`${analytics.kpis.sessions_today} sessions today`} color="#43AA8B" />
-        <KpiCard icon={AlertTriangle} label="Follow-up Queue" value={analytics.kpis.follow_up_queue} helper={`${analytics.kpis.declining_count} declining - ${analytics.kpis.no_recent_count} no recent session`} color={queueColor(analytics.kpis.follow_up_queue)} />
+        <KpiCard icon={CalendarCheck} label={t.assessmentsThisWeek} value={analytics.kpis.sessions_this_week} helper={(t.kpiSessionsToday ?? "{count} sessions today").replace("{count}", analytics.kpis.sessions_today ?? 0)} color="#43AA8B" />
+        <KpiCard icon={AlertTriangle} label={t.followUpQueue} value={analytics.kpis.follow_up_queue} helper={(t.kpiFollowUpHelper ?? "{declining} declining · {noRecent} no recent session").replace("{declining}", analytics.kpis.declining_count ?? 0).replace("{noRecent}", analytics.kpis.no_recent_count ?? 0)} color={queueColor(analytics.kpis.follow_up_queue)} />
       </section>
 
       {/* Row 1: Balance Trend — full width */}
       <section>
         <ClinicalCard className="p-5">
-          <SectionHeader title="Clinic-wide Balance Trend" description="Average balance score, median score, and weekly assessment volume" />
-          <ChartFrame data={analytics.clinicTrend}>
+          <SectionHeader title={t.clinicWideTrend} description={t.clinicWideTrendDesc} />
+          <ChartFrame data={analytics.clinicTrend} t={t}>
             <ResponsiveContainer width="100%" height={380}>
               <ComposedChart data={analytics.clinicTrend} margin={{ top: 8, right: 52, bottom: 8, left: 8 }}>
                 <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
@@ -87,17 +87,17 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
                 <YAxis yAxisId="volume" orientation="right" tick={{ fontSize: 11 }} stroke="#577590" allowDecimals={false} width={48} />
                 <Tooltip content={<ClinicalTooltip />} />
                 <Legend verticalAlign="top" height={40} />
-                <ReferenceLine yAxisId="score" y={75} stroke="#90BE6D" strokeDasharray="5 5" label={{ value: "Clinical target", fill: "#47743C", fontSize: 11, position: "insideTopRight" }} />
-                <Bar yAxisId="volume" dataKey="session_count" name="Sessions" fill="#F9C74F" fillOpacity={0.55} radius={[4, 4, 0, 0]} />
-                <Area yAxisId="score" type="monotone" dataKey="avg_score" name="Average score" fill="#43AA8B" fillOpacity={0.18} stroke="#43AA8B" strokeWidth={3} connectNulls />
-                <Line yAxisId="score" type="monotone" dataKey="median_score" name="Median score" stroke="#F8961E" strokeWidth={2.5} dot={false} connectNulls />
+                <ReferenceLine yAxisId="score" y={75} stroke="#90BE6D" strokeDasharray="5 5" label={{ value: t.clinicalTarget, fill: "#47743C", fontSize: 11, position: "insideTopRight" }} />
+                <Bar yAxisId="volume" dataKey="session_count" name={t.sessions} fill="#F9C74F" fillOpacity={0.55} radius={[4, 4, 0, 0]} />
+                <Area yAxisId="score" type="monotone" dataKey="avg_score" name={t.averageScore} fill="#43AA8B" fillOpacity={0.18} stroke="#43AA8B" strokeWidth={3} connectNulls />
+                <Line yAxisId="score" type="monotone" dataKey="median_score" name={t.medianScore} stroke="#F8961E" strokeWidth={2.5} dot={false} connectNulls />
               </ComposedChart>
             </ResponsiveContainer>
           </ChartFrame>
           <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
-            <StatChip label={`Best week: ${trendStats.best} avg`} color="#90BE6D" />
-            <StatChip label={`Most active: ${trendStats.mostActive} sessions/week`} color="#F9C74F" />
-            <StatChip label={`Trend: ${trendStats.trend >= 0 ? "+" : ""}${trendStats.trend} pts/month`} color={trendStats.trend >= 0 ? "#43AA8B" : "#F94144"} />
+            <StatChip label={(t.statBestWeek ?? "Best week: {value} avg").replace("{value}", trendStats.best)} color="#90BE6D" />
+            <StatChip label={(t.statMostActive ?? "Most active: {value} sessions/week").replace("{value}", trendStats.mostActive)} color="#F9C74F" />
+            <StatChip label={(t.statTrend ?? "Trend: {sign}{value} pts/month").replace("{sign}", trendStats.trend >= 0 ? "+" : "").replace("{value}", Math.abs(trendStats.trend))} color={trendStats.trend >= 0 ? "#43AA8B" : "#F94144"} />
           </div>
         </ClinicalCard>
       </section>
@@ -105,30 +105,30 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
       {/* Row 2: Risk Distribution | Rehabilitation Progress */}
       <section className="grid gap-4 xl:grid-cols-2">
         <ClinicalCard className="p-5">
-          <SectionHeader title="Risk Distribution" description="Latest patient status and score spread" />
+          <SectionHeader title={t.riskDistribution} description={t.riskDistributionDesc} />
           <div className="mt-4 grid gap-6 sm:grid-cols-2">
-            <ChartFrame data={analytics.statusDonut}>
+            <ChartFrame data={analytics.statusDonut} t={t}>
               <ResponsiveContainer width="100%" height={280}>
                 <PieChart>
                   <Pie data={analytics.statusDonut} dataKey="value" nameKey="name" innerRadius={66} outerRadius={96} paddingAngle={2}>
                     {analytics.statusDonut.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
                   </Pie>
-                  <Tooltip content={<ClinicalTooltip unit="patients" />} />
+                  <Tooltip content={<ClinicalTooltip unit={t.patients} />} />
                   <Legend verticalAlign="bottom" height={52} formatter={(value) => `${value}: ${analytics.statusDonut.find((item) => item.name === value)?.value ?? 0}`} />
                   <text x="50%" y="44%" textAnchor="middle" style={{ fill: "#14213d", fontSize: 20, fontWeight: 700 }}>{analytics.kpis.total_patients}</text>
-                  <text x="50%" y="56%" textAnchor="middle" style={{ fill: "#577590", fontSize: 11 }}>patients</text>
+                  <text x="50%" y="56%" textAnchor="middle" style={{ fill: "#577590", fontSize: 11 }}>{t.patients}</text>
                 </PieChart>
               </ResponsiveContainer>
             </ChartFrame>
 
-            <ChartFrame data={analytics.scoreDistribution}>
+            <ChartFrame data={analytics.scoreDistribution} t={t}>
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={analytics.scoreDistribution} layout="vertical" margin={{ top: 8, right: 16, bottom: 28, left: 8 }}>
                   <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} stroke="#577590" height={28} label={{ value: "Patients", position: "insideBottom", offset: -8, fill: "#577590", fontSize: 11 }} />
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} stroke="#577590" height={28} label={{ value: t.patients, position: "insideBottom", offset: -8, fill: "#577590", fontSize: 11 }} />
                   <YAxis type="category" dataKey="range_label" width={56} tick={{ fontSize: 11 }} stroke="#577590" />
-                  <Tooltip content={<ClinicalTooltip unit="patients" />} />
-                  <Bar dataKey="count" name="Patients" radius={[0, 4, 4, 0]}>
+                  <Tooltip content={<ClinicalTooltip unit={t.patients} />} />
+                  <Bar dataKey="count" name={t.patients} radius={[0, 4, 4, 0]}>
                     {analytics.scoreDistribution.map((entry, index) => <Cell key={entry.range_label} fill={scoreColors[index]} />)}
                   </Bar>
                 </BarChart>
@@ -138,8 +138,8 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
         </ClinicalCard>
 
         <ClinicalCard className="p-5">
-          <SectionHeader title="Rehabilitation Progress" description="Game score trend and therapy volume from recorded rehab sessions" />
-          <ChartFrame data={rehabAnalytics.trend}>
+          <SectionHeader title={t.rehabProgress} description={t.rehabProgressDesc} />
+          <ChartFrame data={rehabAnalytics.trend} t={t}>
             <ResponsiveContainer width="100%" height={320}>
               <ComposedChart data={rehabAnalytics.trend} margin={{ top: 8, right: 28, bottom: 8, left: 8 }}>
                 <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
@@ -148,16 +148,16 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
                 <Tooltip content={<ClinicalTooltip unit="pts" />} />
                 <Legend verticalAlign="top" height={40} />
                 <ReferenceLine y={75} stroke="#90BE6D" strokeDasharray="5 5" />
-                <Bar dataKey="duration_score" name="Duration index" fill="#577590" fillOpacity={0.22} radius={[4, 4, 0, 0]} />
-                <Line type="monotone" dataKey="score" name="Rehab score" stroke="#90BE6D" strokeWidth={3} dot={{ r: 3, fill: "#90BE6D" }} />
-                <Line type="monotone" dataKey="stability" name="Stability" stroke="#43AA8B" strokeWidth={2} dot={false} />
+                <Bar dataKey="duration_score" name={t.durationIndex} fill="#577590" fillOpacity={0.22} radius={[4, 4, 0, 0]} />
+                <Line type="monotone" dataKey="score" name={t.rehabScore} stroke="#90BE6D" strokeWidth={3} dot={{ r: 3, fill: "#90BE6D" }} />
+                <Line type="monotone" dataKey="stability" name={t.stability} stroke="#43AA8B" strokeWidth={2} dot={false} />
               </ComposedChart>
             </ResponsiveContainer>
           </ChartFrame>
           <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
-            <StatChip label={`Avg rehab: ${formatNumber(rehabAnalytics.averageScore)}/100`} color="#90BE6D" />
-            <StatChip label={`Best rehab: ${formatNumber(rehabAnalytics.bestScore)}/100`} color="#43AA8B" />
-            <StatChip label={`Sessions: ${rehabSessions.length}`} color="#577590" />
+            <StatChip label={(t.statAvgRehab ?? "Avg rehab: {value}/100").replace("{value}", formatNumber(rehabAnalytics.averageScore))} color="#90BE6D" />
+            <StatChip label={(t.statBestRehab ?? "Best rehab: {value}/100").replace("{value}", formatNumber(rehabAnalytics.bestScore))} color="#43AA8B" />
+            <StatChip label={(t.statSessions ?? "Sessions: {count}").replace("{count}", rehabSessions.length)} color="#577590" />
           </div>
         </ClinicalCard>
       </section>
@@ -165,15 +165,15 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
       {/* Row 3: Pathology Breakdown | Clinical Insights */}
       <section className="grid gap-4 xl:grid-cols-2">
         <ClinicalCard className="p-5">
-          <SectionHeader title="Pathology Breakdown" description="Patient distribution by primary diagnosis" />
-          <ChartFrame data={analytics.pathologyBreakdown}>
+          <SectionHeader title={t.pathologyBreakdown} description={t.pathologyBreakdownDesc} />
+          <ChartFrame data={analytics.pathologyBreakdown} t={t}>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={analytics.pathologyBreakdown} layout="vertical" margin={{ top: 8, right: 24, bottom: 28, left: 8 }}>
                 <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} stroke="#577590" height={28} label={{ value: "Patients", position: "insideBottom", offset: -8, fill: "#577590", fontSize: 11 }} />
+                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} stroke="#577590" height={28} label={{ value: t.patients, position: "insideBottom", offset: -8, fill: "#577590", fontSize: 11 }} />
                 <YAxis type="category" dataKey="pathology" width={136} tick={{ fontSize: 10 }} stroke="#577590" />
-                <Tooltip content={<ClinicalTooltip unit="patients" />} />
-                <Bar dataKey="count" name="Patients" radius={[0, 4, 4, 0]}>
+                <Tooltip content={<ClinicalTooltip unit={t.patients} />} />
+                <Bar dataKey="count" name={t.patients} radius={[0, 4, 4, 0]}>
                   {analytics.pathologyBreakdown.map((entry, index) => <Cell key={entry.pathology} fill={palette[index % palette.length]} />)}
                 </Bar>
               </BarChart>
@@ -182,14 +182,14 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
         </ClinicalCard>
 
         <ClinicalCard className="p-5">
-          <SectionHeader title="Clinical Insights" description="Rehabilitation game activity and therapy type distribution" />
-          <ChartFrame data={rehabAnalytics.gameMix}>
+          <SectionHeader title={t.clinicalInsights} description={t.clinicalInsightsDesc} />
+          <ChartFrame data={rehabAnalytics.gameMix} t={t}>
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 <Pie data={rehabAnalytics.gameMix} dataKey="count" nameKey="game" innerRadius={65} outerRadius={105} paddingAngle={3}>
                   {rehabAnalytics.gameMix.map((entry, index) => <Cell key={entry.game} fill={palette[(index + 3) % palette.length]} />)}
                 </Pie>
-                <Tooltip content={<ClinicalTooltip unit="sessions" />} />
+                <Tooltip content={<ClinicalTooltip unit={t.sessions} />} />
                 <Legend verticalAlign="bottom" height={60} />
               </PieChart>
             </ResponsiveContainer>
@@ -198,10 +198,10 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
       </section>
 
       <ClinicalCard className="p-5">
-        <SectionHeader title="Recent Assessments" description="Latest completed assessments with score severity and patient trend" />
+        <SectionHeader title={t.recentAssessments} description={t.recentAssessmentsChartDesc} />
         <div className="mt-3">
           <ClinicalTable
-            columns={["Patient", "Date", "Test", "Conditions", "Score", "Trend", "Status", "Action"]}
+            columns={[t.patient, t.date, t.test, t.conditions, t.score, t.trend, t.status, t.action]}
             rows={analytics.recentAssessments}
             renderRow={(assessment) => (
               <tr key={assessment.id} className="hover:bg-slate-50">
@@ -217,7 +217,7 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
                 <td className="px-4 py-2"><StatusBadge tone={statusTone[assessment.status] ?? "neutral"}>{assessment.status}</StatusBadge></td>
                 <td className="px-4 py-2">
                   <button type="button" onClick={() => onViewPatient?.(assessment.patient_id)} className="inline-flex items-center gap-1 rounded-lg border border-rehab-line bg-white px-2.5 py-1.5 text-xs font-semibold text-rehab-blue hover:bg-slate-50">
-                    Results <ArrowRight size={12} />
+                    {t.results} <ArrowRight size={12} />
                   </button>
                 </td>
               </tr>
@@ -249,9 +249,9 @@ function KpiCard({ icon: Icon, label, value, helper, color, trend, trendColor })
   );
 }
 
-function ChartFrame({ data, children }) {
+function ChartFrame({ data, children, t }) {
   if (!data) return <div className="mt-4 h-64 animate-pulse rounded-lg bg-slate-100" />;
-  if (!data.length) return <div className="mt-4"><EmptyState title="No data available for this period" description="Complete assessments to populate this chart." /></div>;
+  if (!data.length) return <div className="mt-4"><EmptyState title={t?.noDataForPeriod ?? "No data available for this period"} description={t?.noDataForPeriodDesc ?? "Complete assessments to populate this chart."} /></div>;
   return <div className="mt-4">{children}</div>;
 }
 
