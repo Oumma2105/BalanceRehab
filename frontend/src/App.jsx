@@ -13,6 +13,7 @@ import { RehabilitationGamesPage } from "./pages/RehabilitationGames";
 import { SettingsPage } from "./pages/Settings";
 import { downloadSessionReport } from "./utils/report";
 import { loadPersistedState, resetPersistedState, savePersistedState } from "./utils/storage";
+import { demoRehabSessions } from "./data/demoData";
 
 const pages = [
   "dashboard",
@@ -39,7 +40,7 @@ export default function App() {
   const [patientProfileRequest, setPatientProfileRequest] = useState(null);
   const [assessmentFocus, setAssessmentFocus] = useState(false);
   const [backendReady, setBackendReady] = useState(false);
-  const [rehabSessions, setRehabSessions] = useState([]);
+  const [rehabSessions, setRehabSessions] = useState(demoRehabSessions);
   const [rehabPatientId, setRehabPatientId] = useState(null);
 
   const t = translations[language];
@@ -144,7 +145,8 @@ export default function App() {
             setReports(backendReportsResult.value);
           }
           setDashboardSummary(backendDashboardSummaryResult.status === "fulfilled" ? backendDashboardSummaryResult.value : null);
-          setRehabSessions(backendRehabSessionsResult.status === "fulfilled" ? (backendRehabSessionsResult.value ?? []) : []);
+          const backendRehab = backendRehabSessionsResult.status === "fulfilled" ? (backendRehabSessionsResult.value ?? []) : [];
+          setRehabSessions(backendRehab.length > 0 ? backendRehab : demoRehabSessions);
         }
       } catch (error) {
         console.warn("Backend data loading failed, keeping local state.", error);

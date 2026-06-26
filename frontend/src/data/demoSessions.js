@@ -233,7 +233,7 @@ function makeSession(patient, patientIndex, sessionIndex, totalSessions) {
 
 export const demoSessions = demoPatients
   .flatMap((patient, patientIndex) => {
-    const totalSessions = 2 + (patientIndex % 4);
+    const totalSessions = 3 + (patientIndex % 6);
     return Array.from({ length: totalSessions }, (_, sessionIndex) => makeSession(patient, patientIndex, sessionIndex, totalSessions));
   })
   .sort((a, b) => `${b.dateISO} ${b.id}`.localeCompare(`${a.dateISO} ${a.id}`));

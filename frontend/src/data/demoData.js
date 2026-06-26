@@ -5,6 +5,65 @@ import { demoSessions } from "./demoSessions.js";
 
 export { demoAssessments, demoPatients, demoReports, demoSessions };
 
+const GAME_TYPES = [
+  "weight_shift_trainer",
+  "path_following",
+  "balance_maze",
+  "reach_touch",
+  "balloon_pop",
+  "squat_trainer",
+  "single_leg_balance",
+  "obstacle_avoidance",
+];
+
+const BASE = new Date("2026-06-26T00:00:00");
+
+function rehabDate(daysAgo, hour = 10) {
+  const d = new Date(BASE);
+  d.setDate(d.getDate() - daysAgo);
+  d.setHours(hour, 0, 0, 0);
+  return d.toISOString();
+}
+
+export const demoRehabSessions = [
+  // Week 12 ago — early, lower scores
+  { id: "rh-01", gameType: GAME_TYPES[0], score: 52, stability: 49, durationSeconds: 60,  createdAt: rehabDate(82, 9)  },
+  { id: "rh-02", gameType: GAME_TYPES[4], score: 48, stability: 45, durationSeconds: 45,  createdAt: rehabDate(80, 14) },
+  // Week 11
+  { id: "rh-03", gameType: GAME_TYPES[1], score: 57, stability: 54, durationSeconds: 60,  createdAt: rehabDate(75, 10) },
+  { id: "rh-04", gameType: GAME_TYPES[6], score: 55, stability: 53, durationSeconds: 90,  createdAt: rehabDate(73, 15) },
+  // Week 10
+  { id: "rh-05", gameType: GAME_TYPES[2], score: 61, stability: 58, durationSeconds: 60,  createdAt: rehabDate(68, 9)  },
+  { id: "rh-06", gameType: GAME_TYPES[0], score: 63, stability: 60, durationSeconds: 120, createdAt: rehabDate(66, 11) },
+  // Week 9
+  { id: "rh-07", gameType: GAME_TYPES[3], score: 66, stability: 64, durationSeconds: 90,  createdAt: rehabDate(61, 10) },
+  { id: "rh-08", gameType: GAME_TYPES[5], score: 64, stability: 62, durationSeconds: 60,  createdAt: rehabDate(59, 14) },
+  // Week 8
+  { id: "rh-09", gameType: GAME_TYPES[7], score: 69, stability: 67, durationSeconds: 120, createdAt: rehabDate(54, 9)  },
+  { id: "rh-10", gameType: GAME_TYPES[1], score: 71, stability: 69, durationSeconds: 90,  createdAt: rehabDate(52, 16) },
+  // Week 7
+  { id: "rh-11", gameType: GAME_TYPES[4], score: 70, stability: 68, durationSeconds: 60,  createdAt: rehabDate(47, 10) },
+  { id: "rh-12", gameType: GAME_TYPES[2], score: 74, stability: 72, durationSeconds: 120, createdAt: rehabDate(45, 11) },
+  // Week 6
+  { id: "rh-13", gameType: GAME_TYPES[6], score: 76, stability: 74, durationSeconds: 90,  createdAt: rehabDate(40, 9)  },
+  { id: "rh-14", gameType: GAME_TYPES[0], score: 75, stability: 73, durationSeconds: 120, createdAt: rehabDate(38, 14) },
+  // Week 5
+  { id: "rh-15", gameType: GAME_TYPES[3], score: 79, stability: 77, durationSeconds: 120, createdAt: rehabDate(33, 10) },
+  { id: "rh-16", gameType: GAME_TYPES[7], score: 77, stability: 76, durationSeconds: 90,  createdAt: rehabDate(31, 15) },
+  // Week 4
+  { id: "rh-17", gameType: GAME_TYPES[5], score: 81, stability: 79, durationSeconds: 120, createdAt: rehabDate(26, 9)  },
+  { id: "rh-18", gameType: GAME_TYPES[1], score: 80, stability: 78, durationSeconds: 120, createdAt: rehabDate(24, 11) },
+  // Week 3
+  { id: "rh-19", gameType: GAME_TYPES[4], score: 83, stability: 81, durationSeconds: 120, createdAt: rehabDate(19, 10) },
+  { id: "rh-20", gameType: GAME_TYPES[2], score: 85, stability: 83, durationSeconds: 120, createdAt: rehabDate(17, 14) },
+  // Week 2
+  { id: "rh-21", gameType: GAME_TYPES[6], score: 84, stability: 82, durationSeconds: 120, createdAt: rehabDate(12, 9)  },
+  { id: "rh-22", gameType: GAME_TYPES[0], score: 87, stability: 85, durationSeconds: 120, createdAt: rehabDate(10, 16) },
+  // Week 1 (most recent)
+  { id: "rh-23", gameType: GAME_TYPES[3], score: 88, stability: 86, durationSeconds: 120, createdAt: rehabDate(5, 10)  },
+  { id: "rh-24", gameType: GAME_TYPES[7], score: 90, stability: 88, durationSeconds: 120, createdAt: rehabDate(2, 14)  },
+];
+
 const scores = demoSessions.map((session) => session.totalScore);
 const averageScore = Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length);
 const attentionPatients = demoPatients.filter((patient) => ["Follow-up", "Declining"].includes(patient.status));
