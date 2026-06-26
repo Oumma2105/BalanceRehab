@@ -74,8 +74,8 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
         <KpiCard icon={AlertTriangle} label={t.followUpQueue} value={analytics.kpis.follow_up_queue} helper={(t.kpiFollowUpHelper ?? "{declining} declining · {noRecent} no recent session").replace("{declining}", analytics.kpis.declining_count ?? 0).replace("{noRecent}", analytics.kpis.no_recent_count ?? 0)} color={queueColor(analytics.kpis.follow_up_queue)} />
       </section>
 
-      {/* Row 1: Risk Distribution | Rehabilitation Progress */}
-      <section className="grid gap-4 xl:grid-cols-2">
+      {/* Row 1: Risk Distribution — full width */}
+      <section>
         <ClinicalCard className="p-5">
           <SectionHeader title={t.riskDistribution} description={t.riskDistributionDesc} />
           <div className="mt-4 grid gap-6 sm:grid-cols-2">
@@ -108,7 +108,10 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
             </ChartFrame>
           </div>
         </ClinicalCard>
+      </section>
 
+      {/* Row 2: Rehabilitation Progress | Balance Trend */}
+      <section className="grid gap-4 xl:grid-cols-2">
         <ClinicalCard className="p-5">
           <SectionHeader title={t.rehabProgress} description={t.rehabProgressDesc} />
           <ChartFrame data={rehabAnalytics.trend} t={t}>
@@ -132,14 +135,11 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
             <StatChip label={(t.statSessions ?? "Sessions: {count}").replace("{count}", rehabSessions.length)} color="#577590" />
           </div>
         </ClinicalCard>
-      </section>
 
-      {/* Row 2: Balance Trend — full width */}
-      <section>
         <ClinicalCard className="p-5">
           <SectionHeader title={t.clinicWideTrend} description={t.clinicWideTrendDesc} />
           <ChartFrame data={analytics.clinicTrend} t={t}>
-            <ResponsiveContainer width="100%" height={380}>
+            <ResponsiveContainer width="100%" height={320}>
               <ComposedChart data={analytics.clinicTrend} margin={{ top: 8, right: 52, bottom: 8, left: 8 }}>
                 <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
                 <XAxis dataKey="week_label" tick={{ fontSize: 11 }} stroke="#577590" height={36} />
