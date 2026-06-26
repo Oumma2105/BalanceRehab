@@ -74,35 +74,7 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
         <KpiCard icon={AlertTriangle} label={t.followUpQueue} value={analytics.kpis.follow_up_queue} helper={(t.kpiFollowUpHelper ?? "{declining} declining · {noRecent} no recent session").replace("{declining}", analytics.kpis.declining_count ?? 0).replace("{noRecent}", analytics.kpis.no_recent_count ?? 0)} color={queueColor(analytics.kpis.follow_up_queue)} />
       </section>
 
-      {/* Row 1: Balance Trend — full width */}
-      <section>
-        <ClinicalCard className="p-5">
-          <SectionHeader title={t.clinicWideTrend} description={t.clinicWideTrendDesc} />
-          <ChartFrame data={analytics.clinicTrend} t={t}>
-            <ResponsiveContainer width="100%" height={380}>
-              <ComposedChart data={analytics.clinicTrend} margin={{ top: 8, right: 52, bottom: 8, left: 8 }}>
-                <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-                <XAxis dataKey="week_label" tick={{ fontSize: 11 }} stroke="#577590" height={36} />
-                <YAxis yAxisId="score" domain={[0, 100]} tick={{ fontSize: 11 }} stroke="#577590" width={52} />
-                <YAxis yAxisId="volume" orientation="right" tick={{ fontSize: 11 }} stroke="#577590" allowDecimals={false} width={48} />
-                <Tooltip content={<ClinicalTooltip />} />
-                <Legend verticalAlign="top" height={40} />
-                <ReferenceLine yAxisId="score" y={75} stroke="#90BE6D" strokeDasharray="5 5" label={{ value: t.clinicalTarget, fill: "#47743C", fontSize: 11, position: "insideTopRight" }} />
-                <Bar yAxisId="volume" dataKey="session_count" name={t.sessions} fill="#F9C74F" fillOpacity={0.55} radius={[4, 4, 0, 0]} />
-                <Area yAxisId="score" type="monotone" dataKey="avg_score" name={t.averageScore} fill="#43AA8B" fillOpacity={0.18} stroke="#43AA8B" strokeWidth={3} connectNulls />
-                <Line yAxisId="score" type="monotone" dataKey="median_score" name={t.medianScore} stroke="#F8961E" strokeWidth={2.5} dot={false} connectNulls />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </ChartFrame>
-          <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
-            <StatChip label={(t.statBestWeek ?? "Best week: {value} avg").replace("{value}", trendStats.best)} color="#90BE6D" />
-            <StatChip label={(t.statMostActive ?? "Most active: {value} sessions/week").replace("{value}", trendStats.mostActive)} color="#F9C74F" />
-            <StatChip label={(t.statTrend ?? "Trend: {sign}{value} pts/month").replace("{sign}", trendStats.trend >= 0 ? "+" : "").replace("{value}", Math.abs(trendStats.trend))} color={trendStats.trend >= 0 ? "#43AA8B" : "#F94144"} />
-          </div>
-        </ClinicalCard>
-      </section>
-
-      {/* Row 2: Risk Distribution | Rehabilitation Progress */}
+      {/* Row 1: Risk Distribution | Rehabilitation Progress */}
       <section className="grid gap-4 xl:grid-cols-2">
         <ClinicalCard className="p-5">
           <SectionHeader title={t.riskDistribution} description={t.riskDistributionDesc} />
@@ -158,6 +130,34 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
             <StatChip label={(t.statAvgRehab ?? "Avg rehab: {value}/100").replace("{value}", formatNumber(rehabAnalytics.averageScore))} color="#90BE6D" />
             <StatChip label={(t.statBestRehab ?? "Best rehab: {value}/100").replace("{value}", formatNumber(rehabAnalytics.bestScore))} color="#43AA8B" />
             <StatChip label={(t.statSessions ?? "Sessions: {count}").replace("{count}", rehabSessions.length)} color="#577590" />
+          </div>
+        </ClinicalCard>
+      </section>
+
+      {/* Row 2: Balance Trend — full width */}
+      <section>
+        <ClinicalCard className="p-5">
+          <SectionHeader title={t.clinicWideTrend} description={t.clinicWideTrendDesc} />
+          <ChartFrame data={analytics.clinicTrend} t={t}>
+            <ResponsiveContainer width="100%" height={380}>
+              <ComposedChart data={analytics.clinicTrend} margin={{ top: 8, right: 52, bottom: 8, left: 8 }}>
+                <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                <XAxis dataKey="week_label" tick={{ fontSize: 11 }} stroke="#577590" height={36} />
+                <YAxis yAxisId="score" domain={[0, 100]} tick={{ fontSize: 11 }} stroke="#577590" width={52} />
+                <YAxis yAxisId="volume" orientation="right" tick={{ fontSize: 11 }} stroke="#577590" allowDecimals={false} width={48} />
+                <Tooltip content={<ClinicalTooltip />} />
+                <Legend verticalAlign="top" height={40} />
+                <ReferenceLine yAxisId="score" y={75} stroke="#90BE6D" strokeDasharray="5 5" label={{ value: t.clinicalTarget, fill: "#47743C", fontSize: 11, position: "insideTopRight" }} />
+                <Bar yAxisId="volume" dataKey="session_count" name={t.sessions} fill="#F9C74F" fillOpacity={0.55} radius={[4, 4, 0, 0]} />
+                <Area yAxisId="score" type="monotone" dataKey="avg_score" name={t.averageScore} fill="#43AA8B" fillOpacity={0.18} stroke="#43AA8B" strokeWidth={3} connectNulls />
+                <Line yAxisId="score" type="monotone" dataKey="median_score" name={t.medianScore} stroke="#F8961E" strokeWidth={2.5} dot={false} connectNulls />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </ChartFrame>
+          <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
+            <StatChip label={(t.statBestWeek ?? "Best week: {value} avg").replace("{value}", trendStats.best)} color="#90BE6D" />
+            <StatChip label={(t.statMostActive ?? "Most active: {value} sessions/week").replace("{value}", trendStats.mostActive)} color="#F9C74F" />
+            <StatChip label={(t.statTrend ?? "Trend: {sign}{value} pts/month").replace("{sign}", trendStats.trend >= 0 ? "+" : "").replace("{value}", Math.abs(trendStats.trend))} color={trendStats.trend >= 0 ? "#43AA8B" : "#F94144"} />
           </div>
         </ClinicalCard>
       </section>
