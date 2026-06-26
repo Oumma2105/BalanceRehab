@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock,
+  Search,
   Footprints,
   Gauge,
   Grid3X3,
@@ -81,9 +82,7 @@ export function RehabilitationGamesPage({
   onOpenPatientRehabilitation,
   onWorkflowFocusChange,
 }) {
-  const [patientId, setPatientId] = useState(
-    preselectedPatientId ?? patients[0]?.id ?? null,
-  );
+  const [patientId, setPatientId] = useState(preselectedPatientId ?? null);
   const [selectedGame, setSelectedGame] = useState("stability_challenge");
   const [difficulty, setDifficulty] = useState("standard");
   const [durationSeconds, setDurationSeconds] = useState(45);
@@ -103,7 +102,7 @@ export function RehabilitationGamesPage({
   const patientAnalytics = buildRehabAnalytics(patientRehabSessions);
   // activeStage: 0=Patient, 1=Exercise, 2=Preview, 3=Training, 4=Review
   const activeStage = step === 1 ? 3 : step === 2 ? 4 : setupSubStep;
-  const currentStepLabel = "4/5 — Training";
+  const currentStepLabel = t.rehabilitationWorkspace?.stepTrainingLabel ?? "Step 4 of 5 — Training";
 
   useEffect(() => {
     onWorkflowFocusChange?.(step === 1);
@@ -161,6 +160,8 @@ export function RehabilitationGamesPage({
       {step === 0 ? (
         <RehabSetupStep
           patients={patients}
+          allAssessments={sessions}
+          allRehabilitationSessions={rehabilitationSessions}
           patientId={patientId}
           selectedPatient={selectedPatient}
           latestAssessment={latestAssessment}
@@ -250,7 +251,6 @@ function SetupPatientRow({ patients, patientId, selectedPatient, latestAssessmen
             highlight
           />
           <PatientPill label="Risk" value={profile.riskLevel} accent={profile.riskColor} />
-          <PatientPill label="Sessions" value={analytics.count > 0 ? String(analytics.count) : "None"} />
         </>
       )}
       <button
@@ -267,7 +267,7 @@ function SetupPatientRow({ patients, patientId, selectedPatient, latestAssessmen
 function PatientPill({ label, value, highlight, accent }) {
   return (
     <div>
-      <p className="text-[9px] font-bold uppercase tracking-wider text-rehab-muted">{label}</p>
+      <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-rehab-muted">{label}</p>
       <p
         className={`mt-0.5 text-xs font-bold ${highlight ? "text-[#43AA8B]" : "text-rehab-ink"}`}
         style={accent ? { color: accent } : undefined}
@@ -278,28 +278,127 @@ function PatientPill({ label, value, highlight, accent }) {
   );
 }
 
+function PatientSelectionRow({ item, selected, onSelect }) {
+  const { patient, identifier, condition, score, lastSessionLabel, statusLabel, statusTone } = item;
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`grid w-full grid-cols-[auto_minmax(12rem,1.5fr)_minmax(10rem,1fr)_7rem_9rem_8rem] items-center gap-3 px-4 py-2.5 text-left transition ${
+        selected ? "bg-[#EEF7F4] ring-1 ring-inset ring-rehab-teal/35" : "bg-white hover:bg-slate-50"
+      }`}
+    >
+      <span className={`grid h-9 w-9 place-items-center rounded-lg text-sm font-black ${selected ? "bg-rehab-teal text-white" : "bg-slate-100 text-rehab-muted"}`}>
+        {patient.fullName?.[0] ?? "?"}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-bold text-rehab-ink">{patient.fullName}</span>
+        <span className="mt-0.5 block truncate text-[11px] font-semibold text-rehab-muted">{identifier}</span>
+      </span>
+      <span className="truncate text-xs font-semibold text-rehab-muted">{condition}</span>
+      <span>
+        <span className="text-sm font-black" style={{ color: scoreColor(score) }}>{score != null ? `${score}/100` : "—"}</span>
+        <span className="mt-1 block h-1.5 rounded-full bg-slate-100">
+          <span className="block h-full rounded-full" style={{ width: `${Math.min(100, Math.max(0, score ?? 0))}%`, backgroundColor: scoreColor(score) }} />
+        </span>
+      </span>
+      <span className="text-xs font-semibold text-rehab-muted">{lastSessionLabel}</span>
+      <StatusBadge tone={statusTone}>{statusLabel}</StatusBadge>
+    </button>
+  );
+}
+
+function buildRehabPatientRows(patients, assessments, rehabSessions) {
+  return patients.map((patient) => {
+    const patientAssessments = assessments
+      .filter((session) => session.patientId === patient.id)
+      .sort((a, b) => new Date(b.createdAt ?? b.date ?? 0) - new Date(a.createdAt ?? a.date ?? 0));
+    const patientRehab = rehabSessions
+      .filter((session) => session.patientId === patient.id)
+      .sort((a, b) => new Date(b.createdAt ?? b.date ?? 0) - new Date(a.createdAt ?? a.date ?? 0));
+    const latestAssessment = patientAssessments[0];
+    const latestRehab = patientRehab[0];
+    const score = latestAssessment?.totalScore ?? patient.latestScore ?? null;
+    const lastSessionTime = latestRehab ? new Date(latestRehab.createdAt ?? latestRehab.date).getTime() : null;
+    const daysSinceLastSession = lastSessionTime ? Math.floor((Date.now() - lastSessionTime) / 86400000) : null;
+    const status = rehabPatientStatus(patient, score, patientRehab);
+    return {
+      patient,
+      identifier: patient.patientCode ?? patient.patientId ?? `#${patient.id}`,
+      condition: patient.medicalReason ?? patient.pathology ?? "—",
+      score,
+      lastSessionTime,
+      daysSinceLastSession,
+      lastSessionLabel: relativeDaysLabel(daysSinceLastSession),
+      ...status,
+    };
+  });
+}
+
+function rehabPatientStatus(patient, score, rehabSessions) {
+  const rawStatus = String(patient.status ?? "").toLowerCase();
+  const sorted = rehabSessions.slice().sort((a, b) => new Date(a.createdAt ?? a.date ?? 0) - new Date(b.createdAt ?? b.date ?? 0));
+  const delta = sorted.length > 1 ? Number(sorted.at(-1).score ?? 0) - Number(sorted.at(-2).score ?? 0) : 0;
+  if (rawStatus.includes("declin") || rawStatus.includes("régression") || delta < -3) {
+    return { statusKey: "declining", statusLabel: "En régression", statusTone: "danger" };
+  }
+  if (Number(score) < 60 || rawStatus.includes("follow")) {
+    return { statusKey: "followup", statusLabel: "À suivre", statusTone: "warning" };
+  }
+  if (delta > 3 || rawStatus.includes("improv")) {
+    return { statusKey: "improving", statusLabel: "En amélioration", statusTone: "connected" };
+  }
+  return { statusKey: "stable", statusLabel: "Stable", statusTone: "neutral" };
+}
+
+function relativeDaysLabel(days) {
+  if (days == null) return "Aucune séance";
+  if (days <= 0) return "aujourd’hui";
+  if (days === 1) return "hier";
+  return `il y a ${days} jours`;
+}
+
+function scoreColor(score) {
+  const value = Number(score);
+  if (!Number.isFinite(value)) return "#94A3B8";
+  if (value < 60) return "#F94144";
+  if (value < 75) return "#F8961E";
+  return "#43AA8B";
+}
+
+function difficultyGuidance(difficulty, copy) {
+  const guidance = copy.difficultyGuidance ?? {};
+  return guidance[difficulty] ?? {
+    intro: "Initiation : recommandé pour première session ou score < 50",
+    standard: "Standard : score entre 50-75, progression normale",
+    advanced: "Avancé : score > 75, patient stable",
+  }[difficulty] ?? "";
+}
+
 function CompactGameTile({ game, selected, onClick }) {
   const Icon = game.icon;
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`flex flex-col items-center gap-2 rounded-xl border p-3 text-center transition ${
+      className={`flex min-h-[90px] flex-col items-center gap-2.5 rounded-xl border p-3 text-center transition ${
         selected
           ? "border-[#43AA8B] bg-[#F2FBF8] ring-2 ring-[#43AA8B]/15 shadow-sm"
           : "border-rehab-line bg-white hover:border-[#43AA8B]/50 hover:bg-slate-50"
       }`}
     >
-      <span className="grid h-10 w-10 place-items-center rounded-lg text-white" style={{ backgroundColor: game.color }}>
-        <Icon size={18} />
+      <span className="grid h-8 w-8 place-items-center rounded-lg text-white" style={{ backgroundColor: game.color }}>
+        <Icon size={16} />
       </span>
-      <span className="text-[11px] font-bold leading-tight text-rehab-ink">{game.title}</span>
+      <span className="text-[12px] font-semibold leading-tight text-rehab-ink">{game.title}</span>
     </button>
   );
 }
 
 function RehabSetupStep({
   patients,
+  allAssessments = [],
+  allRehabilitationSessions = [],
   patientId,
   selectedPatient,
   latestAssessment,
@@ -326,13 +425,134 @@ function RehabSetupStep({
   const selectedGameInfo = games[selectedGame];
   const Icon = selectedGameInfo.icon;
   const [planOpen, setPlanOpen] = useState(false);
+  const [patientSearch, setPatientSearch] = useState("");
+  const [patientFilter, setPatientFilter] = useState("all");
 
   // ── Sub-step 0: Patient selection ─────────────────────────────────────────
   if (subStep === 0) {
+    const enrichedPatients = buildRehabPatientRows(patients, allAssessments, allRehabilitationSessions);
+    const query = patientSearch.trim().toLowerCase();
+    const filteredPatients = enrichedPatients
+      .filter((item) => {
+        const matchesSearch = !query || [item.patient.fullName, item.identifier, item.condition]
+          .some((value) => String(value ?? "").toLowerCase().includes(query));
+        if (!matchesSearch) return false;
+        if (patientFilter === "recent") return item.daysSinceLastSession != null && item.daysSinceLastSession <= 7;
+        if (patientFilter === "risk") return item.score < 60 || item.statusKey === "declining";
+        if (patientFilter === "stale") return item.daysSinceLastSession == null || item.daysSinceLastSession > 30;
+        return true;
+      })
+      .sort((a, b) => (patientFilter === "recent"
+        ? (a.daysSinceLastSession ?? 9999) - (b.daysSinceLastSession ?? 9999)
+        : (b.lastSessionTime ?? 0) - (a.lastSessionTime ?? 0)));
+    const visiblePatients = patientFilter === "all" && !query ? filteredPatients.slice(0, 10) : filteredPatients;
+    const selectedRow = enrichedPatients.find((item) => item.patient.id === patientId);
+    const filterOptions = [
+      ["all", copy.filterAll ?? "Tous"],
+      ["recent", copy.filterRecent ?? "Récents"],
+      ["risk", copy.filterRisk ?? "À risque"],
+      ["stale", copy.filterStale ?? "Sans séance récente"],
+    ];
+
     return (
       <div className="space-y-4">
         <ClinicalCard className="p-5">
-          <p className="mb-1 text-[10px] font-black uppercase tracking-[0.16em] text-rehab-muted">{copy.selectPatient ?? "Select Patient"}</p>
+          <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.06em] text-rehab-muted">{copy.selectPatient ?? "Select Patient"}</p>
+          <p className="mb-4 text-xs text-rehab-muted">{copy.choosePatientToContinue ?? "Choose the patient for this rehabilitation session."}</p>
+          <div className="relative">
+            <Search size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-rehab-muted" />
+            <input
+              value={patientSearch}
+              onChange={(event) => setPatientSearch(event.target.value)}
+              placeholder={copy.patientSearchPlaceholder ?? "Rechercher un patient par nom, ID ou pathologie..."}
+              className="min-h-12 w-full rounded-xl border border-rehab-line bg-white pl-11 pr-4 text-sm font-semibold text-rehab-ink outline-none transition placeholder:text-rehab-muted focus:border-rehab-teal focus:ring-2 focus:ring-rehab-teal/10"
+            />
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {filterOptions.map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setPatientFilter(value)}
+                className={`rounded-full border px-3.5 py-1.5 text-xs font-bold transition ${
+                  patientFilter === value
+                    ? "border-rehab-teal bg-[#EEF7F4] text-rehab-teal"
+                    : "border-slate-200 bg-white text-rehab-muted hover:border-rehab-teal/50 hover:text-rehab-ink"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="mt-5 overflow-hidden rounded-xl border border-rehab-line bg-white">
+            {visiblePatients.length ? (
+              <div className="max-h-[340px] divide-y divide-rehab-line overflow-y-auto">
+                {visiblePatients.map((item) => (
+                  <PatientSelectionRow
+                    key={item.patient.id}
+                    item={item}
+                    selected={patientId === item.patient.id}
+                    onSelect={() => onSelectPatient(item.patient.id)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="p-8 text-center">
+                <p className="text-sm font-bold text-rehab-ink">
+                  {(copy.noPatientFoundFor ?? "Aucun patient trouvé pour '{term}'").replace("{term}", patientSearch)}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => { setPatientSearch(""); setPatientFilter("all"); }}
+                  className="mt-3 text-sm font-semibold text-rehab-teal hover:underline"
+                >
+                  {copy.clearSearch ?? "Vider la recherche"}
+                </button>
+              </div>
+            )}
+          </div>
+        </ClinicalCard>
+
+        {selectedPatient && selectedRow ? (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-slate-200 bg-white px-5 py-3.5 shadow-sm">
+            <div className="flex items-center gap-2.5">
+              <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#EEF7F4]">
+                <User size={14} className="text-[#43AA8B]" />
+              </span>
+              <span className="text-sm font-bold text-rehab-ink">{selectedPatient.fullName}</span>
+            </div>
+            <div className="hidden h-5 w-px bg-slate-200 sm:block" />
+            <PatientPill label={copy.condition ?? t.pathology ?? "Condition"} value={selectedRow.condition} />
+            <div className="min-w-[9rem]">
+              <PatientPill label={t.balanceScore ?? "Balance"} value={selectedRow.score != null ? `${selectedRow.score}/100` : (copy.noAssessment ?? t.noAssessmentsYet ?? "No assessment")} highlight />
+              <div className="mt-1 h-1.5 rounded-full bg-slate-100">
+                <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.max(0, selectedRow.score ?? 0))}%`, backgroundColor: scoreColor(selectedRow.score) }} />
+              </div>
+            </div>
+            <PatientPill label={t.riskShort ?? "Risk"} value={profile.riskLevel} accent={profile.riskColor} />
+            <button type="button" onClick={onOpenProfile} className="ml-auto flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-rehab-ink transition hover:border-rehab-teal hover:text-rehab-teal">
+              {copy.profile ?? t.profile ?? "Profile"} <ChevronRight size={13} />
+            </button>
+          </div>
+        ) : null}
+
+        <button
+          type="button"
+          onClick={onNextSubStep}
+          disabled={!selectedPatient}
+          className="sticky bottom-4 flex w-full items-center justify-center gap-3 rounded-2xl bg-[#43AA8B] px-8 py-4 text-base font-bold text-white shadow-md transition hover:bg-[#3b9a7e] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {copy.chooseExercise ?? "Choose Exercise"} <ChevronRight size={18} />
+        </button>
+      </div>
+    );
+  }
+
+  if (false && subStep === 0) {
+    return (
+      <div className="space-y-4">
+        <ClinicalCard className="p-5">
+          <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.06em] text-rehab-muted">{copy.selectPatient ?? "Select Patient"}</p>
           <p className="mb-4 text-xs text-rehab-muted">{copy.choosePatientToContinue ?? "Choose the patient for this rehabilitation session."}</p>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {patients.map((p) => (
@@ -378,7 +598,6 @@ function RehabSetupStep({
             <PatientPill label={copy.condition ?? t.pathology ?? "Condition"} value={selectedPatient.medicalReason ?? selectedPatient.pathology ?? "—"} />
             <PatientPill label={t.balanceScore ?? "Balance"} value={latestAssessment?.totalScore != null ? `${latestAssessment.totalScore}/100` : (copy.noAssessment ?? t.noAssessmentsYet ?? "No assessment")} highlight />
             <PatientPill label={t.riskShort ?? "Risk"} value={profile.riskLevel} accent={profile.riskColor} />
-            <PatientPill label={t.sessions ?? "Sessions"} value={analytics.count > 0 ? String(analytics.count) : (copy.none ?? t.noSessionsYet ?? "None")} />
             <button type="button" onClick={onOpenProfile} className="ml-auto flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-rehab-ink transition hover:border-rehab-teal hover:text-rehab-teal">
               {copy.profile ?? t.profile ?? "Profile"} <ChevronRight size={13} />
             </button>
@@ -401,9 +620,9 @@ function RehabSetupStep({
   if (subStep === 1) {
     return (
       <div className="space-y-4">
-        <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
+        <div className="grid gap-4 xl:grid-cols-[1fr_300px]">
           <ClinicalCard className="p-4">
-            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.16em] text-rehab-muted">{copy.exerciseLibrary}</p>
+            <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.06em] text-rehab-muted">{copy.exerciseLibrary}</p>
             <div className="grid grid-cols-3 gap-2">
               {Object.entries(games).map(([key, game]) => (
                 <CompactGameTile key={key} game={game} selected={selectedGame === key} onClick={() => onSelectGame(key)} />
@@ -420,7 +639,7 @@ function RehabSetupStep({
                 <h3 className="font-bold leading-tight text-rehab-ink">{selectedGameInfo.title}</h3>
                 <p className="mt-0.5 text-xs text-rehab-muted">{selectedGameInfo.primaryGoal}</p>
               </div>
-              <span className="ml-auto shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-rehab-muted">{selectedGameInfo.difficulty}</span>
+              <span className="ml-auto shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-rehab-muted">{selectedGameInfo.difficulty}</span>
             </div>
             <p className="mt-4 text-sm leading-6 text-rehab-muted">{selectedGameInfo.description}</p>
             {selectedGameInfo.objectives?.length ? (
@@ -453,8 +672,44 @@ function RehabSetupStep({
                   [45, `45 ${copy.seconds}`],
                   [60, `60 ${copy.seconds}`],
                   [90, `90 ${copy.seconds}`],
+                  [120, `2 ${copy.minutes ?? "minutes"}`],
                 ]}
               />
+              <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold leading-5 text-rehab-muted">
+                {difficultyGuidance(difficulty, copy)}
+              </p>
+              <div className="rounded-xl border border-rehab-line bg-white p-3">
+                <p className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.06em] text-rehab-muted">
+                  <BrainCircuit size={13} className="text-rehab-teal" />
+                  {copy.recommendedPlan}
+                </p>
+                <div className="space-y-2">
+                  {suggestions.slice(0, 3).map((item, index) => {
+                    const game = games[item.gameType];
+                    const ItemIcon = game.icon;
+                    return (
+                      <button
+                        key={item.gameType}
+                        type="button"
+                        onClick={() => { onSelectGame(item.gameType); onSetDifficulty(item.difficulty); }}
+                        className={`flex w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition ${
+                          selectedGame === item.gameType
+                            ? "border-rehab-teal bg-[#EEF7F4]"
+                            : "border-slate-200 hover:border-rehab-teal/50"
+                        }`}
+                      >
+                        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-white" style={{ backgroundColor: game.color }}>
+                          <ItemIcon size={13} />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-xs font-bold text-rehab-ink">{index + 1}. {game.title}</span>
+                          <span className="block truncate text-[10px] font-semibold text-rehab-muted">{item.reason}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </ClinicalCard>
         </div>
@@ -472,11 +727,11 @@ function RehabSetupStep({
             onClick={onNextSubStep}
             className="flex flex-1 items-center justify-center gap-3 rounded-2xl bg-[#43AA8B] px-8 py-4 text-base font-bold text-white shadow-md transition hover:bg-[#3b9a7e]"
           >
-            Preview Exercise <ChevronRight size={18} />
+            {copy.previewExercise ?? "Preview Exercise"} <ChevronRight size={18} />
           </button>
         </div>
 
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white">
           <button
             type="button"
             onClick={() => setPlanOpen((prev) => !prev)}
@@ -491,7 +746,7 @@ function RehabSetupStep({
           {planOpen ? (
             <div className="border-t border-slate-200 px-5 py-4">
               <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
-                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-amber-800">{copy.assessmentFindings}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-amber-800">{copy.assessmentFindings}</p>
                 <div className="mt-3 space-y-2">
                   {assessmentProfile.findings.map((finding) => (
                     <div key={finding} className="flex items-start gap-2 text-sm font-semibold text-amber-950">
@@ -520,7 +775,7 @@ function RehabSetupStep({
                         <ItemIcon size={15} />
                       </span>
                       <span className="min-w-0">
-                        <span className="block text-[10px] font-black uppercase tracking-wide text-rehab-muted">{copy.program} {index + 1}</span>
+                        <span className="block text-[11px] font-medium uppercase tracking-[0.06em] text-rehab-muted">{copy.program} {index + 1}</span>
                         <span className="mt-0.5 block text-sm font-bold text-rehab-ink">{game.title}</span>
                         <span className="mt-0.5 block text-xs text-rehab-muted">{item.reason}</span>
                       </span>
@@ -545,7 +800,7 @@ function RehabSetupStep({
   ];
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
+      <div className="grid gap-4 xl:grid-cols-[1fr_300px]">
         {/* Exercise preview */}
         <ClinicalCard className="p-5">
           <div className="mb-4 flex items-center gap-3">
@@ -553,15 +808,15 @@ function RehabSetupStep({
               <Icon size={22} />
             </span>
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-rehab-muted">{copy.therapeuticPreview}</p>
-              <h2 className="text-lg font-bold leading-tight text-rehab-ink">{selectedGameInfo.title}</h2>
+              <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-rehab-muted">{copy.therapeuticPreview}</p>
+              <h2 className="text-xl font-semibold leading-tight text-rehab-ink">{selectedGameInfo.title}</h2>
               <p className="text-xs text-rehab-muted">{selectedGameInfo.primaryGoal}</p>
             </div>
           </div>
 
           {selectedGameInfo.focus ? (
             <div className="mb-4 rounded-lg bg-slate-50 px-4 py-3">
-              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-rehab-muted">{copy.movementFocus}</p>
+              <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-rehab-muted">{copy.movementFocus}</p>
               <p className="mt-1 text-sm font-semibold text-rehab-ink">{selectedGameInfo.focus}</p>
             </div>
           ) : null}
@@ -570,7 +825,7 @@ function RehabSetupStep({
 
           {selectedGameInfo.objectives?.length ? (
             <div className="mt-4">
-              <p className="mb-2 text-[10px] font-black uppercase tracking-[0.16em] text-rehab-muted">{copy.therapeuticObjectives}</p>
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.06em] text-rehab-muted">{copy.therapeuticObjectives}</p>
               <ul className="space-y-2">
                 {selectedGameInfo.objectives.map((obj) => (
                   <li key={obj} className="flex items-start gap-2.5 text-sm text-rehab-ink">
@@ -584,7 +839,7 @@ function RehabSetupStep({
 
           {selectedGameInfo.bodyParts?.length ? (
             <div className="mt-4">
-              <p className="mb-2 text-[10px] font-black uppercase tracking-[0.16em] text-rehab-muted">{copy.bodyPartsInvolved}</p>
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.06em] text-rehab-muted">{copy.bodyPartsInvolved}</p>
               <div className="flex flex-wrap gap-1.5">
                 {selectedGameInfo.bodyParts.map((part) => (
                   <span key={part} className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] font-semibold text-rehab-ink">
@@ -601,7 +856,7 @@ function RehabSetupStep({
           <ClinicalCard className="p-5">
             <div className="mb-4 flex items-center gap-2">
               <ShieldCheck size={16} className="text-rehab-teal" />
-              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-rehab-muted">Camera setup</p>
+              <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-rehab-muted">{copy.cameraSetup ?? "Camera setup"}</p>
             </div>
             <ul className="space-y-3">
               {CALIBRATION_ITEMS.map((item) => (
@@ -616,18 +871,18 @@ function RehabSetupStep({
           </ClinicalCard>
 
           <ClinicalCard className="p-5">
-            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.16em] text-rehab-muted">Session settings</p>
+            <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.06em] text-rehab-muted">{copy.sessionSettings ?? "Session settings"}</p>
             <div className="space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-rehab-muted">{copy.difficulty}</span>
-                <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-rehab-ink capitalize">{difficulty}</span>
+                <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-rehab-ink">{copy.difficultyLabels?.[difficulty] ?? difficulty}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-rehab-muted">{copy.duration}</span>
                 <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-rehab-ink">{durationSeconds}s</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-rehab-muted">Patient</span>
+                <span className="text-xs text-rehab-muted">{t.patient ?? "Patient"}</span>
                 <span className="truncate max-w-[120px] rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-rehab-ink">{selectedPatient?.fullName ?? "—"}</span>
               </div>
             </div>
@@ -641,14 +896,14 @@ function RehabSetupStep({
           onClick={onPrevSubStep}
           className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-6 py-4 text-sm font-bold text-rehab-ink shadow-sm transition hover:border-rehab-teal hover:text-rehab-teal"
         >
-          <ChevronRight size={16} className="rotate-180" /> Exercise
+          <ChevronRight size={16} className="rotate-180" /> {copy.exerciseBack ?? copy.workflowSteps?.[1] ?? "Exercise"}
         </button>
         <button
           type="button"
           onClick={onStart}
           className="flex flex-1 items-center justify-center gap-3 rounded-2xl bg-[#43AA8B] px-8 py-4 text-base font-bold text-white shadow-md transition hover:bg-[#3b9a7e]"
         >
-          <Play size={20} /> Begin Training <ChevronRight size={18} />
+          <Play size={20} /> {copy.beginTraining ?? copy.startTraining ?? "Begin Training"} <ChevronRight size={18} />
         </button>
       </div>
     </div>
@@ -840,6 +1095,7 @@ function ObstacleAvoidanceArena({ session, games, onBack, onRestart, onComplete,
           durationSeconds={session.durationSeconds ?? 60}
           onComplete={handleComplete}
           onCancel={handleBack}
+          copy={copy}
         />
       </div>
     </div>
@@ -1066,9 +1322,12 @@ function MotionGameOverlay({ frame, game, cameraError, streamReady, countdown = 
     return (
       <div className="absolute inset-0 grid place-items-center bg-slate-950/55 p-8 text-center text-white">
         <div>
-          <Webcam className="mx-auto mb-4" size={34} />
+          <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-full border border-white/20 bg-white/10">
+            <Webcam size={25} />
+          </div>
           <p className="text-xl font-semibold">{copy.standInView}</p>
           <p className="mt-2 max-w-md text-sm text-white/75">{copy.trackingInstruction}</p>
+          <span className="mx-auto mt-4 block h-6 w-6 animate-spin rounded-full border-2 border-white/25 border-t-[#43AA8B]" aria-hidden="true" />
         </div>
       </div>
     );
@@ -1117,6 +1376,7 @@ function MotionGameOverlay({ frame, game, cameraError, streamReady, countdown = 
 }
 
 function LiveMotionPanel({ game, summary, copy, dark = false, elapsedSeconds, durationSeconds }) {
+  const hasTrackingData = Number(summary.sampleCount ?? 0) > 0 || Number(elapsedSeconds ?? 0) > 0.2;
   const metrics = [
     { label: copy.accuracy, value: summary.accuracy, color: "#90BE6D" },
     { label: copy.stability, value: summary.stability, color: "#43AA8B" },
@@ -1145,10 +1405,10 @@ function LiveMotionPanel({ game, summary, copy, dark = false, elapsedSeconds, du
           <div key={label}>
             <div className={`flex justify-between text-xs font-semibold ${dark ? "text-white" : "text-rehab-ink"}`}>
               <span>{label}</span>
-              <span style={{ color }}>{formatValue(value)}%</span>
+              <span style={{ color: hasTrackingData ? color : "#94A3B8" }}>{hasTrackingData ? `${formatValue(value)}%` : "—"}</span>
             </div>
             <div className={`mt-1 h-1.5 rounded-full ${dark ? "bg-white/15" : "bg-slate-200"}`}>
-              <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, Number(value) || 0)}%`, backgroundColor: color }} />
+              <div className="h-full rounded-full transition-all" style={{ width: hasTrackingData ? `${Math.min(100, Number(value) || 0)}%` : "0%", backgroundColor: hasTrackingData ? color : "#CBD5E1" }} />
             </div>
           </div>
         ))}
@@ -1226,8 +1486,17 @@ function SessionMedal({ score, t }) {
 
 // ─── Performance radar ────────────────────────────────────────────────────────
 
-function PerformanceRadar({ session, t }) {
+function PerformanceRadar({ session, t, unmeasured = false }) {
   const copy = t?.rehabilitationWorkspace;
+  if (unmeasured) {
+    return (
+      <div className="grid min-h-[280px] place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center">
+        <p className="max-w-xs text-sm font-semibold leading-6 text-rehab-muted">
+          {copy?.noMeasuredDataMessage ?? "No measured data is available for this session."}
+        </p>
+      </div>
+    );
+  }
   const reactionScore = session.reactionTimeMs != null
     ? clamp(100 - session.reactionTimeMs / 12, 0, 100)
     : 70;
@@ -1239,11 +1508,11 @@ function PerformanceRadar({ session, t }) {
     { axis: copy?.reaction ?? "Reaction", value: Math.round(reactionScore) },
   ];
   return (
-    <div className="h-52">
+    <div className="h-[280px]">
       <ResponsiveContainer width="100%" height="100%">
         <RadarChart data={data} outerRadius="72%">
           <PolarGrid stroke="#E2E8F0" />
-          <PolarAngleAxis dataKey="axis" tick={{ fontSize: 10, fill: "#64748B", fontWeight: 600 }} />
+          <PolarAngleAxis dataKey="axis" tick={{ fontSize: 13, fill: "#64748B", fontWeight: 700 }} />
           <Radar
             dataKey="value"
             stroke="#43AA8B"
@@ -1260,49 +1529,50 @@ function PerformanceRadar({ session, t }) {
 
 // ─── Clinical recommendations ─────────────────────────────────────────────────
 
-function buildRecommendations(session) {
+function buildRecommendations(session, copy = {}) {
   const recs = [];
   const acc = Number(session.accuracy ?? 0);
   const stab = Number(session.stability ?? 0);
   const sr = Number(session.successRate ?? session.completionRate ?? 0);
   const rt = session.reactionTimeMs;
   const score = Number(session.score ?? 0);
+  const recommendationCopy = copy.recommendationMessages ?? {};
 
   if (score >= 85) {
-    recs.push("Excellent performance — consider advancing to a higher difficulty level next session.");
+    recs.push(recommendationCopy.excellent ?? "Excellent performance — consider advancing to a higher difficulty level next session.");
   } else if (score >= 70) {
-    recs.push("Good performance. Maintain this consistency and target 85+ over the next sessions.");
+    recs.push(recommendationCopy.good ?? "Good performance. Maintain this consistency and target 85+ over the next sessions.");
   }
 
   if (acc < 60) {
-    recs.push("Accuracy is below target — try reducing difficulty to build precise body control.");
+    recs.push(recommendationCopy.accuracyLow ?? "Accuracy is below target — try reducing difficulty to build precise body control.");
   } else if (acc >= 85 && recs.length < 2) {
-    recs.push("High accuracy achieved — extend session duration to build endurance.");
+    recs.push(recommendationCopy.accuracyHigh ?? "High accuracy achieved — extend session duration to build endurance.");
   }
 
   if (stab < 55) {
-    recs.push("Stability needs work — focus on slow, controlled holds before dynamic movement.");
+    recs.push(recommendationCopy.stabilityLow ?? "Stability needs work — focus on slow, controlled holds before dynamic movement.");
   } else if (stab >= 80 && recs.length < 2) {
-    recs.push("Strong stability — progress to path-following or obstacle-avoidance games.");
+    recs.push(recommendationCopy.stabilityHigh ?? "Strong stability — progress to path-following or obstacle-avoidance games.");
   }
 
   if (sr < 50 && recs.length < 3) {
-    recs.push("Success rate is low — slower, more deliberate movement patterns will help.");
+    recs.push(recommendationCopy.successLow ?? "Success rate is low — slower, more deliberate movement patterns will help.");
   }
 
   if (rt != null && rt > 1200 && recs.length < 3) {
-    recs.push("Reaction time is elevated — Weight Shift Trainer and Balloon Pop can improve responsiveness.");
+    recs.push(recommendationCopy.reactionSlow ?? "Reaction time is elevated — Weight Shift Trainer and Balloon Pop can improve responsiveness.");
   }
 
   if (recs.length === 0) {
-    recs.push("Well-rounded session. Gradually increase challenge by adding duration or difficulty.");
+    recs.push(recommendationCopy.default ?? "Well-rounded session. Gradually increase challenge by adding duration or difficulty.");
   }
 
   return recs.slice(0, 3);
 }
 
 function RecommendationsCard({ session, t }) {
-  const recs = buildRecommendations(session);
+  const recs = buildRecommendations(session, t?.rehabilitationWorkspace);
   return (
     <ClinicalCard className="p-5">
       <div className="flex items-center gap-2.5 border-b border-rehab-line pb-4">
@@ -1330,10 +1600,44 @@ function RecommendationsCard({ session, t }) {
 
 // ─── Review step ──────────────────────────────────────────────────────────────
 
+function getTrackingEffectiveSeconds(session) {
+  const explicit = Number(
+    session?.tracking_time_effective ??
+      session?.trackingTimeEffective ??
+      session?.trackingEffectiveSeconds ??
+      session?.trackingQuality?.effectiveSeconds,
+  );
+  if (Number.isFinite(explicit)) return explicit;
+  const samples = Array.isArray(session?.samples) ? session.samples : [];
+  const sampleTimes = samples.map((sample) => Number(sample.t)).filter(Number.isFinite);
+  if (sampleTimes.length) return Math.max(...sampleTimes);
+  return 0;
+}
+
+function isUnmeasuredSession(session) {
+  const effectiveSeconds = getTrackingEffectiveSeconds(session);
+  const score = Number(session?.score ?? 0);
+  const accuracy = Number(session?.accuracy ?? 0);
+  const stability = Number(session?.stability ?? 0);
+  return effectiveSeconds < 3 || (score === 0 && accuracy === 0 && stability === 0);
+}
+
+function getAcquisitionLabel(mode, copy = {}) {
+  const labels = copy.acquisitionLabels ?? {};
+  return labels[mode] ?? {
+    webcam_mediapipe: "Webcam · MediaPipe",
+    webcam: "Webcam · MediaPipe",
+    esp32_ultrasonic: "Capteurs ultrasoniques",
+    demo: "Mode démonstration",
+    simulation: "Simulation",
+  }[mode] ?? mode ?? "—";
+}
+
 function RehabReviewStep({ selectedPatient, session, patientSessions, analytics, games, t, saved, onSave, onNewSession, onRepeat, onOpenProfile }) {
   const copy = t.rehabilitationWorkspace;
   const game = games[session.gameType] ?? games.stability_challenge;
-  const combinedSessions = saved ? patientSessions : [session, ...patientSessions];
+  const unmeasured = isUnmeasuredSession(session);
+  const combinedSessions = saved || unmeasured ? patientSessions : [session, ...patientSessions];
 
   return (
     <div className="space-y-5">
@@ -1351,52 +1655,72 @@ function RehabReviewStep({ selectedPatient, session, patientSessions, analytics,
             </p>
           </div>
           <div className="flex flex-col items-end gap-2">
-            <SessionMedal score={session.score} t={t} />
+            {!unmeasured ? <SessionMedal score={session.score} t={t} /> : null}
             <p className="text-3xl font-semibold text-rehab-ink">
-              {Math.round(session.score)}
-              <span className="text-base text-rehab-muted">/100</span>
+              {unmeasured ? "—" : Math.round(session.score)}
+              {!unmeasured ? <span className="text-base text-rehab-muted">/100</span> : null}
             </p>
-            <StatusBadge tone={session.score >= 75 ? "success" : session.score >= 55 ? "warning" : "danger"}>
-              {session.score >= 75 ? copy.controlled : session.score >= 55 ? copy.needsPractice : copy.highSupport}
-            </StatusBadge>
+            {!unmeasured ? (
+              <StatusBadge tone={session.score >= 75 ? "connected" : session.score >= 55 ? "warning" : "danger"}>
+                {session.score >= 75 ? copy.controlled : session.score >= 55 ? copy.needsPractice : copy.highSupport}
+              </StatusBadge>
+            ) : null}
           </div>
         </div>
       </ClinicalCard>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <ClinicalCard className="p-5">
-          <SectionHeader title={copy.trajectoryControl} description={copy.trajectoryControlDescription} />
-          <div className="mt-4">
-            <ClinicalGameCanvas session={session} game={game} />
-          </div>
-        </ClinicalCard>
+        {unmeasured ? (
+          <ClinicalCard className="p-5">
+            <SectionHeader title={copy.sessionNotRecorded ?? "Session not recorded"} description={copy.noMeasuredDataTitle ?? "No measured tracking data"} />
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-6 text-sm font-semibold leading-6 text-rehab-muted">
+              {copy.sessionNotRecordedMessage ?? "The session ended before enough body-tracking data was collected. No clinical interpretation or trajectory chart is shown."}
+            </div>
+          </ClinicalCard>
+        ) : (
+          <ClinicalCard className="p-5">
+            <SectionHeader title={copy.trajectoryControl} description={copy.trajectoryControlDescription} />
+            <div className="mt-4">
+              <ClinicalGameCanvas session={session} game={game} />
+            </div>
+          </ClinicalCard>
+        )}
         <ClinicalCard className="p-5">
           <SectionHeader title={copy.sessionScores} description={copy.clinicalTrainingIndicators} />
-          <ScorePanel session={session} copy={copy} />
+          <ScorePanel session={session} copy={copy} unmeasured={unmeasured} />
           <div className="mt-5 grid gap-2">
-            <Button onClick={onSave} disabled={saved} className="w-full justify-center">
+            <Button onClick={onSave} disabled={saved || unmeasured} title={unmeasured ? copy.noDataToSave ?? "No data to save" : undefined} className="w-full justify-center py-3">
               <Save size={15} /> {saved ? copy.sessionSaved : copy.saveSession}
             </Button>
-            <button type="button" onClick={onRepeat} className="rounded-xl border border-rehab-line bg-white px-4 py-2.5 text-sm font-semibold text-rehab-ink transition hover:border-[#43AA8B]">
-              {copy.repeatExercise}
-            </button>
-            <button type="button" onClick={onNewSession} className="rounded-xl border border-rehab-line bg-white px-4 py-2.5 text-sm font-semibold text-rehab-ink transition hover:border-[#577590]">
-              {copy.newSetup}
-            </button>
-            <button type="button" onClick={onOpenProfile} className="rounded-xl border border-rehab-line bg-slate-50 px-4 py-2.5 text-sm font-semibold text-rehab-ink transition hover:border-[#F8961E]">
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={onRepeat} className="rounded-xl border border-rehab-line bg-white px-3 py-2.5 text-sm font-semibold text-rehab-ink transition hover:border-[#43AA8B]">
+                {copy.repeatExercise}
+              </button>
+              <button type="button" onClick={onNewSession} className="rounded-xl border border-rehab-line bg-white px-3 py-2.5 text-sm font-semibold text-rehab-ink transition hover:border-[#577590]">
+                {copy.newSetup}
+              </button>
+            </div>
+            <button type="button" onClick={onOpenProfile} className="px-2 py-1.5 text-center text-xs font-semibold text-rehab-muted transition hover:text-rehab-teal hover:underline">
               {copy.openPatientRehab}
             </button>
           </div>
         </ClinicalCard>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-2">
-        <ClinicalCard className="p-5">
-          <SectionHeader title={copy.performanceProfile ?? "Performance Profile"} description={copy.performanceProfileDesc ?? "Multi-axis analysis of this session's key metrics"} />
-          <div className="mt-4"><PerformanceRadar session={session} t={t} /></div>
-        </ClinicalCard>
-        <RecommendationsCard session={session} t={t} />
-      </div>
+      <ClinicalCard className="p-5">
+        <SectionHeader title={copy.sessionHistory} description={copy.sessionHistoryDescription} />
+        <SessionHistoryTable sessions={patientSessions} games={games} copy={copy} />
+      </ClinicalCard>
+
+      {!unmeasured ? (
+        <div className="grid gap-5 xl:grid-cols-2">
+          <ClinicalCard className="p-5">
+            <SectionHeader title={copy.performanceProfile ?? "Performance Profile"} description={copy.performanceProfileDesc ?? "Multi-axis analysis of this session's key metrics"} />
+            <div className="mt-4"><PerformanceRadar session={session} t={t} unmeasured={unmeasured} /></div>
+          </ClinicalCard>
+          <RecommendationsCard session={session} t={t} />
+        </div>
+      ) : null}
 
       <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
         <ClinicalCard className="p-5">
@@ -1409,10 +1733,6 @@ function RehabReviewStep({ selectedPatient, session, patientSessions, analytics,
         </ClinicalCard>
       </div>
 
-      <ClinicalCard className="p-5">
-        <SectionHeader title={copy.sessionHistory} description={copy.sessionHistoryDescription} />
-        <SessionHistoryTable sessions={patientSessions} games={games} copy={copy} />
-      </ClinicalCard>
     </div>
   );
 }
@@ -1434,7 +1754,7 @@ function PatientSnapshot({ patients, patientId, selectedPatient, latestAssessmen
       <div className="border-b border-slate-200 bg-[#f7fbfa] px-5 py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-rehab-teal">{copy.patientSnapshot}</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.06em] text-rehab-teal">{copy.patientSnapshot}</p>
             <p className="mt-1 text-sm font-medium text-rehab-muted">{copy.snapshotDescription}</p>
           </div>
           <div className="flex items-center gap-2">
@@ -1464,7 +1784,7 @@ function SnapshotDatum({ icon: Icon, label, value, accent = "#577590" }) {
     <div className="min-h-24 bg-white p-4">
       <div className="flex items-center gap-2">
         <span className="grid h-7 w-7 place-items-center rounded-lg" style={{ color: accent, backgroundColor: `${accent}16` }}><Icon size={14} /></span>
-        <p className="text-[10px] font-black uppercase tracking-[0.13em] text-rehab-muted">{label}</p>
+        <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-rehab-muted">{label}</p>
       </div>
       <p className="mt-3 text-sm font-bold leading-5 text-rehab-ink">{value}</p>
     </div>
@@ -1480,14 +1800,14 @@ function ExercisePreview({ game, copy }) {
       <div className="absolute -bottom-20 -left-16 h-64 w-64 rounded-full border border-white/10" />
       <div className="relative flex h-full min-h-[20rem] flex-col">
         <div className="flex items-center justify-between">
-          <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white/72">{copy.therapeuticPreview}</span>
+          <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-white/72">{copy.therapeuticPreview}</span>
           <span className="grid h-10 w-10 place-items-center rounded-xl text-white" style={{ backgroundColor: game.color }}><Icon size={19} /></span>
         </div>
         <div className="grid flex-1 place-items-center">
           <ExerciseMotionGraphic type={details.visual} color={game.color} />
         </div>
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-white/55">{copy.movementFocus}</p>
+          <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-white/55">{copy.movementFocus}</p>
           <p className="mt-1 text-lg font-semibold">{game.control ?? copy.fullBodyControl}</p>
         </div>
       </div>
@@ -1522,7 +1842,7 @@ function ExerciseMotionGraphic({ type, color }) {
 function TherapyList({ title, items }) {
   return (
     <div>
-      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-rehab-muted">{title}</p>
+      <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-rehab-muted">{title}</p>
       <ul className="mt-2 space-y-2">
         {items.map((item) => <li key={item} className="flex items-start gap-2 text-sm font-semibold text-rehab-ink"><span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-rehab-teal" />{item}</li>)}
       </ul>
@@ -1532,7 +1852,7 @@ function TherapyList({ title, items }) {
 
 function ConfigurationSelect({ label, value, onChange, options }) {
   return (
-    <label className="text-xs font-black uppercase tracking-[0.13em] text-rehab-muted">
+    <label className="text-[11px] font-medium uppercase tracking-[0.06em] text-rehab-muted">
       {label}
       <select value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold normal-case tracking-normal text-rehab-ink outline-none focus:border-rehab-teal">
         {options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
@@ -1645,12 +1965,12 @@ function GameCard({ game, copy, selected, onClick }) {
     >
       <div className="flex w-full items-start justify-between gap-3">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-white" style={{ backgroundColor: game.color }}><Icon size={18} /></span>
-        <span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-rehab-muted">{details.difficulty}</span>
+        <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-rehab-muted">{details.difficulty}</span>
       </div>
       <p className="mt-4 text-sm font-bold text-rehab-ink">{game.title}</p>
       <p className="mt-1 line-clamp-2 text-xs leading-5 text-rehab-muted">{details.description}</p>
       <div className="mt-auto flex w-full items-end justify-between gap-3 pt-4">
-        <div><p className="text-[9px] font-black uppercase tracking-wide text-rehab-muted">{copy.primaryGoal}</p><p className="mt-0.5 text-xs font-semibold text-rehab-ink">{details.primaryGoal}</p></div>
+        <div><p className="text-[10px] font-medium uppercase tracking-[0.06em] text-rehab-muted">{copy.primaryGoal}</p><p className="mt-0.5 text-xs font-semibold text-rehab-ink">{details.primaryGoal}</p></div>
         <span className="shrink-0 text-[10px] font-bold text-rehab-muted">{details.duration}</span>
       </div>
       {selected ? <span className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-rehab-teal ring-4 ring-rehab-teal/15" /> : null}
@@ -1808,7 +2128,7 @@ function MazeWalls() {
 
 // ─── Score panel ──────────────────────────────────────────────────────────────
 
-function ScorePanel({ session, copy }) {
+function ScorePanel({ session, copy, unmeasured = false }) {
   const metrics = [
     { label: copy.accuracy, value: session.accuracy, unit: "%", color: "#90BE6D" },
     { label: copy.stability, value: session.stability, unit: "%", color: "#577590" },
@@ -1831,14 +2151,20 @@ function ScorePanel({ session, copy }) {
         {copy.clinicalScore}
       </p>
       <p className="mt-2 text-3xl font-semibold text-rehab-ink">
-        {Math.round(session.score)}
-        <span className="text-base font-semibold text-rehab-muted">/100</span>
+        {unmeasured ? "—" : Math.round(session.score)}
+        {!unmeasured ? <span className="text-base font-semibold text-rehab-muted">/100</span> : null}
       </p>
       <p className="mt-1 text-xs text-rehab-muted">
-        {session.difficulty} · {session.durationSeconds}s · {session.acquisitionMode}
+        {copy.difficultyLabels?.[session.difficulty] ?? session.difficulty} · {session.durationSeconds}s · {getAcquisitionLabel(session.acquisitionMode, copy)}
       </p>
 
-      <div className="mt-5 space-y-3.5">
+      {unmeasured ? (
+        <p className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-semibold leading-5 text-rehab-muted">
+          {copy.sessionNotRecordedMessage ?? "The session ended before enough body-tracking data was collected. No clinical interpretation is shown."}
+        </p>
+      ) : null}
+
+      {!unmeasured ? <div className="mt-5 space-y-3.5">
         {metrics.map(({ label, value, unit, color }) => (
           <div key={label}>
             <div className="flex justify-between text-sm font-semibold text-rehab-ink">
@@ -1859,9 +2185,9 @@ function ScorePanel({ session, copy }) {
             </div>
           </div>
         ))}
-      </div>
+      </div> : null}
 
-      {extra.length ? (
+      {!unmeasured && extra.length ? (
         <div className="mt-4 grid grid-cols-2 gap-2">
           {extra.map(([label, value]) => (
             <div key={label} className="rounded-lg bg-slate-50 px-3 py-2">
@@ -1872,9 +2198,9 @@ function ScorePanel({ session, copy }) {
         </div>
       ) : null}
 
-      <p className="mt-5 rounded-xl bg-blue-50 p-3 text-xs font-semibold leading-5 text-blue-800">
+      {!unmeasured ? <p className="mt-5 rounded-xl bg-blue-50 p-3 text-xs font-semibold leading-5 text-blue-800">
         {copy.diagnosticLimit}
-      </p>
+      </p> : null}
     </div>
   );
 }
@@ -1891,22 +2217,32 @@ function ProgressChart({ sessions, analytics, copy }) {
     <div className="mt-4">
       <div className="mb-3 flex flex-wrap gap-4 text-xs font-semibold text-rehab-muted">
         <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#43AA8B]" />
           <span className="inline-block h-2 w-5 rounded-full bg-[#43AA8B]" /> {copy.score}
         </span>
         <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#577590]" />
           <span className="inline-block h-0.5 w-5 border-t-2 border-dashed border-[#577590]" /> {copy.accuracy}
         </span>
       </div>
       <div className="h-52 rounded-xl border border-rehab-line bg-white p-4">
-        <ResponsiveContainer width="100%" height="100%">
-          <ReLineChart data={trend}>
-            <CartesianGrid stroke="#E2E8F0" strokeDasharray="3 3" />
-            <XAxis dataKey="label" stroke="#94A3B8" tick={{ fontSize: 11 }} />
-            <YAxis domain={[0, 100]} stroke="#94A3B8" tick={{ fontSize: 11 }} />
-            <Line dataKey="score" stroke="#43AA8B" strokeWidth={3} dot={false} isAnimationActive={false} />
-            <Line dataKey="accuracy" stroke="#577590" strokeWidth={2} strokeDasharray="6 4" dot={false} isAnimationActive={false} />
-          </ReLineChart>
-        </ResponsiveContainer>
+        {trend.length < 2 ? (
+          <div className="grid h-full place-items-center text-center">
+            <p className="max-w-xs text-sm font-semibold leading-6 text-rehab-muted">
+              {copy.notEnoughProgressData ?? "Not enough data to display progression."}
+            </p>
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <ReLineChart data={trend}>
+              <CartesianGrid stroke="#E2E8F0" strokeDasharray="3 3" />
+              <XAxis dataKey="label" stroke="#94A3B8" tick={{ fontSize: 11 }} />
+              <YAxis domain={[0, 100]} stroke="#94A3B8" tick={{ fontSize: 11 }} />
+              <Line dataKey="score" stroke="#43AA8B" strokeWidth={3} dot={false} isAnimationActive={false} />
+              <Line dataKey="accuracy" stroke="#577590" strokeWidth={2} strokeDasharray="6 4" dot={false} isAnimationActive={false} />
+            </ReLineChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   );
@@ -1987,7 +2323,7 @@ function SessionHistoryTable({ sessions, games, copy }) {
                     <span className="font-semibold text-rehab-ink">{game.title}</span>
                   </div>
                 </td>
-                <td className="py-3 pr-4 capitalize text-rehab-muted">{s.difficulty ?? "—"}</td>
+                <td className="py-3 pr-4 text-rehab-muted">{copy.difficultyLabels?.[s.difficulty] ?? s.difficulty ?? "—"}</td>
                 <td className="py-3 pr-4 text-rehab-muted">{s.durationSeconds ? `${s.durationSeconds}s` : "—"}</td>
                 <td className="py-3 pr-4">
                   <span className="rounded-full px-2.5 py-0.5 text-xs font-semibold text-white" style={{ backgroundColor: game.color }}>
@@ -2346,10 +2682,14 @@ function summarizeMotionSamples(samples, durationSeconds, elapsedSeconds = durat
 
 function buildMotionSessionFromSamples(session, samples, acquisitionMode = "webcam_mediapipe") {
   const summary = summarizeMotionSamples(samples, session.durationSeconds, session.durationSeconds, session.gameType);
+  const sampleTimes = samples.map((sample) => Number(sample.t)).filter(Number.isFinite);
+  const trackingTimeEffective = sampleTimes.length ? round2(Math.max(...sampleTimes)) : 0;
   return {
     ...session,
     ...summary,
     acquisitionMode,
+    trackingTimeEffective,
+    tracking_time_effective: trackingTimeEffective,
     live: false,
     createdAt: session.createdAt ?? new Date().toISOString(),
     date: session.date ?? new Date().toLocaleString(),
