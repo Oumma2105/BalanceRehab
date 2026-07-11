@@ -8,7 +8,12 @@ frontend/.vite/
 
 backend/.venv/
 backend/venv/
+backend/.python-packages/
+backend/data/*.db
 backend/data/movement_intent_model.json
+
+.claude/
+tmp/
 
 .env
 .env.local
