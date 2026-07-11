@@ -1260,11 +1260,15 @@ function ReviewStep({ t, patient, config, results, patientSessions, savedSession
             </div>
           </div>
 
-          <div className="grid place-items-center border-t border-slate-200 bg-[#eff8f5] p-6 lg:border-l lg:border-t-0">
-            <div className="text-center">
+          <div
+            className="grid place-items-center border-t border-slate-200 p-6 lg:border-l lg:border-t-0"
+            style={{ background: `linear-gradient(160deg, ${classification.color}0d, ${classification.color}1f)` }}
+          >
+            <div className="w-full max-w-[13rem] text-center">
               <CircularScore score={results.totalBalanceScore} />
               <p className="mt-4 text-xs font-black uppercase tracking-[0.16em] text-rehab-muted">{t.totalBalanceScore ?? "Balance score"}</p>
-              <p className="mt-1 text-sm font-semibold" style={{ color: classification.color }}>{classification.label}</p>
+              <p className="mt-1 text-sm font-bold" style={{ color: classification.color }}>{classification.label}</p>
+              <SeverityScaleBar score={results.totalBalanceScore} t={t} />
             </div>
           </div>
         </div>
@@ -1301,7 +1305,7 @@ function ReviewStep({ t, patient, config, results, patientSessions, savedSession
           <RecommendationCards recommendations={analytics.recommendations} t={t} />
         </div>
         <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold leading-6 text-blue-950">
-          Les indicateurs présentés sont estimés à partir de la webcam et/ou des capteurs ultrasoniques. Ils ne sont pas équivalents à une mesure médicale du centre de pression par plateforme de force certifiée.
+          {t.pdfEstimatedIndicatorLimit ?? "Les indicateurs présentés sont estimés à partir de la webcam et/ou des capteurs ultrasoniques. Ils ne sont pas équivalents à une mesure médicale du centre de pression par plateforme de force certifiée."}
         </div>
       </section>
 
@@ -1361,6 +1365,25 @@ function ReviewStep({ t, patient, config, results, patientSessions, savedSession
           </div>
         </ClinicalCard>
       ) : null}
+    </div>
+  );
+}
+
+function SeverityScaleBar({ score, t = {} }) {
+  const numeric = Math.max(0, Math.min(100, Number(score) || 0));
+  return (
+    <div className="mt-4">
+      <div className="relative h-2.5 rounded-full bg-[linear-gradient(90deg,#F94144_0%,#F8961E_35%,#F9C74F_55%,#90BE6D_75%,#43AA8B_100%)]">
+        <span
+          className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-rehab-ink shadow"
+          style={{ left: `${numeric}%` }}
+          aria-hidden
+        />
+      </div>
+      <div className="mt-1.5 flex justify-between text-[9px] font-bold uppercase tracking-wide text-rehab-muted">
+        <span>{t.highInstability ?? "Instabilité élevée"}</span>
+        <span>{t.stableResult ?? "Stable"}</span>
+      </div>
     </div>
   );
 }

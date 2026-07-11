@@ -209,6 +209,34 @@ from the Phase 4 summary:
 Verified: 28/28 tests, clean production build, dossier spot-checked live (French notes,
 Séances chip, zero console errors).
 
+---
+
+## VISUAL REDESIGN (user-requested follow-up)
+
+Rollback tags: `pre-visual-redesign` (everything), `pre-redesign-dashboard`,
+`pre-redesign-dossier-visual`, `pre-redesign-bilan-visual`. Four commits.
+
+1. **Foundation (app-wide, via shared components)** — bundled Inter webfont (replaces
+   Windows-only Aptos; offline-safe via @fontsource), subtle teal/blue radial tint on the
+   page canvas, ClinicalCard rounded-xl with layered shadow + hover lift, SectionHeader
+   teal→blue gradient accent bar (repeated section signature on every page), StatusBadge
+   ring-inset severity pills, gradient primary/danger buttons with press feedback,
+   gradient sidebar active state with indicator rail, consistent focus rings, slim
+   scrollbars, tabular numerals everywhere.
+2. **Dashboard** — header is now a hero card with a green→yellow severity rail, kicker
+   line and extrabold greeting; KPI tiles got gradient icon plates, uppercase kicker
+   labels, 2rem extrabold values and a per-metric severity hairline.
+3. **Patient dossier** — identity banner with status-colored edge rail, gradient avatar,
+   and a 96px conic-gradient score dial in the patient's severity color; actions moved
+   to a separated footer row.
+4. **Bilan** — score panel tinted by the classification color and a Framiral-style
+   severity scale bar (red→green gradient with a marker at the patient's score, labeled
+   instabilité élevée ↔ stable); the estimation disclaimer localized.
+
+Verified after each step and at the end: 28/28 tests, clean production build, Inter
+loaded, dashboard/dossier/bilan exercised live with zero console errors (bilan via a
+full demo run, not saved). Games and Settings inherit the foundation automatically.
+
 ### Needs my review (consolidated)
 1. Phase-numbering interpretation (audit → fixes/redesign → games → ML → final pass)
 2. Demo DB regenerated — old DB backed up in session scratchpad if needed
