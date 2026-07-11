@@ -76,11 +76,12 @@ def get_patient_profile(patient_id: int, db: Session = Depends(get_db)) -> dict:
             .order_by(RehabGameSession.created_at.asc())
         )
     )
-    scores = [session.total_balance_score for session in sessions if session.total_balance_score is not None]
-    latest = sessions[-1] if sessions else None
-    first = sessions[0] if sessions else None
-    best = max(sessions, key=lambda item: item.total_balance_score or -1, default=None)
-    worst = min(sessions, key=lambda item: item.total_balance_score or 101, default=None)
+    completed = [session for session in sessions if session.total_balance_score is not None]
+    scores = [session.total_balance_score for session in completed]
+    latest = completed[-1] if completed else None
+    first = completed[0] if completed else None
+    best = max(completed, key=lambda item: item.total_balance_score, default=None)
+    worst = min(completed, key=lambda item: item.total_balance_score, default=None)
     now = datetime.now(timezone.utc)
     first_date = first.created_at.replace(tzinfo=timezone.utc) if first and first.created_at.tzinfo is None else first.created_at if first else None
     program_duration = (now - first_date).days if first_date else 0
@@ -91,7 +92,7 @@ def get_patient_profile(patient_id: int, db: Session = Depends(get_db)) -> dict:
                 **patient.__dict__,
                 "latest_score": latest.total_balance_score if latest else None,
                 "last_assessment_date": latest.created_at if latest else None,
-                "status": latest.status if latest else "No sessions",
+                "status": (latest.status or "Stable") if latest else "No sessions",
             }
         ).model_dump(mode="json"),
         "stats": {
@@ -137,7 +138,7 @@ def get_patient_session_trend(patient_id: int, db: Session = Depends(get_db)) ->
 @router.get("/{patient_id}/radar-latest")
 def get_patient_radar_latest(patient_id: int, db: Session = Depends(get_db)) -> dict:
     find_patient(patient_id, db)
-    sessions = patient_sessions_asc(patient_id, db)
+    sessions = [session for session in patient_sessions_asc(patient_id, db) if session.total_balance_score is not None]
     latest = sessions[-1] if sessions else None
     previous = sessions[-2] if len(sessions) > 1 else None
     return {
@@ -156,8 +157,9 @@ def get_patient_progress(patient_id: int, db: Session = Depends(get_db)) -> Prog
             .order_by(AssessmentSession.created_at.asc())
         )
     )
-    latest = sessions[-1] if sessions else None
-    first = sessions[0] if sessions else None
+    completed = [session for session in sessions if session.total_balance_score is not None]
+    latest = completed[-1] if completed else None
+    first = completed[0] if completed else None
 
     return ProgressAnalyticsRead(
         patient_id=patient.id,
@@ -232,7 +234,10 @@ def next_patient_code(db: Session) -> str:
 def patient_summary(patient: Patient, db: Session) -> PatientRead:
     latest_session = db.scalars(
         select(AssessmentSession)
-        .where(AssessmentSession.patient_id == patient.id)
+        .where(
+            AssessmentSession.patient_id == patient.id,
+            AssessmentSession.total_balance_score.is_not(None),
+        )
         .order_by(AssessmentSession.created_at.desc())
         .limit(1)
     ).first()
@@ -241,7 +246,7 @@ def patient_summary(patient: Patient, db: Session) -> PatientRead:
             **patient.__dict__,
             "latest_score": latest_session.total_balance_score if latest_session else None,
             "last_assessment_date": latest_session.created_at if latest_session else None,
-            "status": latest_session.status if latest_session else "No sessions",
+            "status": (latest_session.status or "Stable") if latest_session else "No sessions",
         }
     )
 

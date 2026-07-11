@@ -1,3 +1,5 @@
+import { getDateLocale } from "../i18n/dateLocale.js";
+import { conditionLabel, gameLabel, pathologyLabel, statusLabel, testTypeLabel } from "../i18n/clinicalValues.js";
 import { useMemo } from "react";
 import { Activity, AlertTriangle, ArrowRight, CalendarCheck, Plus, UserPlus, UsersRound } from "lucide-react";
 import {
@@ -86,7 +88,7 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
                     {analytics.statusDonut.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
                   </Pie>
                   <Tooltip content={<ClinicalTooltip unit={t.patients} />} />
-                  <Legend verticalAlign="bottom" height={52} formatter={(value) => `${value}: ${analytics.statusDonut.find((item) => item.name === value)?.value ?? 0}`} />
+                  <Legend verticalAlign="bottom" height={52} formatter={(value) => `${statusLabel(t, value)}: ${analytics.statusDonut.find((item) => item.name === value)?.value ?? 0}`} />
                   <text x="50%" y="44%" textAnchor="middle" style={{ fill: "#14213d", fontSize: 20, fontWeight: 700 }}>{analytics.kpis.total_patients}</text>
                   <text x="50%" y="56%" textAnchor="middle" style={{ fill: "#577590", fontSize: 11 }}>{t.patients}</text>
                 </PieChart>
@@ -171,7 +173,7 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
               <BarChart data={analytics.pathologyBreakdown} layout="vertical" margin={{ top: 8, right: 24, bottom: 28, left: 8 }}>
                 <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
                 <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} stroke="#577590" height={28} label={{ value: t.patients, position: "insideBottom", offset: -8, fill: "#577590", fontSize: 11 }} />
-                <YAxis type="category" dataKey="pathology" width={136} tick={{ fontSize: 10 }} stroke="#577590" />
+                <YAxis type="category" dataKey="pathology" width={136} tick={{ fontSize: 10 }} stroke="#577590" tickFormatter={(value) => pathologyLabel(t, value)} />
                 <Tooltip content={<ClinicalTooltip unit={t.patients} />} />
                 <Bar dataKey="count" name={t.patients} radius={[0, 4, 4, 0]}>
                   {analytics.pathologyBreakdown.map((entry, index) => <Cell key={entry.pathology} fill={palette[index % palette.length]} />)}
@@ -190,7 +192,7 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
                   {rehabAnalytics.gameMix.map((entry, index) => <Cell key={entry.game} fill={palette[(index + 3) % palette.length]} />)}
                 </Pie>
                 <Tooltip content={<ClinicalTooltip unit={t.sessions} />} />
-                <Legend verticalAlign="bottom" height={60} />
+                <Legend verticalAlign="bottom" height={60} formatter={(value) => gameLabel(t, value)} />
               </PieChart>
             </ResponsiveContainer>
           </ChartFrame>
@@ -210,11 +212,11 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
                   <p className="text-xs text-rehab-muted">{assessment.patient_code}</p>
                 </td>
                 <td className="px-4 py-2 text-sm text-rehab-muted">{formatDate(assessment.date)}</td>
-                <td className="px-4 py-2 text-sm text-rehab-muted">{titleCase(assessment.test_type)}</td>
-                <td className="px-4 py-2 text-sm text-rehab-muted">{conditionLabel(assessment.vision_condition)}</td>
+                <td className="px-4 py-2 text-sm text-rehab-muted">{testTypeLabel(t, assessment.test_type)}</td>
+                <td className="px-4 py-2 text-sm text-rehab-muted">{conditionLabel(t, assessment.vision_condition)}</td>
                 <td className="px-4 py-2"><ScoreBadge score={assessment.balance_score} /></td>
                 <td className="px-4 py-2"><TinyLine data={assessment.score_history} color={severityColor(assessment.balance_score, assessment.status)} /></td>
-                <td className="px-4 py-2"><StatusBadge tone={statusTone[assessment.status] ?? "neutral"}>{assessment.status}</StatusBadge></td>
+                <td className="px-4 py-2"><StatusBadge tone={statusTone[assessment.status] ?? "neutral"}>{statusLabel(t, assessment.status)}</StatusBadge></td>
                 <td className="px-4 py-2">
                   <button type="button" onClick={() => onViewPatient?.(assessment.patient_id)} className="inline-flex items-center gap-1 rounded-lg border border-rehab-line bg-white px-2.5 py-1.5 text-xs font-semibold text-rehab-blue hover:bg-slate-50">
                     {t.results} <ArrowRight size={12} />
@@ -438,7 +440,7 @@ function normalizeRehabData(rehabSessions) {
     averageScore: average(scores),
     bestScore: scores.length ? Math.max(...scores) : null,
     gameMix: Object.entries(groupCount(rehabSessions.map((session) => session.gameType ?? session.game_type ?? "Rehab game")))
-      .map(([game, count]) => ({ game: gameLabel(game), count })),
+      .map(([game, count]) => ({ game, count })),
   };
 }
 
@@ -460,7 +462,7 @@ function buildDailyBars(sessions, days) {
     date.setDate(now.getDate() - (days - index - 1));
     const key = dateKey(date);
     return {
-      label: date.toLocaleDateString("en-US", { weekday: "short" }),
+      label: date.toLocaleDateString(getDateLocale(), { weekday: "short" }),
       date: key,
       count: sessions.filter((session) => dateKey(session.parsedDate) === key).length,
     };
@@ -481,7 +483,7 @@ function buildWeeklyTrend(sessions, weeks) {
       .filter((session) => session.parsedDate >= weekStart && session.parsedDate < weekEnd)
       .map((session) => session.score);
     return {
-      week_label: weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      week_label: weekStart.toLocaleDateString(getDateLocale(), { month: "short", day: "numeric" }),
       avg_score: average(scores),
       median_score: median(scores),
       session_count: scores.length,
@@ -555,18 +557,7 @@ function valueUnit(dataKey) {
 
 function formatDate(value) {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleDateString(getDateLocale(), { month: "short", day: "numeric" });
 }
 
-function titleCase(value) {
-  const text = String(value ?? "");
-  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "-";
-}
 
-function conditionLabel(value) {
-  return String(value ?? "").replace("_", " ") || "-";
-}
-
-function gameLabel(value) {
-  return String(value ?? "Rehab game").replaceAll("_", " ");
-}

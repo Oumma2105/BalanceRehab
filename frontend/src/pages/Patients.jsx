@@ -16,6 +16,7 @@ import {
   PolarGrid,
   Radar,
   RadarChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -29,6 +30,7 @@ import { EmptyState } from "../components/clinical/EmptyState";
 import { SectionHeader } from "../components/clinical/SectionHeader";
 import { StatusBadge } from "../components/clinical/StatusBadge";
 import { api } from "../api/client.js";
+import { getDateLocale } from "../i18n/dateLocale.js";
 import { clinicalGoals, pathologyOptions } from "../data/demoPatients.js";
 import { PatientRehabilitationPanel } from "./RehabilitationGames.jsx";
 
@@ -104,8 +106,8 @@ export function PatientsPage({
 
   const selectedPatient = patients.find((patient) => patient.id === selectedId);
   const patientCards = useMemo(
-    () => patients.map((patient) => buildPatientCardModel(patient, sessions, rehabSessions)),
-    [patients, sessions, rehabSessions],
+    () => patients.map((patient) => buildPatientCardModel(patient, sessions, rehabSessions, t)),
+    [patients, sessions, rehabSessions, t],
   );
   const filteredPatients = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -124,7 +126,11 @@ export function PatientsPage({
   );
   const activePatients = patients.filter((patient) => patient.status !== "No sessions").length;
   const followUpPatients = patients.filter((patient) => patient.status === "Follow-up" || patient.status === "Declining" || Number(patient.latestScore) < 70).length;
-  const averageScore = averageScoreValue(patients.map((patient) => patient.latestScore));
+  const averageScore = useMemo(() => {
+    const usable = patients.map((patient) => Number(patient.latestScore)).filter(Number.isFinite);
+    if (!usable.length) return null;
+    return Math.round((usable.reduce((sum, value) => sum + value, 0) / usable.length) * 10) / 10;
+  }, [patients]);
 
   if (selectedPatient) {
     return (
@@ -369,7 +375,7 @@ export function PatientsPage({
   );
 }
 
-function buildPatientCardModel(patient, sessions, rehabSessions) {
+function buildPatientCardModel(patient, sessions, rehabSessions, t = {}) {
   const patientSessions = sessions
     .filter((session) => session.patientId === patient.id)
     .sort((a, b) => new Date(a.date ?? a.createdAt ?? a.created_at ?? 0) - new Date(b.date ?? b.createdAt ?? b.created_at ?? 0));
@@ -395,8 +401,8 @@ function buildPatientCardModel(patient, sessions, rehabSessions) {
     trend: delta,
     rehabCount: rehabForPatient.length,
     rehabStatus: rehabForPatient.length
-      ? `${rehabForPatient.length} sessions - ${formatNumber(lastRehab?.score)}/100`
-      : "Not started",
+      ? `${rehabForPatient.length} ${rehabForPatient.length > 1 ? (t.sessionsPlural ?? "sessions") : (t.sessionSingular ?? "session")} · ${formatNumber(lastRehab?.score)}/100`
+      : (t.rehabNotStarted ?? "Not started"),
   };
 }
 
@@ -479,8 +485,8 @@ function PatientDetail({ t, patient, sessions, rehabSessions, reports, onBack, o
   const chartSessions = profile?.sessions?.length ? profile.sessions : localChronological;
   const latest = chartSessions[chartSessions.length - 1];
   const stats = profile?.stats ?? buildLocalProfileStats(patient, chartSessions, rehabSessions);
-  const radar = latest ? buildRadar(latest) : [];
-  const previousRadar = chartSessions.length > 1 ? buildRadar(chartSessions[chartSessions.length - 2]) : [];
+  const radar = latest ? buildRadar(latest, t) : [];
+  const previousRadar = chartSessions.length > 1 ? buildRadar(chartSessions[chartSessions.length - 2], t) : [];
   const averages = metricAverages(chartSessions);
   const rehabData = profile?.rehab_sessions?.length ? profile.rehab_sessions : rehabSessions;
 
@@ -508,7 +514,7 @@ function PatientDetail({ t, patient, sessions, rehabSessions, reports, onBack, o
                 <ProfileChip value={`${stats.session_count ?? chartSessions.length} ${t.sessions}`} />
                 <ProfileChip value={`${t.avg ?? "Avg"}: ${formatNumber(stats.avg_score)}/100`} />
                 <ProfileChip value={`${t.last ?? "Last"}: ${formatShortDate(stats.last_session_date ?? latest?.date)}`} />
-                <ProfileChip value={`${t.riskShort ?? "Risk"}: ${stats.risk ?? riskFromScore(latest?.balance_score)}`} />
+                <ProfileChip value={`${t.riskShort ?? "Risk"}: ${clinicalTerm(t, "risk", stats.risk ?? riskFromScore(latest?.balance_score))}`} />
               </div>
             </div>
           </div>
@@ -530,14 +536,14 @@ function PatientDetail({ t, patient, sessions, rehabSessions, reports, onBack, o
           <div className="mt-4 space-y-4">
             <InfoBlock title={t.clinicalProfile} rows={[
               [t.pathology, clinicalTerm(t, "pathologies", clinicalPatient.pathology ?? patient.pathology)],
-              [t.clinicalGoal, clinicalPatient.clinical_goal ?? patient.clinicalGoal ?? "-"],
-              [t.dominantSide, clinicalPatient.dominant_side ?? patient.dominantSide ?? "-"],
+              [t.clinicalGoal, clinicalTerm(t, "goals", clinicalPatient.clinical_goal ?? patient.clinicalGoal) || "-"],
+              [t.dominantSide, clinicalTerm(t, "sides", clinicalPatient.dominant_side ?? patient.dominantSide) || "-"],
               [t.clinicalNotes, clinicalPatient.clinical_notes ?? patient.clinicalNotes ?? "-"],
             ]} />
             <InfoBlock title={t.bodyMeasurements} rows={[
               [t.pdfHeight ?? "Height", patient.heightCm ? `${patient.heightCm} cm` : "-"],
               [t.pdfWeight ?? "Weight", patient.weightKg ? `${patient.weightKg} kg` : "-"],
-              ["BMI", stats.bmi ?? "-"],
+              [t.bmi ?? "IMC", stats.bmi ?? "-"],
             ]} />
             <InfoBlock title={t.programSummary} rows={[
               [t.firstSession, formatShortDate(stats.first_session_date)],
@@ -624,7 +630,7 @@ function PatientDetail({ t, patient, sessions, rehabSessions, reports, onBack, o
               <tr key={session.id} className="cursor-pointer hover:bg-slate-50">
                 <td className="px-4 py-3 font-semibold">{session.session_number}</td>
                 <td className="px-4 py-3 text-rehab-muted">{formatShortDate(session.date)}</td>
-                <td className="px-4 py-3">{titleCase(session.test_type)}</td>
+                <td className="px-4 py-3">{testTypeLabel(t, session.test_type)}</td>
                 <td className="px-4 py-3">{conditionLabel(session.vision_condition)}</td>
                 <MetricCell value={session.balance_score} average={averages.balance_score} higher />
                 <MetricCell value={session.posture_score} average={averages.posture_score} higher />
@@ -657,7 +663,7 @@ function PatientDetail({ t, patient, sessions, rehabSessions, reports, onBack, o
             <div className="mt-4 grid gap-3 md:grid-cols-3">
               {rehabData.map((item) => (
                 <div key={item.id} className="rounded-lg border border-rehab-line p-4">
-                  <p className="font-semibold text-rehab-ink">{item.game_type ?? item.gameType}</p>
+                  <p className="font-semibold text-rehab-ink">{clinicalTerm(t, "games", item.game_type ?? item.gameType)}</p>
                   <p className="mt-1 text-sm text-rehab-muted">{formatShortDate(item.date ?? item.createdAt)} - {item.duration_seconds ?? item.durationSeconds}s</p>
                   <ScoreStrip label={t.performanceLabel} value={item.score} />
                 </div>
@@ -732,14 +738,14 @@ function buildLocalProfileStats(patient, chartSessions, rehabSessions) {
   };
 }
 
-function buildRadar(session) {
+function buildRadar(session, t = {}) {
   return [
-    { axis: "Balance", value: Number(session.balance_score) || 0 },
-    { axis: "Posture", value: Number(session.posture_score) || 0 },
-    { axis: "Stability", value: Number(session.stability_score) || 0 },
-    { axis: "AP Control", value: normalizeLowMetric(session.ap_sway, 0.5, 8) },
-    { axis: "ML Control", value: normalizeLowMetric(session.ml_sway, 0.3, 6) },
-    { axis: "Alignment", value: normalizeLowMetric(session.trunk_deviation, 0, 20) },
+    { axis: t.radarBalance ?? "Balance", value: Number(session.balance_score) || 0 },
+    { axis: t.radarPosture ?? "Posture", value: Number(session.posture_score) || 0 },
+    { axis: t.radarStability ?? "Stability", value: Number(session.stability_score) || 0 },
+    { axis: t.radarApControl ?? "AP Control", value: normalizeLowMetric(session.ap_sway, 0.5, 8) },
+    { axis: t.radarMlControl ?? "ML Control", value: normalizeLowMetric(session.ml_sway, 0.3, 6) },
+    { axis: t.radarAlignment ?? "Alignment", value: normalizeLowMetric(session.trunk_deviation, 0, 20) },
   ];
 }
 
@@ -777,6 +783,14 @@ function ProfileTooltip({ active, payload, label, unit }) {
       ))}
     </div>
   );
+}
+
+function metricTone(score) {
+  if (!Number.isFinite(score)) return "#94A3B8";
+  if (score < 50) return "#F94144";
+  if (score < 65) return "#F8961E";
+  if (score < 75) return "#F9C74F";
+  return "#90BE6D";
 }
 
 function ScoreStrip({ label, value }) {
@@ -824,7 +838,7 @@ function formatNumber(value) {
 function formatShortDate(value) {
   if (!value) return "-";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleDateString(getDateLocale(), { month: "short", day: "numeric" });
 }
 
 function titleCase(value) {
@@ -971,7 +985,7 @@ function PatientInfoPanel({ t, patient }) {
         <InfoItem label={t.patientDetails} value={patient.patientCode} />
         <InfoItem label={t.age} value={patient.age ? `${patient.age} ${t.years}` : "-"} />
         <InfoItem label={t.sex} value={displaySex(t, patient.sex)} />
-        <InfoItem label={t.dominantSide} value={patient.dominantSide ?? "-"} />
+        <InfoItem label={t.dominantSide} value={clinicalTerm(t, "sides", patient.dominantSide) || "-"} />
         <InfoItem label={t.heightCm} value={patient.heightCm ? `${patient.heightCm} cm` : "-"} />
         <InfoItem label={t.weightKg} value={patient.weightKg ? `${patient.weightKg} kg` : "-"} />
       </div>
@@ -985,7 +999,7 @@ function ClinicalInfoPanel({ t, patient }) {
       <p className="font-semibold text-rehab-ink">{t.clinicalProfile}</p>
       <div className="mt-4 grid gap-3">
         <InfoItem label={t.medicalReason} value={clinicalTerm(t, "pathologies", patient.pathology) || "-"} />
-        <InfoItem label={t.clinicalGoal} value={patient.clinicalGoal || "-"} />
+        <InfoItem label={t.clinicalGoal} value={clinicalTerm(t, "goals", patient.clinicalGoal) || "-"} />
         <InfoItem label={t.clinicalNotes} value={patient.clinicalNotes || patient.notes || "-"} />
       </div>
     </div>

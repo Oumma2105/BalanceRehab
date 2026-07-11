@@ -837,6 +837,46 @@
       "Postural control training": "Postural control training",
       "Proprioceptive training": "Proprioceptive training",
       "Rehabilitation follow-up": "Rehabilitation follow-up"
+    },
+    "testTypes": {
+      "static": "Static",
+      "dynamic": "Dynamic",
+      "Static": "Static",
+      "Dynamic": "Dynamic"
+    },
+    "visualConditions": {
+      "eyes_open": "Eyes open",
+      "eyes_closed": "Eyes closed",
+      "eyes open": "Eyes open",
+      "eyes closed": "Eyes closed"
+    },
+    "risk": {
+      "Low": "Low",
+      "Moderate": "Moderate",
+      "High": "High",
+      "Unknown": "Unknown"
+    },
+    "sides": {
+      "Right": "Right",
+      "Left": "Left"
+    },
+    "sessionStates": {
+      "Draft": "Draft",
+      "In progress": "In progress",
+      "Completed": "Completed"
+    },
+    "games": {
+      "stability_challenge": "Controlled stillness",
+      "balance_freeze": "Controlled stillness",
+      "weight_shift_trainer": "Weight shift",
+      "weight_shift": "Weight shift",
+      "path_following": "Path following",
+      "balance_maze": "Balance maze",
+      "reach_touch": "Reach & touch",
+      "balloon_pop": "Balloon pop",
+      "squat_trainer": "Squat training",
+      "single_leg_balance": "Single-leg balance",
+      "obstacle_avoidance": "Obstacle avoidance"
     }
   },
   "rehabilitationWorkspace": {
@@ -1347,7 +1387,7 @@
   "statBestRehab": "Best rehab: {value}/100",
   "statSessions": "Sessions: {count}",
   "withRecentActivity": "with recent activity",
-  "acrossAllPatients": "across all patients",
+  "acrossAllPatients": "mean of each patient's latest score",
   "all": "All",
   "estimatedIndicators": "Estimated indicators",
   "rehabilitation": "Rehabilitation",
@@ -1435,5 +1475,18 @@
   "recordedSessionData": "Recorded session data",
   "combinedFusionMethod": "ESP32 board AP/ML sway drives the CoP-like trajectory; MediaPipe webcam samples remain separate posture indicators.",
   "noRecordedSamplesAvailable": "No recorded samples available for this session.",
-  "noFakeGraphWarning": "Graphs were not generated because this real session does not contain usable recorded AP/ML or posture samples."
+  "noFakeGraphWarning": "Graphs were not generated because this real session does not contain usable recorded AP/ML or posture samples.",
+  "errorBoundaryTitle": "Something went wrong on this page",
+  "errorBoundaryBody": "Your data is safe. Go back to the dashboard and try again.",
+  "errorBoundaryAction": "Back to dashboard",
+  "sessionSingular": "session",
+  "sessionsPlural": "sessions",
+  "rehabNotStarted": "Not started",
+  "bmi": "BMI",
+  "radarBalance": "Balance",
+  "radarPosture": "Posture",
+  "radarStability": "Stability",
+  "radarApControl": "AP Control",
+  "radarMlControl": "ML Control",
+  "radarAlignment": "Alignment"
 }

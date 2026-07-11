@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "./api/client";
 import { AppShell } from "./layout/AppShell";
 import { translations } from "./i18n/translations";
+import { setDateLocale } from "./i18n/dateLocale";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Dashboard } from "./pages/Dashboard";
 import { AboutPage } from "./pages/About";
 import { BalanceAssessmentPage } from "./pages/BalanceAssessment";
@@ -44,6 +46,10 @@ export default function App() {
   const [rehabPatientId, setRehabPatientId] = useState(null);
 
   const t = translations[language];
+
+  useEffect(() => {
+    setDateLocale(t.localeCode);
+  }, [t.localeCode]);
 
   const loadPatientSessions = useCallback(
     async (id) => {
@@ -416,7 +422,9 @@ export default function App() {
         setAssessmentFocus(false);
       }}
     >
-      {renderPage()}
+      <ErrorBoundary t={t} resetKey={activePage} onReset={() => setActivePage("dashboard")}>
+        {renderPage()}
+      </ErrorBoundary>
     </AppShell>
   );
 }

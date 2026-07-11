@@ -1,3 +1,4 @@
+import { getDateLocale } from "../i18n/dateLocale.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
@@ -3008,5 +3009,5 @@ function formatValue(value) {
 function formatDate(value) {
   if (!value) return "—";
   const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString(getDateLocale(), { month: "short", day: "numeric", year: "numeric" });
 }
