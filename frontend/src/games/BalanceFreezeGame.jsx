@@ -12,8 +12,9 @@ const DIFFICULTY_CONFIG = {
   hard: { duration: 45, targetRadius: 0.10, label: "Hard" },
 };
 
-export function BalanceFreezeGame({ stream, patient, difficulty = "medium", onComplete, onCancel }) {
-  const cfg = DIFFICULTY_CONFIG[difficulty] ?? DIFFICULTY_CONFIG.medium;
+export function BalanceFreezeGame({ stream, patient, difficulty = "medium", durationSeconds, onComplete, onCancel, copy = {} }) {
+  const baseCfg = DIFFICULTY_CONFIG[difficulty] ?? DIFFICULTY_CONFIG.medium;
+  const cfg = durationSeconds ? { ...baseCfg, duration: durationSeconds } : baseCfg;
 
   // Game state (all in a ref so draw loop always has latest)
   const stateRef = useRef({
@@ -158,14 +159,14 @@ export function BalanceFreezeGame({ stream, patient, difficulty = "medium", onCo
 
       // Real-time feedback
       if (inside) {
-        setFeedback(dist < targetR * 0.4 ? "Perfect — hold still!" : "Good — stay in the circle");
+        setFeedback(dist < targetR * 0.4 ? (copy.feedbackPerfect ?? "Perfect — hold still!") : (copy.feedbackGood ?? "Good — stay in the circle"));
       } else {
         const dx = cursorPx - cx;
         const dy = cursorPy - cy;
         if (Math.abs(dx) > Math.abs(dy)) {
-          setFeedback(dx > 0 ? "Shift slightly left" : "Shift slightly right");
+          setFeedback(dx > 0 ? (copy.feedbackShiftLeft ?? "Shift slightly left") : (copy.feedbackShiftRight ?? "Shift slightly right"));
         } else {
-          setFeedback(dy > 0 ? "Stand taller" : "Bend slightly forward");
+          setFeedback(dy > 0 ? (copy.feedbackStandTaller ?? "Stand taller") : (copy.feedbackBendForward ?? "Bend slightly forward"));
         }
       }
     }, SAMPLE_RATE_MS);
@@ -279,14 +280,14 @@ export function BalanceFreezeGame({ stream, patient, difficulty = "medium", onCo
       {(phase === "playing" || phase === "countdown") && (
         <div className="absolute left-0 right-0 top-0 flex items-center justify-between px-6 py-4">
           <div className="rounded-xl bg-black/60 px-4 py-2 text-center backdrop-blur">
-            <p className="text-xs font-bold uppercase tracking-wider text-white/60">Time</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-white/60">{copy.timeLabel ?? "Time"}</p>
             <p className={`text-3xl font-bold tabular-nums ${timeLeft <= 10 ? "text-red-400" : "text-white"}`}>
               {String(Math.floor(timeLeft / 60)).padStart(2, "0")}:{String(timeLeft % 60).padStart(2, "0")}
             </p>
           </div>
 
           <div className={`rounded-xl px-5 py-2 text-center backdrop-blur font-bold text-lg ${inTarget ? "bg-emerald-500/80 text-white" : "bg-amber-500/80 text-white"}`}>
-            {inTarget ? "INSIDE ✓" : "OUT"}
+            {inTarget ? (copy.insideTarget ?? "INSIDE ✓") : (copy.outsideTarget ?? "OUT")}
           </div>
 
           <button
@@ -294,7 +295,7 @@ export function BalanceFreezeGame({ stream, patient, difficulty = "medium", onCo
             onClick={handleFinish}
             className="rounded-xl bg-black/60 px-4 py-2 text-sm font-bold text-white/70 backdrop-blur hover:bg-black/80 hover:text-white"
           >
-            End Game
+            {copy.endTraining ?? "End Game"}
           </button>
         </div>
       )}
@@ -312,8 +313,8 @@ export function BalanceFreezeGame({ stream, patient, difficulty = "medium", onCo
       {phase === "playing" && !tracking && !isDemo && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50">
           <div className="rounded-2xl bg-black/80 p-8 text-center">
-            <p className="text-2xl font-bold text-amber-400">Step back from camera</p>
-            <p className="mt-2 text-white/70">Stand so your full body is visible</p>
+            <p className="text-2xl font-bold text-amber-400">{copy.stepBackFromCamera ?? "Step back from camera"}</p>
+            <p className="mt-2 text-white/70">{copy.fullBodyVisibleHint ?? "Stand so your full body is visible"}</p>
           </div>
         </div>
       )}
@@ -322,18 +323,18 @@ export function BalanceFreezeGame({ stream, patient, difficulty = "medium", onCo
       {phase === "waiting" && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 p-6 text-center">
           <div className="max-w-sm">
-            <p className="text-xs font-bold uppercase tracking-widest text-emerald-400">Balance Freeze</p>
-            <h2 className="mt-3 text-4xl font-bold text-white">Stay Inside the Circle</h2>
+            <p className="text-xs font-bold uppercase tracking-widest text-emerald-400">{copy.freezeTag ?? "Balance Freeze"}</p>
+            <h2 className="mt-3 text-4xl font-bold text-white">{copy.freezeHeadline ?? "Stay Inside the Circle"}</h2>
             <p className="mt-4 text-lg text-white/70">
-              Stand facing the webcam. Keep your body center inside the green target circle for as long as possible.
+              {copy.freezeInstructions ?? "Stand facing the webcam. Keep your body center inside the green target circle for as long as possible."}
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-3 text-sm text-white/50">
-              <span className="rounded-lg bg-white/10 px-3 py-1">{cfg.duration}s duration</span>
-              <span className="rounded-lg bg-white/10 px-3 py-1">{cfg.label} difficulty</span>
-              {isDemo && <span className="rounded-lg bg-amber-500/30 px-3 py-1 text-amber-300">Demo mode</span>}
+              <span className="rounded-lg bg-white/10 px-3 py-1">{cfg.duration}s</span>
+              <span className="rounded-lg bg-white/10 px-3 py-1">{copy.difficultyNames?.[difficulty] ?? cfg.label}</span>
+              {isDemo && <span className="rounded-lg bg-amber-500/30 px-3 py-1 text-amber-300">{copy.demoModeBadge ?? "Demo mode"}</span>}
             </div>
             {!isDemo && poseStatus === "loading" && (
-              <p className="mt-4 text-sm text-amber-300">Loading pose detector…</p>
+              <p className="mt-4 text-sm text-amber-300">{copy.loadingPoseDetector ?? "Loading pose detector…"}</p>
             )}
             <div className="mt-6 flex gap-3 justify-center">
               <button
@@ -342,14 +343,14 @@ export function BalanceFreezeGame({ stream, patient, difficulty = "medium", onCo
                 disabled={!isDemo && poseStatus !== "tracking" && poseStatus !== "searching"}
                 className="rounded-xl bg-emerald-500 px-8 py-4 text-lg font-bold text-white shadow-lg transition hover:bg-emerald-400 disabled:opacity-40"
               >
-                Start Game
+                {copy.startGame ?? "Start Game"}
               </button>
               <button
                 type="button"
                 onClick={onCancel}
                 className="rounded-xl bg-white/10 px-6 py-4 text-lg font-bold text-white/70 transition hover:bg-white/20"
               >
-                Cancel
+                {copy.cancel ?? "Cancel"}
               </button>
             </div>
           </div>
@@ -360,7 +361,7 @@ export function BalanceFreezeGame({ stream, patient, difficulty = "medium", onCo
       {poseStatus === "error" && phase === "waiting" && (
         <div className="absolute bottom-6 left-6 right-6">
           <div className="rounded-xl bg-red-900/80 px-4 py-3 text-sm font-semibold text-red-200">
-            Pose detection failed. You can still play in Demo mode — click Cancel and select Demo.
+            {copy.poseDetectionFailed ?? "Pose detection failed. You can still play in Demo mode — click Cancel and select Demo."}
           </div>
         </div>
       )}

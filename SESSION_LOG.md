@@ -65,6 +65,54 @@ in patient dossier uses capital S.
 
 ---
 
+## PHASE 3 — GAMES: AUDIT AND COMPLETION (done)
+
+### Audit of src/games (status per component)
+
+| Component | Status before | Status after |
+|---|---|---|
+| ObstacleAvoidanceGame (680 L) | WORKING + WIRED (only game reachable), i18n via copy prop | unchanged, still the reference implementation |
+| BalanceFreezeGame (512 L) | COMPLETE but ORPHANED (never imported anywhere), UI hardcoded EN | **WIRED** into the wizard for `stability_challenge`, fully localized (copy prop, 20+ strings incl. live feedback), respects wizard duration + difficulty mapping |
+| BalloonPopGame (485 L) | COMPLETE but ORPHANED, EN-only | left unwired (see choice below) |
+| WeightShiftGame (539 L) | COMPLETE but ORPHANED, EN-only | left unwired (see choice below) |
+| GameReview (orphaned, dark UI) | dead code, never imported | **DELETED** (wizard step 5 is the real review) |
+| useGamePose (171 L) | real MediaPipe pose hook, proven via ObstacleAvoidance | unchanged, now shared by two wired games |
+
+Key discovery: the wizard's 9 exercises run through an internal engine
+(MotionRehabArena) with real MediaPipe + demo fallback — the "4 games" in src/games are
+a parallel generation of dedicated full-canvas games of which only ObstacleAvoidance had
+been wired. The two lost commits from the deleted claude/relaxed-carson branch (endGame
+double-call guard, End-Game-shows-review) turned out to already be in main — nothing to
+recover.
+
+### Choice made ("fewer excellent over all four mediocre")
+
+Wired ONE additional dedicated game (BalanceFreeze → stability_challenge, the first and
+most-demoed exercise in the library) using the proven ObstacleAvoidance arena pattern,
+now generalized as DEDICATED_GAMES/DedicatedGameArena. BalloonPop and WeightShift remain
+complete-but-unwired: their exercise types still run through the engine, which works.
+Wiring them is mechanical now (add one entry to DEDICATED_GAMES + localize copy), but I
+could not verify their webcam interaction without a camera and chose not to swap two
+more flagship flows to less-tested code right before a jury. **Needs my review**: decide
+whether to wire them after a hands-on webcam test.
+
+### Verified end-to-end (browser, demo mode — camera is blocked in this environment)
+
+Rehab wizard: patient → Immobilité contrôlée → aperçu → entraînement → camera denied →
+"Utiliser la simulation" → game runs (French HUD: TEMPS / DANS LA CIBLE ✓ / feedback) →
+Terminer l'entraînement → review step renders. With only ~5s of data the review honestly
+shows "Aucune donnée mesurée — aucune interprétation clinique" instead of fabricating
+scores — the wired game inherits the app's honesty rules. Session NOT saved during
+verification. Result gameType/difficulty are normalized to the wizard's exercise id so
+review/history/meta lookups stay consistent.
+
+**Note on webcam verification**: real MediaPipe tracking could not be exercised in this
+environment (no camera). The freeze game uses the same useGamePose hook as the already-
+proven ObstacleAvoidance game, which is why wiring it was low-risk. Do one live webcam
+pass of both dedicated games before the soutenance.
+
+---
+
 ## PHASE 1 — UI/UX AUDIT (report only, no changes)
 
 Audited live at 1440×900, light color scheme, FR (default) and EN modes, on commit cca06c6.

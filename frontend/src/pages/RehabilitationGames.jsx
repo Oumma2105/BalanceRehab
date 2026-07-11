@@ -47,6 +47,7 @@ import { StatusBadge } from "../components/clinical/StatusBadge";
 import { useMediaPipePose } from "../webcam/useMediaPipePose";
 import { webcamVideoConstraints } from "../webcam/webcamConfig";
 import { ObstacleAvoidanceGame } from "../games/ObstacleAvoidanceGame";
+import { BalanceFreezeGame } from "../games/BalanceFreezeGame";
 
 // ─── Game catalogue ───────────────────────────────────────────────────────────
 
@@ -927,9 +928,9 @@ function RehabTrainingStep({ currentStepLabel, session, selectedGame, games, onB
   });
   const [paused, setPaused] = useState(false);
 
-  if (session?.gameType === "obstacle_avoidance") {
+  if (DEDICATED_GAMES[session?.gameType]) {
     return (
-      <ObstacleAvoidanceArena
+      <DedicatedGameArena
         session={session}
         games={games}
         onBack={onBack}
@@ -1005,11 +1006,25 @@ function RehabTrainingStep({ currentStepLabel, session, selectedGame, games, onB
   );
 }
 
-// ─── Obstacle Avoidance Arena ─────────────────────────────────────────────────
+// ─── Dedicated full-canvas games ──────────────────────────────────────────────
+// Exercise types with a purpose-built game component. Other types run through
+// the generic MotionRehabArena engine.
+const DEDICATED_GAMES = {
+  obstacle_avoidance: {
+    component: ObstacleAvoidanceGame,
+    mapDifficulty: (value) => (value === "advanced" ? "advanced" : value === "intro" ? "intro" : "standard"),
+  },
+  stability_challenge: {
+    component: BalanceFreezeGame,
+    mapDifficulty: (value) => (value === "advanced" ? "hard" : value === "intro" ? "easy" : "medium"),
+  },
+};
 
-function ObstacleAvoidanceArena({ session, games, onBack, onRestart, onComplete, t }) {
+function DedicatedGameArena({ session, games, onBack, onRestart, onComplete, t }) {
   const copy = t.rehabilitationWorkspace;
-  const game = games["obstacle_avoidance"] ?? games.stability_challenge;
+  const dedicated = DEDICATED_GAMES[session.gameType];
+  const GameComponent = dedicated.component;
+  const game = games[session.gameType] ?? games.stability_challenge;
   const Icon = game.icon;
   const [stream, setStream] = useState(null);
   const [cameraError, setCameraError] = useState("");
@@ -1036,7 +1051,9 @@ function ObstacleAvoidanceArena({ session, games, onBack, onRestart, onComplete,
 
   const handleComplete = useCallback((result) => {
     streamRef.current?.getTracks?.().forEach((track) => track.stop());
-    onComplete({ ...session, ...result });
+    // Keep the wizard's exercise id and difficulty so review/save/meta lookups
+    // stay consistent even when the game reports its own internal values.
+    onComplete({ ...session, ...result, gameType: session.gameType, difficulty: session.difficulty });
   }, [onComplete, session]);
 
   const handleBack = useCallback(() => {
@@ -1089,10 +1106,10 @@ function ObstacleAvoidanceArena({ session, games, onBack, onRestart, onComplete,
         </button>
       </div>
       <div className="h-screen">
-        <ObstacleAvoidanceGame
+        <GameComponent
           stream={demoMode ? null : stream}
           patient={session}
-          difficulty={session.difficulty === "advanced" ? "advanced" : session.difficulty === "intro" ? "intro" : "standard"}
+          difficulty={dedicated.mapDifficulty(session.difficulty)}
           durationSeconds={session.durationSeconds ?? 60}
           onComplete={handleComplete}
           onCancel={handleBack}
