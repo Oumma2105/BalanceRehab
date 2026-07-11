@@ -114,6 +114,7 @@ class SerialAcquisitionService:
             self._thread = None
             self._state.connected = False
             self._state.status = "disconnected"
+            self._state.error = None
         return self.status()
 
     def attach_session(self, session_id: int | None) -> dict[str, Any]:

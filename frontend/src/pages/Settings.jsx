@@ -14,6 +14,10 @@ function readableStatus(t, value) {
     demo_mode: t.demoMode,
     connected: t.connected,
     api_ready: t.apiReady ?? "API ready",
+    available: t.available ?? "Disponible",
+    not_connected: t.notConnected ?? "Non connecté",
+    disconnected: t.notConnected ?? "Non connecté",
+    error: t.errorStatus ?? "Erreur",
   };
 
   return labels[value] ?? t.checking;
@@ -325,15 +329,15 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
         <SectionHeader title={t.reports} description={t.reportsSettingsDesc} />
         <div className="mt-5">
           <SettingRow icon={FileText} title={t.pdfLanguage} description={t.pdfLanguageDesc}>
-            <SegmentedControl options={["FR", "EN"]} active="FR" />
+            <StatusBadge tone="neutral">{t.followsUiLanguage ?? "Suit la langue de l'interface"}</StatusBadge>
           </SettingRow>
 
           <SettingRow icon={FileText} title={t.includeCharts} description={t.includeChartsDesc}>
-            <Toggle active />
+            <StatusBadge tone="connected">{t.includedByDefault ?? "Inclus par défaut"}</StatusBadge>
           </SettingRow>
 
           <SettingRow icon={FileText} title={t.includeRecommendations} description={t.includeRecommendationsDesc}>
-            <Toggle active />
+            <StatusBadge tone="connected">{t.includedByDefault ?? "Inclus par défaut"}</StatusBadge>
           </SettingRow>
         </div>
       </ClinicalCard>
@@ -350,20 +354,18 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
           </SettingRow>
 
           <SettingRow icon={Camera} title={t.webcamStatus} description={t.webcamStatusDesc}>
-            <StatusBadge tone={status?.webcam === "demo_mode" ? "demo" : "connected"}>{readableStatus(t, status?.webcam)}</StatusBadge>
+            <StatusBadge tone={status?.webcam === "demo_mode" ? "demo" : status?.webcam === "available" ? "connected" : "warning"}>{readableStatus(t, status?.webcam)}</StatusBadge>
           </SettingRow>
 
           <SettingRow icon={MonitorCog} title={t.esp32Status} description={t.esp32StatusDesc}>
-            <StatusBadge tone={status?.esp32 === "demo_mode" ? "demo" : "connected"}>{readableStatus(t, status?.esp32)}</StatusBadge>
+            <StatusBadge tone={status?.esp32 === "connected" ? "connected" : "warning"}>{readableStatus(t, status?.esp32)}</StatusBadge>
           </SettingRow>
 
           <SettingRow icon={Wifi} title={t.connectionMode} description={t.connectionModeDesc}>
-            <SegmentedControl options={[t.usbSerial, t.demoConnection, t.wifiLater]} active={t.usbSerial} />
+            <StatusBadge tone={status?.esp32 === "connected" ? "connected" : "demo"}>
+              {status?.esp32 === "connected" ? t.usbSerial : (t.webcamDemoActive ?? "Webcam / démo")}
+            </StatusBadge>
           </SettingRow>
-        </div>
-
-        <div className="mt-6 flex justify-end">
-          <Button>{t.saveSettings}</Button>
         </div>
       </ClinicalCard>
 
@@ -425,7 +427,9 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
                 {t.noPortsFound ?? "Aucun port détecté. Assurez-vous que le dispositif est branché en USB."}
               </p>
             ) : esp32.status?.error ? (
-              <p className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{esp32.status.error}</p>
+              <p className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700" title={esp32.status.error}>
+                {friendlyEsp32Error(t, esp32.status.error)}
+              </p>
             ) : (
               <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold text-rehab-muted">
                 {esp32.status?.connected ? (t.esp32UsbReady ?? "USB serial connected. ESP32 sessions will use this board first.") : (t.esp32UsbFallback ?? "No ESP32 connected. Demo and webcam modes remain available.")}
@@ -436,19 +440,27 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
           <div className="rounded-lg border border-rehab-line bg-slate-50 p-4">
             <div className="flex items-center justify-between gap-3">
               <p className="font-semibold text-rehab-ink">{t.latestPacket ?? "Latest packet"}</p>
-              <StatusBadge tone={esp32.status?.connected ? "connected" : "warning"}>{esp32.status?.status ?? "disconnected"}</StatusBadge>
+              <StatusBadge tone={esp32.status?.connected ? "connected" : "warning"}>{readableStatus(t, esp32.status?.status)}</StatusBadge>
             </div>
-            <pre className="mt-3 max-h-32 overflow-auto rounded-lg bg-white p-3 text-xs text-rehab-muted">{JSON.stringify(esp32.status?.latest_packet ?? {}, null, 2)}</pre>
-            <div className="mt-4 grid grid-cols-4 gap-2">
-              {sensorHealthKeys(esp32.status?.sensor_health).map((key) => (
-                <div key={key} className="rounded-lg bg-white p-2 text-center">
-                  <p className="text-xs font-semibold uppercase text-rehab-muted">{sensorShortName(key)}</p>
-                  <p className={`mt-1 text-sm font-semibold ${esp32.status?.sensor_health?.[key] === "ok" ? "text-emerald-700" : "text-amber-700"}`}>
-                    {esp32.status?.sensor_health?.[key] ?? "unknown"}
-                  </p>
+            {esp32.status?.connected && esp32.status?.latest_packet ? (
+              <>
+                <pre className="mt-3 max-h-32 overflow-auto rounded-lg bg-white p-3 text-xs text-rehab-muted">{JSON.stringify(esp32.status.latest_packet, null, 2)}</pre>
+                <div className="mt-4 grid grid-cols-4 gap-2">
+                  {sensorHealthKeys(esp32.status?.sensor_health).map((key) => (
+                    <div key={key} className="rounded-lg bg-white p-2 text-center">
+                      <p className="text-xs font-semibold uppercase text-rehab-muted">{sensorShortName(t, key)}</p>
+                      <p className={`mt-1 text-sm font-semibold ${esp32.status?.sensor_health?.[key] === "ok" ? "text-emerald-700" : "text-amber-700"}`}>
+                        {sensorHealthText(t, esp32.status?.sensor_health?.[key])}
+                      </p>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </>
+            ) : (
+              <p className="mt-3 rounded-lg bg-white px-3 py-2 text-sm text-rehab-muted">
+                {t.awaitingBoardData ?? "En attente de données du plateau — connectez l'ESP32 pour voir les mesures des capteurs."}
+              </p>
+            )}
           </div>
         </div>
       </ClinicalCard>
@@ -456,8 +468,33 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
   );
 }
 
-function sensorShortName(key) {
-  return { front_left: "FL", front_right: "FR", rear_left: "RL", rear_right: "RR", front: "Front", rear: "Rear", left: "Left", right: "Right" }[key] ?? key;
+function sensorShortName(t, key) {
+  const labels = {
+    front: t.sensorFront ?? "Avant",
+    rear: t.sensorRear ?? "Arrière",
+    left: t.sensorLeft ?? "Gauche",
+    right: t.sensorRight ?? "Droite",
+    front_left: t.sensorFrontLeft ?? "Avant G",
+    front_right: t.sensorFrontRight ?? "Avant D",
+    rear_left: t.sensorRearLeft ?? "Arrière G",
+    rear_right: t.sensorRearRight ?? "Arrière D",
+  };
+  return labels[key] ?? key;
+}
+
+function sensorHealthText(t, value) {
+  if (value === "ok") return t.sensorOk ?? "OK";
+  if (value === "warning") return t.sensorWarning ?? "Alerte";
+  return t.sensorUnknown ?? "—";
+}
+
+function friendlyEsp32Error(t, raw) {
+  const text = String(raw ?? "");
+  const portMatch = text.match(/Could not open ([^:]+):/);
+  if (portMatch) {
+    return (t.esp32PortOpenError ?? "Impossible d'ouvrir le port {port}. Vérifiez que l'ESP32 est branché et que le port n'est pas utilisé par un autre logiciel.").replace("{port}", portMatch[1]);
+  }
+  return t.esp32GenericError ?? "La connexion ESP32 a échoué. Vérifiez le câble USB et réessayez.";
 }
 
 function sensorHealthKeys(health = {}) {
