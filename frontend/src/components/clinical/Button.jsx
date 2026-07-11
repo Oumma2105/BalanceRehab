@@ -1,9 +1,11 @@
 export function Button({ children, variant = "primary", className = "", ...props }) {
   const variants = {
-    primary: "bg-rehab-teal text-white hover:bg-[#378f76]",
-    secondary: "border border-rehab-line bg-white text-rehab-ink hover:bg-slate-50",
+    primary:
+      "bg-gradient-to-b from-[#4cb798] to-[#3a9c7e] text-white shadow-sm shadow-teal-900/20 hover:from-[#43aa8b] hover:to-[#33906f] active:translate-y-px",
+    secondary: "border border-rehab-line bg-white text-rehab-ink shadow-sm hover:border-slate-300 hover:bg-slate-50",
     subtle: "bg-slate-100 text-slate-700 hover:bg-slate-200",
-    danger: "bg-rehab-red text-white hover:bg-[#d9383b]",
+    danger:
+      "bg-gradient-to-b from-[#fa5457] to-[#e63b3e] text-white shadow-sm shadow-rose-900/20 hover:from-[#f94144] hover:to-[#d9383b] active:translate-y-px",
   };
 
   return (
@@ -16,4 +18,3 @@ export function Button({ children, variant = "primary", className = "", ...props
     </button>
   );
 }
-

@@ -7,9 +7,10 @@ export function ClinicalCard({ children, className = "", tone = "default" }) {
   };
 
   return (
-    <section className={`rounded-lg border ${tones[tone]} shadow-clinical ${className}`}>
+    <section
+      className={`rounded-xl border ${tones[tone]} shadow-clinical transition-shadow duration-200 hover:shadow-clinical-lg ${className}`}
+    >
       {children}
     </section>
   );
 }
-

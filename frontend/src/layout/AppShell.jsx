@@ -44,13 +44,14 @@ export function AppShell({
                 key={page}
                 type="button"
                 onClick={() => onPageChange(page)}
-                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition ${
+                className={`relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition ${
                   isActive
-                    ? "bg-rehab-teal text-white shadow-sm"
-                    : "text-slate-600 hover:bg-slate-100 hover:text-rehab-ink"
+                    ? "bg-gradient-to-r from-[#43AA8B] to-[#3a9c7e] font-semibold text-white shadow-sm shadow-teal-900/25"
+                    : "font-medium text-slate-600 hover:bg-slate-100 hover:text-rehab-ink"
                 }`}
               >
-                <Icon size={18} />
+                {isActive ? <span className="absolute -left-4 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-rehab-teal" aria-hidden /> : null}
+                <Icon size={18} className={isActive ? "" : "text-slate-400"} />
                 {t[page]}
               </button>
             );

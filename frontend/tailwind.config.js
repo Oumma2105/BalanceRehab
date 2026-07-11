@@ -18,10 +18,14 @@ export default {
         },
       },
       fontFamily: {
-        sans: ["Aptos", "Segoe UI", "sans-serif"],
+        sans: ["Inter", "Aptos", "Segoe UI", "sans-serif"],
       },
       boxShadow: {
-        clinical: "0 18px 45px rgba(20, 33, 61, 0.08)",
+        clinical: "0 1px 2px rgba(20, 33, 61, 0.05), 0 10px 30px rgba(20, 33, 61, 0.06)",
+        "clinical-lg": "0 2px 4px rgba(20, 33, 61, 0.06), 0 22px 55px rgba(20, 33, 61, 0.1)",
+      },
+      letterSpacing: {
+        kicker: "0.14em",
       },
     },
   },
