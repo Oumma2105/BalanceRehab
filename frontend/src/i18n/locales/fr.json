@@ -301,7 +301,7 @@
   "thirtySeconds": "30 secondes",
   "sixtySeconds": "60 secondes",
   "notes": "Notes",
-  "continueToPreparation": "Continuer vers preparation",
+  "continueToPreparation": "Continuer vers préparation",
   "stepPreparation": "Préparation et sécurité",
   "demoModeActiveData": "Mode démo actif : données capteurs et posture simulées.",
   "demoModeActive": "Mode démo actif",
@@ -361,7 +361,7 @@
   "labelTrackingFailure": "Etiqueter échec suivi",
   "movementFeaturesUnavailable": "Service de caractéristiques mouvement indisponible. Enregistrez la session et vérifiez que le backend est lancé.",
   "movementAiSettings": "IA mouvement",
-  "movementAiSettingsDesc": "État du modèle prototype volontaire/involontaire et preparation de l'entraînement.",
+  "movementAiSettingsDesc": "État du modèle prototype volontaire/involontaire et préparation de l'entraînement.",
   "movementModelStatus": "Modèle d'intention du mouvement",
   "movementModelStatusDesc": "Utilise les étiquettes clinicien et les caractéristiques webcam extraites. Non valide cliniquement.",
   "trained": "Entraîné",
@@ -1321,7 +1321,9 @@
           "Vitesse de récupération"
         ]
       }
-    }
+    },
+    "selectPatient": "Sélection du patient",
+    "choosePatientToContinue": "Choisissez le patient pour cette séance de rééducation."
   },
   "best": "Meilleur",
   "worst": "Pire",

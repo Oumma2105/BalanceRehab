@@ -144,7 +144,10 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
             <ResponsiveContainer width="100%" height={320}>
               <ComposedChart data={analytics.clinicTrend} margin={{ top: 8, right: 52, bottom: 8, left: 8 }}>
                 <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-                <XAxis dataKey="week_label" tick={{ fontSize: 11 }} stroke="#577590" height={36} />
+                <XAxis dataKey="week_label" tick={{ fontSize: 11 }} stroke="#577590" height={36} tickFormatter={(value, index) => {
+                  const iso = analytics.clinicTrend?.[index]?.week_start;
+                  return iso ? new Date(iso).toLocaleDateString(getDateLocale(), { month: "short", day: "numeric" }) : value;
+                }} />
                 <YAxis yAxisId="score" domain={[0, 100]} tick={{ fontSize: 11 }} stroke="#577590" width={52} />
                 <YAxis yAxisId="volume" orientation="right" tick={{ fontSize: 11 }} stroke="#577590" allowDecimals={false} width={48} />
                 <Tooltip content={<ClinicalTooltip />} />

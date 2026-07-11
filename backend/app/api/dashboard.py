@@ -152,6 +152,7 @@ def weekly_trend(sessions: list[AssessmentSession], weeks: int) -> list[dict]:
         buckets.append(
             {
                 "week_label": week_start.strftime("%b %d"),
+                "week_start": week_start.isoformat(),
                 "avg_score": round(sum(scores) / len(scores), 1) if scores else None,
                 "median_score": round(median(scores), 1) if scores else None,
                 "session_count": len(scores),

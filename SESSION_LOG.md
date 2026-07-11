@@ -5,7 +5,63 @@ Rollback point: tag `pre-session-2026-07-11` (= cca06c6), pushed to origin.
 ## Needs my review (running list)
 
 - **Phase numbering in the instructions was ambiguous** (two "PHASE 2"s: fix-findings vs creative redesign; two "PHASE 4"s: final pass vs ML pipeline). Interpretation used: Phase 1 audit → Phase 2 fixes + page redesigns (with `pre-redesign-<page>` tags) → Phase 3 games → Phase 4 ML (with `pre-ml-work` tag) → final pass. All content from both variants is covered.
-- (further entries added as work proceeds)
+- **Demo DB regenerated** (Phase 2): sessions/rehab sessions now span the last ~6 weeks ending today, scores capped at 95. Your previous demo DB is backed up at the session scratchpad (`balancerehab.pre-reseed.db`) if you want it back. The old manually-created test sessions (the 100/100 rows) are gone.
+- **Dead Settings controls replaced, not wired** (judgment call): the PDF FR/EN switch, include-charts/include-recommendations toggles, "Wi-Fi plus tard" mode and the no-op "Enregistrer paramètres" button did nothing. I replaced them with truthful informative badges ("Suit la langue de l'interface", "Inclus par défaut") instead of building real settings plumbing. The "Mode démo" toggle in Général is still a display-only control linked to backend state — left as is.
+- **ESP32/Combined modes left selectable** (judgment call): their descriptions no longer say "Mode futur" but "requires ESP32 board connected", because serial acquisition IS implemented — it needs hardware, not code.
+- **Audit correction**: Phase 1 claimed the assessment patient list was ~5,400px tall; it's actually inside a 288px inner scrollbox (the coordinates I measured were unclipped layout positions). The real issue was only the CTA below the fold + double stepper labels; fixed via section renames, CTA unchanged (a one-scroll form is acceptable).
+
+---
+
+## PHASE 2 — FIXES + PAGE-BY-PAGE REDESIGN (done)
+
+Tags pushed: `pre-redesign-patients`, `pre-redesign-balance-assessment`,
+`pre-redesign-settings`, `pre-redesign-rehabilitation`, `pre-redesign-demo-data`.
+
+**Blockers fixed**
+- ReferenceLine import (PatientDetail) — patient dossier + dashboard "Résultats" work
+  for the first time; second latent crash (metricTone undefined in ScoreStrip) also fixed
+- App-wide ErrorBoundary: any future page error degrades to an inline notice
+- Progress Analytics wired into the sidebar; renders clean (50-patient list + detail)
+
+**Clinical-trust fixes**
+- Patient status/score/date now derived from latest COMPLETED session (backend);
+  "Aucune session" badge next to an 88/100 score can no longer happen
+- Demo runs labeled "données simulées (démo)" on every chart; the sway-trace source can
+  no longer resolve to "plateau série ESP32" for simulated samples
+- Live recording panel shows only real channels (demo = single "source démo" row; no
+  more fake Caméra prête / Corps entier visible / Calibration terminée)
+- Debug counters (MediaPipe/ESP32/Fallback) removed from the bilan
+- Interpretation sentence grammatical ("une stabilité posturale satisfaisante")
+- Safety checklist starts unchecked; "Qualité des capteurs"→"Qualité du signal"
+- Settings: raw Python exceptions replaced by actionable FR messages (raw kept in
+  tooltip); backend clears sticky ESP32 error on disconnect (+2 tests → 22/22);
+  statuses map to Disponible/Non connecté instead of eternal "Vérification"
+- Dashboard vs Patients KPI collision resolved (1-decimal + clarified label)
+
+**Language/typography**
+- clinicalValues helper + locale groups: statuses, pathologies, goals, test types,
+  visual conditions, risk, sides, game names, session states — applied on Dashboard,
+  Patients (list+dossier), Assessment wizard/bilan, rehab dossier panel
+- Locale-aware dates everywhere (fr-FR "26 juin"); backend clinic-trend now ships ISO
+  week_start so the frontend formats labels in the active language
+- FR accent sweep: ~75 strings corrected; findings/recommendations/short interpretation
+  localized; "deg"→"°"; "1 sessions" pluralization; RÉSUMÉ/Événements accents
+- Rehab page "SELECT PATIENT / Choose the patient..." block now French
+
+**Demo data**
+- Regenerated via backend/scripts/generate_demo_data.py: 453 sessions + 107 rehab
+  sessions across 50 patients, ending today (6 sessions today, 67 this week), scores
+  ≤95, archetype mix (19 improving / 13 plateau / 8 struggling / 5 recent / 5 declining)
+
+**Verification after Phase 2**: backend 22/22 tests; vite production build clean; app
+boots 5173/8010; Dashboard/Patients/dossier/Assessment (full demo run to bilan, not
+saved)/Rehab step 1-2/Settings/About/Progress Analytics all navigated with zero console
+errors; EN mode spot-checked.
+
+**Known minor leftovers** (not blocking, listed for transparency): "Synthetic demo
+record…" clinical notes still English in demo patient data; R1..R12 axis labels on the
+dashboard rehab chart; gameMix tooltip shows raw id on hover; "6 Sessions" header chip
+in patient dossier uses capital S.
 
 ---
 

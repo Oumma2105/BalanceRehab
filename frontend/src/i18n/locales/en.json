@@ -1321,7 +1321,9 @@
           "Recovery speed"
         ]
       }
-    }
+    },
+    "selectPatient": "Select patient",
+    "choosePatientToContinue": "Choose the patient for this rehabilitation session."
   },
   "best": "Best",
   "worst": "Worst",

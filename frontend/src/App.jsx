@@ -22,6 +22,7 @@ const pages = [
   "patients",
   "balanceAssessment",
   "rehabGames",
+  "progressAnalytics",
   "about",
   "settings",
 ];
