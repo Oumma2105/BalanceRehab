@@ -269,7 +269,7 @@ function PatientPill({ label, value, highlight, accent }) {
     <div>
       <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-rehab-muted">{label}</p>
       <p
-        className={`mt-0.5 text-xs font-bold ${highlight ? "text-[#43AA8B]" : "text-rehab-ink"}`}
+        className={`mt-0.5 text-xs font-semibold ${highlight ? "text-[#43AA8B]" : "text-rehab-ink"}`}
         style={accent ? { color: accent } : undefined}
       >
         {value}
@@ -284,25 +284,25 @@ function PatientSelectionRow({ item, selected, onSelect }) {
     <button
       type="button"
       onClick={onSelect}
-      className={`grid w-full grid-cols-[auto_minmax(12rem,1.5fr)_minmax(10rem,1fr)_7rem_9rem_8rem] items-center gap-3 px-4 py-2.5 text-left transition ${
+      className={`grid w-full grid-cols-[auto_minmax(12rem,1.5fr)_minmax(10rem,1fr)_7rem_9rem_8rem] items-center gap-3 px-4 py-2 text-left transition ${
         selected ? "bg-[#EEF7F4] ring-1 ring-inset ring-rehab-teal/35" : "bg-white hover:bg-slate-50"
       }`}
     >
-      <span className={`grid h-9 w-9 place-items-center rounded-lg text-sm font-black ${selected ? "bg-rehab-teal text-white" : "bg-slate-100 text-rehab-muted"}`}>
+      <span className={`grid h-9 w-9 place-items-center rounded-lg text-sm font-semibold ${selected ? "bg-rehab-teal text-white" : "bg-slate-100 text-rehab-muted"}`}>
         {patient.fullName?.[0] ?? "?"}
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-sm font-bold text-rehab-ink">{patient.fullName}</span>
-        <span className="mt-0.5 block truncate text-[11px] font-semibold text-rehab-muted">{identifier}</span>
+        <span className="block truncate text-sm font-semibold text-rehab-ink">{patient.fullName}</span>
+        <span className="mt-0.5 block truncate text-[11px] font-medium text-rehab-muted">{identifier}</span>
       </span>
-      <span className="truncate text-xs font-semibold text-rehab-muted">{condition}</span>
+      <span className="truncate text-xs text-rehab-muted">{condition}</span>
       <span>
-        <span className="text-sm font-black" style={{ color: scoreColor(score) }}>{score != null ? `${score}/100` : "—"}</span>
+        <span className="text-sm font-semibold" style={{ color: scoreColor(score) }}>{score != null ? `${score}/100` : "—"}</span>
         <span className="mt-1 block h-1.5 rounded-full bg-slate-100">
           <span className="block h-full rounded-full" style={{ width: `${Math.min(100, Math.max(0, score ?? 0))}%`, backgroundColor: scoreColor(score) }} />
         </span>
       </span>
-      <span className="text-xs font-semibold text-rehab-muted">{lastSessionLabel}</span>
+      <span className="text-xs text-rehab-muted">{lastSessionLabel}</span>
       <StatusBadge tone={statusTone}>{statusLabel}</StatusBadge>
     </button>
   );
@@ -456,25 +456,25 @@ function RehabSetupStep({
 
     return (
       <div className="space-y-4">
-        <ClinicalCard className="p-5">
+        <ClinicalCard className="p-4">
           <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.06em] text-rehab-muted">{copy.selectPatient ?? "Select Patient"}</p>
-          <p className="mb-4 text-xs text-rehab-muted">{copy.choosePatientToContinue ?? "Choose the patient for this rehabilitation session."}</p>
+          <p className="mb-3 text-xs text-rehab-muted">{copy.choosePatientToContinue ?? "Choose the patient for this rehabilitation session."}</p>
           <div className="relative">
-            <Search size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-rehab-muted" />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-rehab-muted" />
             <input
               value={patientSearch}
               onChange={(event) => setPatientSearch(event.target.value)}
               placeholder={copy.patientSearchPlaceholder ?? "Rechercher un patient par nom, ID ou pathologie..."}
-              className="min-h-12 w-full rounded-xl border border-rehab-line bg-white pl-11 pr-4 text-sm font-semibold text-rehab-ink outline-none transition placeholder:text-rehab-muted focus:border-rehab-teal focus:ring-2 focus:ring-rehab-teal/10"
+              className="w-full rounded-lg border border-rehab-line bg-white py-2.5 pl-9 pr-3 text-sm outline-none transition placeholder:text-rehab-muted focus:border-rehab-teal focus:ring-2 focus:ring-rehab-teal/10"
             />
           </div>
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-1.5">
             {filterOptions.map(([value, label]) => (
               <button
                 key={value}
                 type="button"
                 onClick={() => setPatientFilter(value)}
-                className={`rounded-full border px-3.5 py-1.5 text-xs font-bold transition ${
+                className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
                   patientFilter === value
                     ? "border-rehab-teal bg-[#EEF7F4] text-rehab-teal"
                     : "border-slate-200 bg-white text-rehab-muted hover:border-rehab-teal/50 hover:text-rehab-ink"
@@ -484,9 +484,9 @@ function RehabSetupStep({
               </button>
             ))}
           </div>
-          <div className="mt-5 overflow-hidden rounded-xl border border-rehab-line bg-white">
+          <div className="mt-3 overflow-hidden rounded-xl border border-rehab-line bg-white">
             {visiblePatients.length ? (
-              <div className="max-h-[340px] divide-y divide-rehab-line overflow-y-auto">
+              <div className="max-h-[250px] divide-y divide-rehab-line overflow-y-auto">
                 {visiblePatients.map((item) => (
                   <PatientSelectionRow
                     key={item.patient.id}
@@ -498,7 +498,7 @@ function RehabSetupStep({
               </div>
             ) : (
               <div className="p-8 text-center">
-                <p className="text-sm font-bold text-rehab-ink">
+                <p className="text-sm font-semibold text-rehab-ink">
                   {(copy.noPatientFoundFor ?? "Aucun patient trouvé pour '{term}'").replace("{term}", patientSearch)}
                 </p>
                 <button
@@ -519,7 +519,7 @@ function RehabSetupStep({
               <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#EEF7F4]">
                 <User size={14} className="text-[#43AA8B]" />
               </span>
-              <span className="text-sm font-bold text-rehab-ink">{selectedPatient.fullName}</span>
+              <span className="text-sm font-semibold text-rehab-ink">{selectedPatient.fullName}</span>
             </div>
             <div className="hidden h-5 w-px bg-slate-200 sm:block" />
             <PatientPill label={copy.condition ?? t.pathology ?? "Condition"} value={selectedRow.condition} />
@@ -540,7 +540,7 @@ function RehabSetupStep({
           type="button"
           onClick={onNextSubStep}
           disabled={!selectedPatient}
-          className="sticky bottom-4 flex w-full items-center justify-center gap-3 rounded-2xl bg-[#43AA8B] px-8 py-4 text-base font-bold text-white shadow-md transition hover:bg-[#3b9a7e] disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#43AA8B] px-8 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-[#3b9a7e] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {copy.chooseExercise ?? "Choose Exercise"} <ChevronRight size={18} />
         </button>
@@ -636,7 +636,7 @@ function RehabSetupStep({
                 <Icon size={20} />
               </span>
               <div className="min-w-0">
-                <h3 className="font-bold leading-tight text-rehab-ink">{selectedGameInfo.title}</h3>
+                <h3 className="font-semibold leading-tight text-rehab-ink">{selectedGameInfo.title}</h3>
                 <p className="mt-0.5 text-xs text-rehab-muted">{selectedGameInfo.primaryGoal}</p>
               </div>
               <span className="ml-auto shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-rehab-muted">{selectedGameInfo.difficulty}</span>
@@ -645,7 +645,7 @@ function RehabSetupStep({
             {selectedGameInfo.objectives?.length ? (
               <ul className="mt-4 space-y-1.5">
                 {selectedGameInfo.objectives.slice(0, 3).map((obj) => (
-                  <li key={obj} className="flex items-start gap-2 text-xs font-semibold text-rehab-ink">
+                  <li key={obj} className="flex items-start gap-2 text-xs font-medium text-rehab-ink">
                     <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-rehab-teal" />
                     {obj}
                   </li>
@@ -702,7 +702,7 @@ function RehabSetupStep({
                           <ItemIcon size={13} />
                         </span>
                         <span className="min-w-0">
-                          <span className="block truncate text-xs font-bold text-rehab-ink">{index + 1}. {game.title}</span>
+                          <span className="block truncate text-xs font-semibold text-rehab-ink">{index + 1}. {game.title}</span>
                           <span className="block truncate text-[10px] font-semibold text-rehab-muted">{item.reason}</span>
                         </span>
                       </button>
@@ -718,14 +718,14 @@ function RehabSetupStep({
           <button
             type="button"
             onClick={onPrevSubStep}
-            className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-6 py-4 text-sm font-bold text-rehab-ink shadow-sm transition hover:border-rehab-teal hover:text-rehab-teal"
+            className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-rehab-ink shadow-sm transition hover:border-rehab-teal hover:text-rehab-teal"
           >
             <ChevronRight size={16} className="rotate-180" /> Patient
           </button>
           <button
             type="button"
             onClick={onNextSubStep}
-            className="flex flex-1 items-center justify-center gap-3 rounded-2xl bg-[#43AA8B] px-8 py-4 text-base font-bold text-white shadow-md transition hover:bg-[#3b9a7e]"
+            className="flex flex-1 items-center justify-center gap-3 rounded-2xl bg-[#43AA8B] px-8 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-[#3b9a7e]"
           >
             {copy.previewExercise ?? "Preview Exercise"} <ChevronRight size={18} />
           </button>
@@ -875,15 +875,15 @@ function RehabSetupStep({
             <div className="space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-rehab-muted">{copy.difficulty}</span>
-                <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-rehab-ink">{copy.difficultyLabels?.[difficulty] ?? difficulty}</span>
+                <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-rehab-ink">{copy.difficultyLabels?.[difficulty] ?? difficulty}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-rehab-muted">{copy.duration}</span>
-                <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-rehab-ink">{durationSeconds}s</span>
+                <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-rehab-ink">{durationSeconds}s</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-rehab-muted">{t.patient ?? "Patient"}</span>
-                <span className="truncate max-w-[120px] rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-rehab-ink">{selectedPatient?.fullName ?? "—"}</span>
+                <span className="truncate max-w-[120px] rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-rehab-ink">{selectedPatient?.fullName ?? "—"}</span>
               </div>
             </div>
           </ClinicalCard>
@@ -894,14 +894,14 @@ function RehabSetupStep({
         <button
           type="button"
           onClick={onPrevSubStep}
-          className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-6 py-4 text-sm font-bold text-rehab-ink shadow-sm transition hover:border-rehab-teal hover:text-rehab-teal"
+          className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-rehab-ink shadow-sm transition hover:border-rehab-teal hover:text-rehab-teal"
         >
           <ChevronRight size={16} className="rotate-180" /> {copy.exerciseBack ?? copy.workflowSteps?.[1] ?? "Exercise"}
         </button>
         <button
           type="button"
           onClick={onStart}
-          className="flex flex-1 items-center justify-center gap-3 rounded-2xl bg-[#43AA8B] px-8 py-4 text-base font-bold text-white shadow-md transition hover:bg-[#3b9a7e]"
+          className="flex flex-1 items-center justify-center gap-3 rounded-2xl bg-[#43AA8B] px-8 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-[#3b9a7e]"
         >
           <Play size={20} /> {copy.beginTraining ?? copy.startTraining ?? "Begin Training"} <ChevronRight size={18} />
         </button>

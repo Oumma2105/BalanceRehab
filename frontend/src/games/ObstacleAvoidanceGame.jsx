@@ -36,6 +36,7 @@ export function ObstacleAvoidanceGame({
   durationSeconds = 60,
   onComplete,
   onCancel,
+  copy = {},
 }) {
   const cfg = DIFFICULTY[difficulty] ?? DIFFICULTY.standard;
 
@@ -115,13 +116,17 @@ export function ObstacleAvoidanceGame({
     const stability   = Math.min(100, Math.max(0, Math.round(100 - s.hits * 9)));
     const smoothness  = Math.min(100, Math.round((s.maxCombo / Math.max(1, s.spawned)) * 80 + 20));
     const elapsed     = s.gameStartTs > 0 ? (performance.now() - s.gameStartTs) / 1000 : durationSeconds;
+    const sampleTimes = s.samples.map((sample) => Number(sample.t)).filter(Number.isFinite);
+    const trackingTimeEffective = sampleTimes.length ? Math.max(...sampleTimes) : 0;
 
     onComplete({
       patientId: patient?.id ?? null,
       gameType: "obstacle_avoidance",
       difficulty,
       durationSeconds: Math.round(elapsed),
-      acquisitionMode: stream ? "webcam" : "demo",
+      acquisitionMode: stream ? "webcam_mediapipe" : "demo",
+      trackingTimeEffective,
+      tracking_time_effective: trackingTimeEffective,
       score: finalScore,
       rawScore: s.score,
       accuracy: Math.round(successRate),
@@ -514,7 +519,7 @@ export function ObstacleAvoidanceGame({
   // ─── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="relative flex h-full w-full overflow-hidden" style={{ background: "#0f172a" }}>
+    <div className="relative flex h-full w-full overflow-hidden" style={{ background: "#0f172a", fontFamily: "inherit" }}>
       {/* Mirrored video feed */}
       {stream && (
         <video
@@ -534,29 +539,29 @@ export function ObstacleAvoidanceGame({
       {uiPhase === "waiting" && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-7 bg-slate-950/75 px-6">
           <div className="text-center">
-            <p className="text-[11px] font-black uppercase tracking-[0.2em] text-teal-400">Rehabilitation Game</p>
+            <p className="text-[11px] font-black uppercase tracking-[0.2em] text-teal-400">{copy.rehabilitationGame ?? "Rehabilitation Game"}</p>
             <h2 className="mt-2 text-3xl font-bold text-white">Obstacle Avoidance</h2>
-            <p className="mt-2 text-slate-400">Shift your body weight to navigate through the gaps</p>
+            <p className="mt-2 text-slate-400">{copy.obstacleAvoidanceInstruction ?? "Shift your body weight to navigate through the gaps"}</p>
           </div>
 
           <div className="grid grid-cols-3 gap-3 text-center">
             <div className="rounded-xl bg-white/10 px-4 py-3">
               <div className="text-2xl font-bold text-teal-400">⇐⇒</div>
-              <div className="mt-1 text-xs font-semibold text-slate-300">Shift Weight</div>
+              <div className="mt-1 text-xs font-semibold text-slate-300">{copy.shiftWeight ?? "Shift Weight"}</div>
             </div>
             <div className="rounded-xl bg-white/10 px-4 py-3">
               <div className="text-2xl font-bold" style={{ color: YEL }}>△</div>
-              <div className="mt-1 text-xs font-semibold text-slate-300">Find the Gap</div>
+              <div className="mt-1 text-xs font-semibold text-slate-300">{copy.findGap ?? "Find the Gap"}</div>
             </div>
             <div className="rounded-xl bg-white/10 px-4 py-3">
               <div className="text-2xl font-bold" style={{ color: "#F8961E" }}>×5</div>
-              <div className="mt-1 text-xs font-semibold text-slate-300">Build Combo</div>
+              <div className="mt-1 text-xs font-semibold text-slate-300">{copy.buildCombo ?? "Build Combo"}</div>
             </div>
           </div>
 
           {!stream && (
             <p className="rounded-full bg-amber-900/50 px-4 py-1.5 text-xs font-semibold text-amber-300">
-              Demo Mode — No webcam connected
+              {copy.demoNoWebcam ?? "Demo Mode — No webcam connected"}
             </p>
           )}
 
@@ -566,7 +571,7 @@ export function ObstacleAvoidanceGame({
               onClick={startGame}
               className="rounded-xl bg-[#43AA8B] px-8 py-3.5 text-sm font-bold text-white shadow-lg transition hover:bg-[#3b9a7e] active:scale-95"
             >
-              ▶ Start Game
+              ▶ {copy.startGame ?? "Start Game"}
             </button>
             {onCancel && (
               <button
@@ -574,7 +579,7 @@ export function ObstacleAvoidanceGame({
                 onClick={onCancel}
                 className="rounded-xl border border-white/20 px-6 py-3.5 text-sm font-semibold text-white transition hover:border-white/40"
               >
-                Cancel
+                {copy.cancel ?? "Cancel"}
               </button>
             )}
           </div>
@@ -585,14 +590,14 @@ export function ObstacleAvoidanceGame({
       {uiPhase === "countdown" && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="rounded-2xl bg-white/94 px-16 py-10 text-center shadow-2xl">
-            <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">Get Ready</p>
+            <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">{copy.getReady ?? "Get Ready"}</p>
             <p
               className="mt-2 text-8xl font-bold leading-none"
               style={{ color: uiCountdown > 0 ? YEL : TEAL }}
             >
               {uiCountdown > 0 ? uiCountdown : "GO!"}
             </p>
-            <p className="mt-3 text-sm font-semibold text-slate-500">Stand in view — shift left and right</p>
+            <p className="mt-3 text-sm font-semibold text-slate-500">{copy.standInViewShift ?? "Stand in view — shift left and right"}</p>
           </div>
         </div>
       )}
@@ -603,25 +608,25 @@ export function ObstacleAvoidanceGame({
           {/* Right metrics panel */}
           <div className="absolute right-3 top-10 flex flex-col items-end gap-2 text-right">
             <div className="rounded-xl bg-black/65 px-4 py-2 backdrop-blur-sm">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Score</div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{copy.score ?? "Score"}</div>
               <div className="text-2xl font-bold tabular-nums text-white">{uiScore}</div>
             </div>
 
             {uiCombo > 0 && (
               <div className="rounded-xl bg-yellow-500/20 px-4 py-2 backdrop-blur-sm ring-1 ring-yellow-400/30">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-yellow-400">Combo</div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-yellow-400">{copy.combo ?? "Combo"}</div>
                 <div className="text-xl font-bold text-yellow-300">×{uiCombo}</div>
               </div>
             )}
 
             <div className="rounded-xl bg-black/65 px-3 py-1.5 backdrop-blur-sm">
               <div className="text-[10px] font-bold uppercase tracking-wider text-teal-400">
-                Level {uiLevel}
+                {copy.level ?? "Level"} {uiLevel}
               </div>
             </div>
 
             <div className="rounded-xl bg-black/65 px-3 py-1.5 backdrop-blur-sm">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Time</div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{copy.time ?? "Time"}</div>
               <div
                 className="text-xl font-bold tabular-nums"
                 style={{ color: uiTimeLeft <= 10 ? RED : "white" }}
@@ -635,18 +640,18 @@ export function ObstacleAvoidanceGame({
               onClick={() => endGameRef.current?.()}
               className="mt-1 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
             >
-              End
+              {copy.end ?? "End"}
             </button>
           </div>
 
           {/* Bottom center stats */}
           <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 gap-3">
             <div className="rounded-lg bg-black/65 px-4 py-1.5 text-center backdrop-blur-sm">
-              <div className="text-[10px] text-slate-400">Avoided</div>
+              <div className="text-[10px] text-slate-400">{copy.avoided ?? "Avoided"}</div>
               <div className="text-sm font-bold text-teal-300">{uiAvoided}</div>
             </div>
             <div className="rounded-lg bg-black/65 px-4 py-1.5 text-center backdrop-blur-sm">
-              <div className="text-[10px] text-slate-400">Hits</div>
+              <div className="text-[10px] text-slate-400">{copy.hits ?? "Hits"}</div>
               <div className="text-sm font-bold text-red-400">{uiHits}</div>
             </div>
           </div>
@@ -665,7 +670,7 @@ export function ObstacleAvoidanceGame({
                   uiTracking ? "animate-pulse bg-teal-400" : "bg-amber-400"
                 }`}
               />
-              {uiTracking ? (stream ? "Tracking Active" : "Demo") : "Searching…"}
+              {uiTracking ? (stream ? (copy.trackingActive ?? "Tracking Active") : (copy.demo ?? "Demo")) : (copy.searchingTracking ?? "Searching…")}
             </div>
           </div>
         </>
