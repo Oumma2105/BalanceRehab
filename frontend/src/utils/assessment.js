@@ -63,17 +63,28 @@ export function getStatus(score) {
   return "High instability";
 }
 
+export function interpretationStatusPhrase(status, t = {}) {
+  // Noun phrase that reads correctly inside the interpretation sentence
+  // ("suggèrent une stabilité posturale satisfaisante", not "une stable").
+  const phrases = t.interpretationStatusPhrases ?? {};
+  if (phrases[status]) return phrases[status];
+  if (status === "Stable") return "satisfactory postural stability";
+  if (status === "Moderate instability") return "moderate postural instability";
+  if (status === "High instability") return "marked postural instability";
+  return statusText(status, t).toLowerCase();
+}
+
 export function generateInterpretation(metrics, config, t = {}) {
   if (metrics.acquisitionMode === acquisitionModes.webcam) {
     return template(
       t.webcamGeneratedInterpretation ??
         "Estimated webcam-based posture indicators suggest {status}. Board-sensor sway metrics are not available in webcam-only mode. The result should be interpreted as rehabilitation-support information, not as a medical diagnosis.",
-      { status: statusText(metrics.status, t).toLowerCase() },
+      { status: interpretationStatusPhrase(metrics.status, t) },
     );
   }
 
   const mode = config.testType === "dynamic" ? t.dynamicUnsupportedCondition : t.controlledStaticCondition;
-  const status = statusText(metrics.status, t).toLowerCase();
+  const status = interpretationStatusPhrase(metrics.status, t);
 
   return template(
     t.generatedInterpretation ??

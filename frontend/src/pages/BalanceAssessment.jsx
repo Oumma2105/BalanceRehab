@@ -27,6 +27,7 @@ import { EmptyState } from "../components/clinical/EmptyState";
 import { SectionHeader } from "../components/clinical/SectionHeader";
 import { StatusBadge } from "../components/clinical/StatusBadge";
 import { api } from "../api/client.js";
+import { sessionStateLabel } from "../i18n/clinicalValues.js";
 import { acquisitionModes, createAssessmentSource, getAssessmentSourceOptions } from "../assessment/sources/index.js";
 import { buildSession, statusText } from "../utils/assessment";
 import { WebcamPoseAssessment } from "../webcam/WebcamPoseAssessment.jsx";
@@ -42,11 +43,13 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
     durationSeconds: 30,
     notes: "",
   });
+  // All safety confirmations start unchecked: checking them must be a
+  // deliberate clinician action, not a default.
   const [checklist, setChecklist] = useState({
     board: false,
     ring: false,
-    webcam: true,
-    esp32: true,
+    webcam: false,
+    esp32: false,
     supervision: false,
   });
   const [elapsed, setElapsed] = useState(0);
@@ -288,7 +291,7 @@ export function BalanceAssessmentPage({ t, patients, sessions, onSaveSession, on
           <ContextStrip
             t={t}
             patient={selectedPatient}
-            status={results ? "Completed" : "Draft"}
+            status={sessionStateLabel(t, results ? "Completed" : "Draft")}
             step={currentStepLabel}
             nextAction={step < 2 ? steps[Math.min(step + 1, 2)] : t.downloadReport}
           />
@@ -418,7 +421,7 @@ function SetupStep({ t, patients, selectedPatientId, onSelectPatient, config, on
               {selectedPatient ? (
                 <p className="mt-0.5 text-sm font-semibold text-rehab-ink">
                   {selectedPatient.fullName}
-                  <span className="ml-2 font-normal text-rehab-muted">/ {selectedPatient.patientCode} — {selectedPatient.pathology}</span>
+                  <span className="ml-2 font-normal text-rehab-muted">· {selectedPatient.patientCode} — {t.clinicalTerms?.pathologies?.[selectedPatient.pathology] ?? selectedPatient.pathology}</span>
                 </p>
               ) : (
                 <p className="mt-0.5 text-sm text-rehab-muted">{t.choosePatientToContinue}</p>
@@ -448,7 +451,7 @@ function SetupStep({ t, patients, selectedPatientId, onSelectPatient, config, on
                   </span>
                   <div>
                     <p className="font-semibold text-rehab-ink">{patient.fullName}</p>
-                    <p className="text-sm text-rehab-muted">{patient.patientCode} · {patient.age} {t.years} · {patient.pathology}</p>
+                    <p className="text-sm text-rehab-muted">{patient.patientCode} · {patient.age} {t.years} · {t.clinicalTerms?.pathologies?.[patient.pathology] ?? patient.pathology}</p>
                   </div>
                 </div>
                 <StatusBadge tone={patient.status === "Declining" ? "danger" : patient.status === "Follow-up" ? "warning" : "connected"}>
@@ -456,8 +459,8 @@ function SetupStep({ t, patients, selectedPatientId, onSelectPatient, config, on
                 </StatusBadge>
               </div>
               <div className="mt-3 grid gap-2 text-sm text-rehab-muted sm:grid-cols-2">
-                <p><span className="font-semibold text-rehab-ink">{t.clinicalGoal}:</span> {patient.clinicalGoal || "-"}</p>
-                <p><span className="font-semibold text-rehab-ink">{t.dominantSide}:</span> {patient.dominantSide || "-"}</p>
+                <p><span className="font-semibold text-rehab-ink">{t.clinicalGoal}:</span> {t.clinicalTerms?.goals?.[patient.clinicalGoal] ?? patient.clinicalGoal ?? "-"}</p>
+                <p><span className="font-semibold text-rehab-ink">{t.dominantSide}:</span> {t.clinicalTerms?.sides?.[patient.dominantSide] ?? patient.dominantSide ?? "-"}</p>
               </div>
               {patient.latestScore ? <ScoreBar label={t.latestScore} score={patient.latestScore} /> : null}
             </button>
@@ -584,13 +587,22 @@ function LiveStep({ t, elapsed, duration, countdown, assessmentPhase, assessment
   const isAssessing = assessmentPhase === "assessing" && assessmentRunning;
   const isLoading = hasWebcam && (!cameraActive || !modelActive);
   const liveMessage = liveAssessmentMessage({ t, isLoading, isCountingDown, isAssessing, isComplete, ready, poseState, isWebcamOnly: hasWebcam });
+  // Only show checks for channels actually in use — a demo run must never
+  // claim the camera or the ESP32 board are active.
+  const isDemoMode = config.acquisitionMode === acquisitionModes.demo;
   const sessionChecks = [
-    [t.cameraReady ?? "Camera", cameraActive],
-    ["MediaPipe", modelActive],
-    [t.fullBodyVisible ?? "Full body visible", bodyDetected && fullBodyVisible],
-    [t.feetVisible ?? "Feet visible", feetVisible],
-    [t.esp32Status ?? "ESP32 connected", boardEnabled ? boardReady : true],
-    [t.calibrationComplete ?? "Calibration complete", ready || isAssessing || isComplete],
+    ...(hasWebcam
+      ? [
+          [t.cameraReady ?? "Camera", cameraActive],
+          ["MediaPipe", modelActive],
+          [t.fullBodyVisible ?? "Full body visible", bodyDetected && fullBodyVisible],
+          [t.feetVisible ?? "Feet visible", feetVisible],
+        ]
+      : []),
+    ...(boardEnabled ? [[t.esp32Status ?? "ESP32 connected", boardReady]] : []),
+    ...(isDemoMode
+      ? [[t.demoDataSourceActive ?? "Demo data source active", true]]
+      : [[t.calibrationComplete ?? "Calibration complete", ready || isAssessing || isComplete]]),
   ];
 
   return (
@@ -716,9 +728,9 @@ function BiomechanicsSidebar({ t, frame, checks, poseState, ready, isAssessing, 
 
         <SidebarSection title={t.bodyControl ?? "Body control"}>
           <div className="space-y-2">
-            <ControlIndicator label="AP balance" value={frame.apSway} limit={12} />
-            <ControlIndicator label="ML balance" value={frame.mlSway} limit={12} />
-            <ControlIndicator label={t.trunkAlignment ?? "Trunk alignment"} value={trunk} limit={10} unit="°" />
+            <ControlIndicator t={t} label={t.apBalance ?? "AP balance"} value={frame.apSway} limit={12} />
+            <ControlIndicator t={t} label={t.mlBalance ?? "ML balance"} value={frame.mlSway} limit={12} />
+            <ControlIndicator t={t} label={t.trunkAlignment ?? "Trunk alignment"} value={trunk} limit={10} unit="°" />
           </div>
         </SidebarSection>
       </div>
@@ -753,9 +765,9 @@ function CompactScore({ label, value, color }) {
   );
 }
 
-function ControlIndicator({ label, value, limit, unit = "" }) {
+function ControlIndicator({ t, label, value, limit, unit = "" }) {
   const numeric = Number(value ?? 0);
-  const normalized = Math.min(100, Math.abs(numeric) / limit * 100);
+  const normalized = Math.round(Math.min(100, Math.abs(numeric) / limit * 100));
   const position = 50 + Math.max(-45, Math.min(45, numeric / limit * 45));
   return (
     <div>
@@ -766,7 +778,7 @@ function ControlIndicator({ label, value, limit, unit = "" }) {
       <div className="relative h-2 rounded-full bg-[linear-gradient(90deg,#f9c74f_0%,#90be6d_35%,#43aa8b_50%,#90be6d_65%,#f9c74f_100%)] opacity-80">
         <span className="absolute top-1/2 h-3.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-rehab-ink shadow-sm" style={{ left: `${position}%` }} />
       </div>
-      <span className="sr-only">{normalized}% of expected range</span>
+      <span className="sr-only">{normalized}% {t?.ofExpectedRange ?? "of expected range"}</span>
     </div>
   );
 }
@@ -1694,12 +1706,16 @@ function buildAssessmentSwayTrace(results = {}, acquisitionMode = results.acquis
       ? generateDemoSwayTrace(results)
       : [];
 
+  // A demo acquisition must always be labeled as simulated data, even though the
+  // simulator writes board-shaped samples — never attribute it to the ESP32.
+  const source = isDemo ? "demo" : selected.source;
+
   return {
     samples,
-    source: selected.source,
+    source,
     acquisitionMode: mode,
-    realSamplesUsed: selected.source !== "demo" && selected.source !== "none" && samples.length > 0,
-    fallbackUsed: selected.source === "demo" && samples.length > 0,
+    realSamplesUsed: source !== "demo" && source !== "none" && samples.length > 0,
+    fallbackUsed: source === "demo" && samples.length > 0,
     mediaPipeSamples: postureRaw.length || mergedPosture.length,
     esp32Samples: sensorRaw.length || mergedBoard.length,
     webcamSamples,
@@ -2098,9 +2114,9 @@ function ClinicalPosturographyPanel({ t, results, analytics, acquisitionMode, tr
       <ClinicalCard className={`p-4 ${traceInfo.fallbackUsed || isDemoFallback ? "border-amber-200 bg-amber-50" : hasSamples ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"}`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-rehab-ink">{traceInfo.realSamplesUsed ? (t.recordedSessionData ?? "Données issues de la session enregistrée") : traceInfo.fallbackUsed || isDemoFallback ? "Graphiques de démonstration — aucun échantillon enregistré disponible." : (t.noRecordedSamplesAvailable ?? "No recorded samples available for this session.")}</p>
+            <p className="text-sm font-semibold text-rehab-ink">{traceInfo.realSamplesUsed ? (t.recordedSessionData ?? "Données issues de la session enregistrée") : isDemo ? (t.simulatedSessionData ?? "Données simulées (mode démo) — aucune acquisition matérielle.") : (t.noRecordedSamplesAvailable ?? "No recorded samples available for this session.")}</p>
             <p className="mt-1 text-xs font-semibold text-rehab-muted">
-              {t.acquisitionMode ?? "Acquisition mode"}: {acquisitionLabelForResults(acquisitionMode ?? results.acquisitionMode, t)} · MediaPipe: {traceInfo.mediaPipeSamples} · ESP32: {traceInfo.esp32Samples} · Fallback: {traceInfo.fallbackUsed ? "yes" : "no"}
+              {t.acquisitionMode ?? "Acquisition mode"}: {acquisitionLabelForResults(acquisitionMode ?? results.acquisitionMode, t)} · {samples.length} {t.samplesRecorded ?? "échantillons"}
             </p>
             {traceInfo.fusionMethod ? (
               <p className="mt-1 text-xs font-semibold text-rehab-blue">
@@ -2364,14 +2380,14 @@ function buildResultAnalytics(results, previousSession, t = {}) {
   ];
 
   const findings = [
-    findingFromScore(stabilityScore, "Posture stability remained within the expected supervised range.", "Posture stability requires attention during progression.", "Posture stability indicates elevated instability risk."),
-    findingFromScore(alignmentScore, "Body center alignment is well controlled.", "Body center movement increased during the assessment.", "Body center deviation is high and should be reviewed."),
-    findingFromScore(symmetryScore, "Shoulder and hip symmetry are clinically acceptable.", "Asymmetry is present and should be monitored.", "Marked asymmetry detected during the assessment."),
-    findingFromScore(trunkControlScore, "Trunk control is stable.", "Trunk deviation is increased.", "Trunk control requires focused intervention."),
+    findingFromScore(stabilityScore, t.findingStabilityGood ?? "Posture stability remained within the expected supervised range.", t.findingStabilityWarn ?? "Posture stability requires attention during progression.", t.findingStabilityBad ?? "Posture stability indicates elevated instability risk."),
+    findingFromScore(alignmentScore, t.findingAlignmentGood ?? "Body center alignment is well controlled.", t.findingAlignmentWarn ?? "Body center movement increased during the assessment.", t.findingAlignmentBad ?? "Body center deviation is high and should be reviewed."),
+    findingFromScore(symmetryScore, t.findingSymmetryGood ?? "Shoulder and hip symmetry are clinically acceptable.", t.findingSymmetryWarn ?? "Asymmetry is present and should be monitored.", t.findingSymmetryBad ?? "Marked asymmetry detected during the assessment."),
+    findingFromScore(trunkControlScore, t.findingTrunkGood ?? "Trunk control is stable.", t.findingTrunkWarn ?? "Trunk deviation is increased.", t.findingTrunkBad ?? "Trunk control requires focused intervention."),
   ];
 
   const recommendationCards = (results.recommendations ?? []).map((text) => ({
-    label: "Recommendation",
+    label: t.recommendationLabel ?? "Recommendation",
     text,
     tone: recommendationTone(text),
   }));
@@ -2381,7 +2397,7 @@ function buildResultAnalytics(results, previousSession, t = {}) {
     trajectory: timeSeries.map((item) => ({ centerX: item.centerX, trunkY: item.trunkY })),
     keyMetrics,
     findings,
-    recommendations: recommendationCards.length ? recommendationCards : [{ label: "Recommendation", text: "Continue supervised balance training and repeat assessment for trend monitoring.", tone: "good" }],
+    recommendations: recommendationCards.length ? recommendationCards : [{ label: t.recommendationLabel ?? "Recommendation", text: t.recoContinueTraining ?? "Continue supervised balance training and repeat assessment for trend monitoring.", tone: "good" }],
     radar: [
       { metric: t.stability ?? "Stability", score: stabilityScore },
       { metric: t.symmetry ?? "Symmetry", score: symmetryScore },
@@ -2396,8 +2412,8 @@ function buildResultAnalytics(results, previousSession, t = {}) {
       { label: t.posturalControl ?? "Postural control", value: posturalControlScore },
     ],
     symmetryBars: [
-      { name: "Shoulder", score: scoreFromDeviation(results.shoulderAsymmetry, 10) },
-      { name: "Hip", score: scoreFromDeviation(results.hipAsymmetry, 10) },
+      { name: t.shoulders ?? "Shoulder", score: scoreFromDeviation(results.shoulderAsymmetry, 10) },
+      { name: t.hips ?? "Hip", score: scoreFromDeviation(results.hipAsymmetry, 10) },
     ],
     progressComparison: previousScore > 0
       ? [
@@ -2406,7 +2422,11 @@ function buildResultAnalytics(results, previousSession, t = {}) {
         ]
       : [{ name: "Current", score: results.totalBalanceScore }],
     sessionLabel: scoreDelta > 2 ? "Improving" : scoreDelta < -2 ? "Declining" : results.totalBalanceScore < 65 ? "Follow-up" : "Stable",
-    shortInterpretation: scoreDelta > 2 ? `Improved by ${scoreDelta} points since last session.` : scoreDelta < -2 ? `Declined by ${Math.abs(scoreDelta)} points since last session.` : "Current session shows stable functional balance indicators.",
+    shortInterpretation: scoreDelta > 2
+      ? (t.shortInterpImproved ?? "Improved by {points} points since last session.").replace("{points}", scoreDelta)
+      : scoreDelta < -2
+        ? (t.shortInterpDeclined ?? "Declined by {points} points since last session.").replace("{points}", Math.abs(scoreDelta))
+        : (t.shortInterpStable ?? "Current session shows stable functional balance indicators."),
   };
 }
 
@@ -2420,20 +2440,20 @@ function buildFullBodyMetricGroups(results, t = {}) {
     metricItem(t.movementSmoothness ?? "Movement smoothness", results.movementSmoothnessScore, "/100", 70, true, t),
   ];
   const postureItems = [
-    metricItem(t.trunkInclinationMetric ?? "Trunk inclination", results.trunkInclination ?? results.trunkDeviation, "deg", 8, false, t),
-    metricItem(t.trunkRotation ?? "Trunk rotation", results.trunkRotation, "deg", 10, false, t),
-    metricItem(t.pelvicTilt ?? "Pelvic tilt", results.pelvicTilt, "deg", 5, false, t),
+    metricItem(t.trunkInclinationMetric ?? "Trunk inclination", results.trunkInclination ?? results.trunkDeviation, "°", 8, false, t),
+    metricItem(t.trunkRotation ?? "Trunk rotation", results.trunkRotation, "°", 10, false, t),
+    metricItem(t.pelvicTilt ?? "Pelvic tilt", results.pelvicTilt, "°", 5, false, t),
     metricItem(t.weightShift ?? "Weight shift", results.weightShiftEstimation, "%", 9, false, t),
   ];
   const headItems = [
-    metricItem(t.headTilt ?? "Head tilt", results.headTilt, "deg", 8, false, t),
+    metricItem(t.headTilt ?? "Head tilt", results.headTilt, "°", 8, false, t),
     metricItem(t.headRotation ?? "Head rotation", results.headRotation, "%", 8, false, t),
     metricItem(t.chinDeviation ?? "Chin deviation", results.chinDeviation, "%", 5, false, t),
-    metricItem(t.eyeAlignment ?? "Eye alignment", results.eyeAlignment, "deg", 5, false, t),
+    metricItem(t.eyeAlignment ?? "Eye alignment", results.eyeAlignment, "°", 5, false, t),
   ];
   const symmetryItems = [
-    metricItem(t.shoulderAsymmetry ?? "Shoulder asymmetry", results.shoulderAsymmetry, "deg", 5, false, t),
-    metricItem(t.hipAsymmetry ?? "Hip asymmetry", results.hipAsymmetry, "deg", 5, false, t),
+    metricItem(t.shoulderAsymmetry ?? "Shoulder asymmetry", results.shoulderAsymmetry, "°", 5, false, t),
+    metricItem(t.hipAsymmetry ?? "Hip asymmetry", results.hipAsymmetry, "°", 5, false, t),
     metricItem(t.armSymmetry ?? "Arm symmetry", results.armSymmetry, "%", 12, false, t),
     metricItem(t.armDrift ?? "Arm drift", results.armDrift, "%", 12, false, t),
   ];
@@ -2782,7 +2802,7 @@ function ResultsCharts({ samples, boardAvailable, t = {} }) {
 function getPostureUnits(acquisitionMode) {
   const isWebcamOnly = acquisitionMode === acquisitionModes.webcam;
   return {
-    trunk: "deg",
+    trunk: "°",
     asymmetry: "%",
     center: isWebcamOnly ? "%" : "mm",
   };
