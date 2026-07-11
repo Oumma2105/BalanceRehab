@@ -75,6 +75,7 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetState, setResetState] = useState("idle");
   const [movementAi, setMovementAi] = useState({ readiness: null, model: null, state: "idle" });
+  const [fallRisk, setFallRisk] = useState({ status: null, state: "idle" });
   const [esp32, setEsp32] = useState({
     ports: [],
     selectedPort: window.localStorage.getItem("balancerehab_esp32_port") ?? "",
@@ -98,8 +99,31 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
     }
   };
 
+  const refreshFallRisk = async () => {
+    setFallRisk((current) => ({ ...current, state: "loading" }));
+    try {
+      const statusPayload = await api.fallRiskStatus();
+      setFallRisk({ status: statusPayload, state: "ready" });
+    } catch (error) {
+      console.warn("Fall-risk model status could not be loaded.", error);
+      setFallRisk((current) => ({ ...current, state: "error" }));
+    }
+  };
+
+  const handleTrainFallRisk = async () => {
+    setFallRisk((current) => ({ ...current, state: "training" }));
+    try {
+      const result = await api.trainFallRiskModel();
+      setFallRisk({ status: result, state: "ready" });
+    } catch (error) {
+      console.warn("Fall-risk training failed.", error);
+      setFallRisk((current) => ({ ...current, state: "error" }));
+    }
+  };
+
   useEffect(() => {
     refreshMovementAi();
+    refreshFallRisk();
     refreshEsp32Status();
     const timer = window.setInterval(refreshEsp32Status, 1500);
     return () => window.clearInterval(timer);
@@ -320,6 +344,54 @@ export function SettingsPage({ t, language, onLanguageChange, webcamViewMode, on
           {movementAi.state === "error" ? (
             <p className="mt-3 text-sm font-semibold text-[#B4232A]">
               {t.movementAiUnavailable ?? "Movement AI status is unavailable. Check the backend connection."}
+            </p>
+          ) : null}
+        </div>
+      </ClinicalCard>
+
+      <ClinicalCard className="p-5">
+        <SectionHeader
+          title={t.fallRiskModelTitle ?? "Risque de chute (Random Forest)"}
+          description={t.fallRiskModelDesc ?? "Prototype de classification binaire entraîné sur les séances locales. Étiquettes dérivées de règles — non validé cliniquement."}
+        />
+        <div className="mt-5">
+          <SettingRow
+            icon={BrainCircuit}
+            title={t.fallRiskModelStatus ?? "Modèle Random Forest"}
+            description={fallRisk.status?.label_rule ?? (t.fallRiskLabelRule ?? "elevated_risk = score < 65")}
+          >
+            <div className="flex flex-col items-end gap-2">
+              <StatusBadge tone={fallRisk.status?.trained ? "connected" : "warning"}>
+                {fallRisk.status?.trained ? (t.trained ?? "Entraîné") : (t.notTrained ?? "Non entraîné")}
+              </StatusBadge>
+              <Button variant="secondary" onClick={refreshFallRisk} disabled={fallRisk.state === "loading" || fallRisk.state === "training"}>
+                {t.refresh ?? "Actualiser"}
+              </Button>
+            </div>
+          </SettingRow>
+
+          <div className="grid gap-3 border-t border-rehab-line py-4 sm:grid-cols-4">
+            <AiStat label={t.fallRiskDataset ?? "Séances utilisées"} value={fallRisk.status?.dataset_size ?? 0} />
+            <AiStat label={t.fallRiskAccuracy ?? "Exactitude (test)"} value={formatAccuracy(fallRisk.status?.metrics?.accuracy)} />
+            <AiStat label={t.fallRiskRecall ?? "Rappel (test)"} value={formatAccuracy(fallRisk.status?.metrics?.recall)} />
+            <AiStat label={t.fallRiskF1 ?? "Score F1 (test)"} value={formatAccuracy(fallRisk.status?.metrics?.f1)} />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#F9C74F]/25 bg-[#F9C74F]/10 px-4 py-3">
+            <p className="max-w-3xl text-sm font-semibold leading-5 text-[#8A6B00]">
+              {t.fallRiskDisclaimer ?? fallRisk.status?.disclaimer ?? "Prototype entraîné sur des séances de démonstration avec étiquettes dérivées de règles. Non validé cliniquement."}
+            </p>
+            <Button onClick={handleTrainFallRisk} disabled={fallRisk.state === "training" || fallRisk.state === "loading"}>
+              {fallRisk.state === "training" ? (t.trainingModel ?? "Entraînement...") : (t.trainFallRiskModel ?? "Entraîner le modèle")}
+            </Button>
+          </div>
+
+          {fallRisk.status?.trained === false && fallRisk.status?.reason ? (
+            <p className="mt-3 text-sm font-semibold text-[#8A6B00]">{fallRisk.status.reason}</p>
+          ) : null}
+          {fallRisk.state === "error" ? (
+            <p className="mt-3 text-sm font-semibold text-[#B4232A]">
+              {t.fallRiskUnavailable ?? "Statut du modèle indisponible. Vérifiez la connexion au backend."}
             </p>
           ) : null}
         </div>

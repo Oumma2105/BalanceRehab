@@ -1565,5 +1565,15 @@
   "sensorRearRight": "Rear R",
   "sensorOk": "OK",
   "sensorWarning": "Warning",
-  "sensorUnknown": "—"
+  "sensorUnknown": "—",
+  "fallRiskModelTitle": "Fall risk (Random Forest)",
+  "fallRiskModelDesc": "Binary classification prototype trained on local sessions. Rule-derived labels — not clinically validated.",
+  "fallRiskModelStatus": "Random Forest model",
+  "fallRiskDataset": "Sessions used",
+  "fallRiskAccuracy": "Accuracy (test)",
+  "fallRiskRecall": "Recall (test)",
+  "fallRiskF1": "F1 score (test)",
+  "trainFallRiskModel": "Train model",
+  "fallRiskDisclaimer": "Prototype trained on demo sessions with rule-derived labels. Not clinically validated.",
+  "fallRiskUnavailable": "Model status unavailable. Check the backend connection."
 }

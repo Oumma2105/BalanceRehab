@@ -1565,5 +1565,15 @@
   "sensorRearRight": "Arrière D",
   "sensorOk": "OK",
   "sensorWarning": "Alerte",
-  "sensorUnknown": "—"
+  "sensorUnknown": "—",
+  "fallRiskModelTitle": "Risque de chute (Random Forest)",
+  "fallRiskModelDesc": "Prototype de classification binaire entraîné sur les séances locales. Étiquettes dérivées de règles — non validé cliniquement.",
+  "fallRiskModelStatus": "Modèle Random Forest",
+  "fallRiskDataset": "Séances utilisées",
+  "fallRiskAccuracy": "Exactitude (test)",
+  "fallRiskRecall": "Rappel (test)",
+  "fallRiskF1": "Score F1 (test)",
+  "trainFallRiskModel": "Entraîner le modèle",
+  "fallRiskDisclaimer": "Prototype entraîné sur des séances de démonstration avec étiquettes dérivées de règles. Non validé cliniquement.",
+  "fallRiskUnavailable": "Statut du modèle indisponible. Vérifiez la connexion au backend."
 }

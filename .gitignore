@@ -10,6 +10,7 @@ backend/.venv/
 backend/venv/
 backend/.python-packages/
 backend/data/*.db
+backend/data/*.joblib
 backend/data/movement_intent_model.json
 
 .claude/

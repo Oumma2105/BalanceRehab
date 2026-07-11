@@ -1,6 +1,6 @@
 from collections import Counter
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -9,6 +9,11 @@ from app.models import Session as AssessmentSession
 from app.schemas import MovementModelRead, MovementTrainingDatasetRow, MovementTrainingReadiness
 from app.services.movement_features import build_movement_feature_payload
 from app.services.movement_model import model_summary, train_model
+from app.services.fall_risk_model import (
+    fall_risk_status,
+    predict_fall_risk,
+    train_fall_risk_model,
+)
 
 
 router = APIRouter(prefix="/ml", tags=["ml"])
@@ -53,6 +58,30 @@ def movement_model_status() -> dict:
 @router.post("/movement-training/train", response_model=MovementModelRead)
 def train_movement_model(db: Session = Depends(get_db)) -> dict:
     return train_model(movement_training_rows(db))
+
+
+@router.get("/fall-risk/status")
+def get_fall_risk_status() -> dict:
+    return fall_risk_status()
+
+
+@router.post("/fall-risk/train")
+def train_fall_risk(db: Session = Depends(get_db)) -> dict:
+    sessions = list(
+        db.scalars(select(AssessmentSession).where(AssessmentSession.total_balance_score.is_not(None)))
+    )
+    return train_fall_risk_model(sessions)
+
+
+@router.get("/fall-risk/predict/{session_id}")
+def predict_fall_risk_for_session(session_id: int, db: Session = Depends(get_db)) -> dict:
+    session = db.get(AssessmentSession, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    prediction = predict_fall_risk(session)
+    if prediction is None:
+        raise HTTPException(status_code=409, detail="No trained fall-risk model. Run training first.")
+    return prediction
 
 
 def movement_training_rows(db: Session) -> list[dict]:
