@@ -187,6 +187,28 @@ data (sessions ending today), BalanceFreeze dedicated game, fall-risk RF pipelin
 - Fall-risk predictions not yet shown anywhere patient-facing (see Needs my review)
 - Minor: R1..R12 chart labels, "6 Sessions" chip capitalization, gameMix hover tooltip
 
+---
+
+## SECOND PASS (same session — the four-phase instruction was re-issued)
+
+The Phase 1–4 work order arrived a second time. Since all four phases were already
+complete, committed and verified (see above), I interpreted the repeat as a request for
+another audit/fix cycle rather than a redo, re-verified the app (28/28 tests, clean
+build, servers healthy, tree clean at 8db8d1d), and cleared the "known minor leftovers"
+from the Phase 4 summary:
+
+- Demo patients' clinical notes now French — template fixed in demo_seed.py (with a
+  PATHOLOGY_FR display map; the pathology FIELD stays an English data value translated
+  by the UI) + one-time DB update of all 50 existing patients
+- "R1…R12" chart labels → "S1…" (séance/session) on the dashboard rehab chart and the
+  dossier rehab chart, matching the backend's S-prefix trend labels
+- Dashboard game-mix pie: tooltip now shows translated game names (was raw ids on hover)
+- fr "Sessions" → "Séances" ("6 Séances" chip, section headers); "Enregistrer session" →
+  "Enregistrer la séance" on the bilan
+
+Verified: 28/28 tests, clean production build, dossier spot-checked live (French notes,
+Séances chip, zero console errors).
+
 ### Needs my review (consolidated)
 1. Phase-numbering interpretation (audit → fixes/redesign → games → ML → final pass)
 2. Demo DB regenerated — old DB backed up in session scratchpad if needed

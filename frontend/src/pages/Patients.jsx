@@ -651,7 +651,7 @@ function PatientDetail({ t, patient, sessions, rehabSessions, reports, onBack, o
           <>
             <div className="mt-4 h-56">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={rehabData.map((item, index) => ({ ...item, label: `R${index + 1}` }))} margin={{ top: 10, right: 16, bottom: 24, left: 0 }}>
+                <BarChart data={rehabData.map((item, index) => ({ ...item, label: `S${index + 1}` }))} margin={{ top: 10, right: 16, bottom: 24, left: 0 }}>
                   <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
                   <XAxis dataKey="label" stroke="#577590"><Label value={t.rehabSessionLabel} offset={-14} position="insideBottom" fill="#577590" /></XAxis>
                   <YAxis domain={[0, 100]} stroke="#577590"><Label value={t.scorePerHundred} angle={-90} position="insideLeft" fill="#577590" /></YAxis>

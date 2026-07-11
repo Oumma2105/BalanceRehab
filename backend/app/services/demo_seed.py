@@ -87,6 +87,23 @@ NAMES = [
     "Rania Kabbaj",
 ]
 
+# French display names used for the free-text demo clinical notes (the
+# pathology FIELD stays English — it is a data value translated by the UI).
+PATHOLOGY_FR = {
+    "Stroke": "accident vasculaire cérébral",
+    "Vestibular disorder": "trouble vestibulaire",
+    "Parkinson's disease": "maladie de Parkinson",
+    "Multiple sclerosis": "sclérose en plaques",
+    "Cerebellar ataxia": "ataxie cérébelleuse",
+    "Peripheral neuropathy": "neuropathie périphérique",
+    "Post-surgery rehabilitation": "rééducation postopératoire",
+    "Orthopedic injury": "lésion orthopédique",
+    "Ankle instability": "instabilité de la cheville",
+    "Fall prevention": "prévention des chutes",
+    "General balance training": "entraînement général de l'équilibre",
+    "Other": "autre indication",
+}
+
 SEVERITY = {
     "Stroke": 14,
     "Vestibular disorder": 10,
@@ -126,7 +143,7 @@ def seed_demo_data(db: Session, reset: bool = False) -> dict[str, int | str]:
             dominant_side="Left" if index % 9 == 0 else "Right",
             pathology=pathology,
             clinical_goal=CLINICAL_GOALS[index % len(CLINICAL_GOALS)],
-            clinical_notes=f"Synthetic demo record for {pathology.lower()} rehabilitation follow-up.",
+            clinical_notes=f"Dossier de démonstration synthétique — suivi de rééducation ({PATHOLOGY_FR.get(pathology, pathology.lower())}).",
         )
         db.add(patient)
         patients.append(patient)

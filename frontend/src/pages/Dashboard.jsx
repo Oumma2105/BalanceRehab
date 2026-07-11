@@ -191,7 +191,7 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
           <ChartFrame data={rehabAnalytics.gameMix} t={t}>
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
-                <Pie data={rehabAnalytics.gameMix} dataKey="count" nameKey="game" innerRadius={65} outerRadius={105} paddingAngle={3}>
+                <Pie data={rehabAnalytics.gameMix.map((entry) => ({ ...entry, game: gameLabel(t, entry.game) }))} dataKey="count" nameKey="game" innerRadius={65} outerRadius={105} paddingAngle={3}>
                   {rehabAnalytics.gameMix.map((entry, index) => <Cell key={entry.game} fill={palette[(index + 3) % palette.length]} />)}
                 </Pie>
                 <Tooltip content={<ClinicalTooltip unit={t.sessions} />} />
@@ -431,7 +431,7 @@ function normalizeRehabData(rehabSessions) {
   const trend = chronological.map((session, index) => {
     const duration = Number(session.durationSeconds ?? session.duration_seconds ?? 60);
     return {
-      label: `R${index + 1}`,
+      label: `S${index + 1}`,
       score: Number(session.score ?? 0),
       stability: Number(session.stability ?? session.score ?? 0),
       duration_score: Math.min(100, Math.round((duration / 120) * 100)),
