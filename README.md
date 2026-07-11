@@ -2,36 +2,61 @@
 
 Low-cost rehabilitation-support prototype for functional balance assessment.
 
-## Current Skeleton
+## Stack
 
-- FastAPI backend with SQLite setup
-- React + Tailwind frontend shell
-- Demo-first acquisition architecture
-- Session/report schema fields for `demo` vs `real` acquisition modes
-- Placeholder pages for the approved MVP workflow
+- **Backend** — FastAPI + SQLAlchemy + SQLite (`backend/`)
+- **Frontend** — React + Vite + Tailwind CSS (`frontend/`)
+- **Hardware** — ESP32 + 4 ultrasonic sensors under a balance board (`hardware/`), optional; the app works in webcam/demo mode without it
+
+## Ports
+
+The whole app uses exactly two ports:
+
+| Service | URL |
+|---|---|
+| Frontend (Vite dev server) | http://127.0.0.1:5173 |
+| Backend API (uvicorn) | http://127.0.0.1:8010 |
+
+The frontend reads the API base URL from `VITE_API_BASE_URL` (defaults to `http://127.0.0.1:8010/api`).
 
 ## Local Run
 
-In this workspace, ports `8000`, `5173`, and `5174` are already used by another local app, so the verified skeleton runs on:
+One-time backend setup:
 
 ```powershell
 cd backend
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8010
+py -3 -m venv venv
+venv\Scripts\python -m pip install -r requirements-dev.txt
 ```
+
+Start the backend:
+
+```powershell
+cd backend
+venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8010
+```
+
+Start the frontend:
 
 ```powershell
 cd frontend
-npm run dev -- --host 127.0.0.1 --port 5199 --strictPort
+npm install
+npm run dev
 ```
 
-Then open:
+Then open http://127.0.0.1:5173 — API health check: http://127.0.0.1:8010/api/health
 
-```text
-http://127.0.0.1:5199
+## Tests
+
+```powershell
+cd backend
+venv\Scripts\python -m pytest tests -q
 ```
 
-The API health check is:
+## Demo Data
 
-```text
-http://127.0.0.1:8010/api/health
+Seed the SQLite database with synthetic patients/sessions via the Settings page in the app, or:
+
+```powershell
+curl -X POST http://127.0.0.1:8010/api/demo/seed
 ```

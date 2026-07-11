@@ -57,7 +57,7 @@ Monitor at `115200` to confirm JSON lines are streaming.
 
    ```powershell
    cd backend
-   python -m uvicorn app.main:app --host 0.0.0.0 --port 8010
+   venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8010
    ```
 
 2. Open Settings > ESP32 USB serial.
