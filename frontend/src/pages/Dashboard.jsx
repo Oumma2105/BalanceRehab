@@ -46,18 +46,23 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
 
   return (
     <div className="space-y-5">
-      <section className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-rehab-ink">{t.greeting}</h1>
-          <p className="mt-1 text-sm text-rehab-muted">{t.dashboardAnalyticsSubtitle}</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={() => onStartAssessment()}>
-            <Plus size={16} /> {t.newAssessment}
-          </Button>
-          <Button variant="secondary" onClick={onAddPatient}>
-            <UserPlus size={16} /> {t.addPatient}
-          </Button>
+      <section className="relative overflow-hidden rounded-xl border border-rehab-line bg-white p-6 shadow-clinical">
+        <div className="pointer-events-none absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-rehab-teal via-rehab-green to-rehab-yellow" aria-hidden />
+        <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-rehab-teal/5" aria-hidden />
+        <div className="relative flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-kicker text-rehab-teal">{t.clinicalRehabilitation}</p>
+            <h1 className="mt-1 text-[1.7rem] font-extrabold tracking-tight text-rehab-ink">{t.greeting}</h1>
+            <p className="mt-1 max-w-xl text-sm leading-5 text-rehab-muted">{t.dashboardAnalyticsSubtitle}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => onStartAssessment()}>
+              <Plus size={16} /> {t.newAssessment}
+            </Button>
+            <Button variant="secondary" onClick={onAddPatient}>
+              <UserPlus size={16} /> {t.addPatient}
+            </Button>
+          </div>
         </div>
       </section>
 
@@ -236,20 +241,27 @@ export function Dashboard({ t, patients, sessions, rehabSessions = [], dashboard
 
 function KpiCard({ icon: Icon, label, value, helper, color, trend, trendColor }) {
   return (
-    <ClinicalCard className="p-5">
+    <ClinicalCard className="relative overflow-hidden p-5">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1" style={{ background: `linear-gradient(90deg, ${color}, ${color}22)` }} aria-hidden />
       <div className="flex items-start justify-between gap-3">
-        <span className="grid h-10 w-10 place-items-center rounded-lg text-white" style={{ backgroundColor: color }}>
-          <Icon size={18} />
+        <span
+          className="grid h-11 w-11 place-items-center rounded-xl text-white shadow-sm"
+          style={{ background: `linear-gradient(135deg, ${color}, ${color}cc)` }}
+        >
+          <Icon size={19} />
         </span>
         {trend ? (
-          <span className="rounded-full bg-slate-50 px-2.5 py-1 text-xs font-semibold" style={{ color: trendColor ?? color }}>
+          <span
+            className="rounded-full px-2.5 py-1 text-xs font-bold ring-1 ring-inset"
+            style={{ color: trendColor ?? color, backgroundColor: `${trendColor ?? color}14`, borderColor: `${trendColor ?? color}33` }}
+          >
             {trend}
           </span>
         ) : null}
       </div>
-      <p className="mt-4 text-sm font-medium text-rehab-muted">{label}</p>
-      <p className="mt-1 text-3xl font-semibold text-rehab-ink">{value}</p>
-      <p className="mt-2 text-xs text-rehab-muted">{helper}</p>
+      <p className="mt-4 text-[11px] font-bold uppercase tracking-kicker text-rehab-muted">{label}</p>
+      <p className="mt-1 text-[2rem] font-extrabold leading-9 tracking-tight text-rehab-ink tabular-nums">{value}</p>
+      <p className="mt-2 text-xs font-medium text-rehab-muted">{helper}</p>
     </ClinicalCard>
   );
 }
