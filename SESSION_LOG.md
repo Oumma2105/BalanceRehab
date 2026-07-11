@@ -113,6 +113,93 @@ pass of both dedicated games before the soutenance.
 
 ---
 
+## PHASE 4 — ML PIPELINE: RANDOM FOREST (done)
+
+Tag pushed: `pre-ml-work` (rollback point before any ML changes).
+
+### What was built
+
+- `backend/app/services/fall_risk_model.py`: Random Forest binary classifier over 14
+  raw sway/posture features (mean/max AP-ML sway, resultant, RMS, path length, velocity,
+  instability events, trunk deviation, asymmetries, body-center deviation).
+- **Honesty design**: the demo data has no clinical fall ground truth, so the label is
+  RULE-DERIVED (`elevated_risk = total_balance_score < 65`, the app's follow-up
+  threshold) and the balance score itself is EXCLUDED from features — the model learns
+  to approximate the risk classification from raw metrics, and the identical pipeline
+  retrains unchanged when clinician-confirmed labels exist. Every API payload carries a
+  "not clinically validated" disclaimer. This is the "working pipeline skeleton, honestly
+  labeled" option from the instructions.
+- Endpoints: GET `/ml/fall-risk/status`, POST `/ml/fall-risk/train`,
+  GET `/ml/fall-risk/predict/{session_id}`. Model persisted to
+  `backend/data/fall_risk_model.joblib` (gitignored). Training refuses < 40 sessions or
+  a single class. scikit-learn 1.9.0 pinned in requirements.txt.
+- UI: Settings gains a "Risque de chute (Random Forest)" prototype card (status, dataset
+  size, holdout accuracy/recall/F1, train button, FR/EN disclaimers). Predictions are
+  deliberately NOT surfaced on patient-facing pages — prototype stays in the
+  experimental section (**Needs my review**: decide if/where predictions should appear).
+- Tests: 6 new (28/28 total) — dataset build, threshold labels, refusal on insufficient
+  data, metric payload, prediction ordering (low score ⇒ higher risk prob), no-model case.
+- Verified live: trained on the 453 demo sessions → 97.4% holdout accuracy (expectedly
+  high: labels derive from thresholds on correlated metrics — this measures pipeline
+  correctness, NOT clinical performance); predict for a 53.4-score session returns
+  elevated_risk p=1.0; missing session → 404; untrained model → 409.
+- Phases 2 (CNN) and 3 (XGBoost) intentionally NOT attempted, per instructions.
+
+---
+
+## FINAL SUMMARY
+
+### Session commits (all on main, all pushed)
+1. `a06b517` Phase 1: UI/UX audit logged (no changes)
+2. `6393360` Phase 2: crash fixes, error boundary, i18n value layer, accent sweep
+3. `17aa01c` Phase 2: assessment honesty + localized bilan
+4. `c37d6b7` Phase 2: settings errors/statuses/dead controls
+5. `bfc6e0a` Phase 2: Progress Analytics wired, locale trend labels, fresh demo data
+6. Phase 3: BalanceFreezeGame wired + localized, GameReview deleted
+7. Phase 4: Random Forest fall-risk pipeline + Settings card
+
+### Rollback points (tags, all pushed)
+`pre-session-2026-07-11` (everything), `pre-redesign-patients`,
+`pre-redesign-balance-assessment`, `pre-redesign-settings`,
+`pre-redesign-rehabilitation`, `pre-redesign-demo-data`, `pre-ml-work`.
+
+### Final verification (end of session)
+- Backend tests: **28/28 pass** (20 baseline + 2 serial + 6 fall-risk)
+- Vite production build: clean
+- App boots on 127.0.0.1:5173 (strictPort) + 127.0.0.1:8010
+- All 7 pages + patient dossier navigated in the browser with **zero console errors**
+- Full demo assessment run to bilan verified; rehab wizard → dedicated game → review
+  verified in demo mode; nothing saved during verification
+
+### What's now working that wasn't
+Patient dossiers (crashed before), dashboard Résultats buttons, Progress Analytics page,
+honest demo labeling end-to-end, French-only UI in FR mode across all pages, live demo
+data (sessions ending today), BalanceFreeze dedicated game, fall-risk RF pipeline.
+
+### Still WIP / known limitations
+- Webcam flows (assessment webcam mode, both dedicated games, engine games) need one
+  live camera pass — impossible in this environment
+- BalloonPop/WeightShift dedicated games complete but unwired (engine covers their
+  exercise types); wiring is one DEDICATED_GAMES entry each after webcam testing
+- Demo patient clinical notes still English ("Synthetic demo record…") — data, not UI
+- In-game screens remain dark over the video surface (deliberate: contrast); all
+  clinical/review surfaces are light
+- Fall-risk predictions not yet shown anywhere patient-facing (see Needs my review)
+- Minor: R1..R12 chart labels, "6 Sessions" chip capitalization, gameMix hover tooltip
+
+### Needs my review (consolidated)
+1. Phase-numbering interpretation (audit → fixes/redesign → games → ML → final pass)
+2. Demo DB regenerated — old DB backed up in session scratchpad if needed
+3. Dead Settings controls replaced with informative badges instead of being wired
+4. ESP32/Combined acquisition modes kept selectable with "requires hardware" wording
+5. BalloonPop/WeightShift: wire after a webcam test, or leave engine-driven?
+6. Fall-risk predictions: surface on patient dossier (with disclaimer) or keep
+   Settings-only?
+7. Games audit correction: the two "lost" branch fixes were already in main; deleted
+   branches remain recoverable via reflog until ~2026-08-10
+
+---
+
 ## PHASE 1 — UI/UX AUDIT (report only, no changes)
 
 Audited live at 1440×900, light color scheme, FR (default) and EN modes, on commit cca06c6.
