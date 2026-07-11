@@ -496,21 +496,25 @@ function PatientDetail({ t, patient, sessions, rehabSessions, reports, onBack, o
         <ArrowLeft size={16} /> {t.backToPatients}
       </button>
 
-      <ClinicalCard className="p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-start gap-4">
-            <span className="grid h-16 w-16 shrink-0 place-items-center rounded-xl text-lg font-bold text-white" style={{ backgroundColor: statusColor(patient) }}>
+      <ClinicalCard className="relative overflow-hidden p-6">
+        <div className="pointer-events-none absolute inset-y-0 left-0 w-1.5" style={{ background: statusColor(patient) }} aria-hidden />
+        <div className="flex flex-wrap items-center justify-between gap-6">
+          <div className="flex items-center gap-5">
+            <span
+              className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl text-lg font-extrabold text-white shadow-sm"
+              style={{ background: `linear-gradient(135deg, ${statusColor(patient)}, ${statusColor(patient)}cc)` }}
+            >
               {initials(clinicalPatient.full_name ?? clinicalPatient.fullName)}
             </span>
             <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-3xl font-semibold text-rehab-ink">{clinicalPatient.full_name ?? clinicalPatient.fullName}</h1>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h1 className="text-[1.75rem] font-extrabold tracking-tight text-rehab-ink">{clinicalPatient.full_name ?? clinicalPatient.fullName}</h1>
                 <StatusBadge tone={statusTone[patient.status] ?? "neutral"}>{statusLabel(t, patient.status)}</StatusBadge>
               </div>
-              <p className="mt-2 text-sm text-rehab-muted">
-                {(clinicalPatient.patient_code ?? patient.patientCode)} - {(clinicalPatient.age ?? patient.age)} {t.years} - {displaySex(t, clinicalPatient.sex ?? patient.sex)} - {clinicalTerm(t, "pathologies", clinicalPatient.pathology ?? patient.pathology)}
+              <p className="mt-1.5 text-sm font-medium text-rehab-muted">
+                {(clinicalPatient.patient_code ?? patient.patientCode)} · {(clinicalPatient.age ?? patient.age)} {t.years} · {displaySex(t, clinicalPatient.sex ?? patient.sex)} · {clinicalTerm(t, "pathologies", clinicalPatient.pathology ?? patient.pathology)}
               </p>
-              <div className="mt-4 flex flex-wrap gap-2">
+              <div className="mt-3.5 flex flex-wrap gap-2">
                 <ProfileChip value={`${stats.session_count ?? chartSessions.length} ${t.sessions}`} />
                 <ProfileChip value={`${t.avg ?? "Avg"}: ${formatNumber(stats.avg_score)}/100`} />
                 <ProfileChip value={`${t.last ?? "Last"}: ${formatShortDate(stats.last_session_date ?? latest?.date)}`} />
@@ -518,15 +522,22 @@ function PatientDetail({ t, patient, sessions, rehabSessions, reports, onBack, o
               </div>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={onStartAssessment}>{t.newAssessment}</Button>
-            <Button variant="secondary" onClick={onStartRehabGame}>{t.newRehabSession}</Button>
-            <Button variant="secondary" onClick={() => latest && onDownloadSessionReport({ patient, session: sessions.find((item) => item.id === latest.id) ?? sessions[0] })}>
-              <Download size={16} /> {t.downloadReport}
-            </Button>
-            <Button variant="secondary" onClick={onEdit}><Edit size={16} /> {t.edit}</Button>
-            <Button variant="secondary" onClick={onDelete}><Trash2 size={16} /> {t.delete}</Button>
-          </div>
+
+          <HeaderScoreDial
+            label={t.latestScore ?? "Dernier score"}
+            value={latest?.balance_score ?? patient.latestScore}
+            color={statusColor(patient)}
+          />
+        </div>
+
+        <div className="mt-5 flex flex-wrap gap-2 border-t border-rehab-line pt-4">
+          <Button onClick={onStartAssessment}>{t.newAssessment}</Button>
+          <Button variant="secondary" onClick={onStartRehabGame}>{t.newRehabSession}</Button>
+          <Button variant="secondary" onClick={() => latest && onDownloadSessionReport({ patient, session: sessions.find((item) => item.id === latest.id) ?? sessions[0] })}>
+            <Download size={16} /> {t.downloadReport}
+          </Button>
+          <Button variant="secondary" onClick={onEdit}><Edit size={16} /> {t.edit}</Button>
+          <Button variant="secondary" onClick={onDelete}><Trash2 size={16} /> {t.delete}</Button>
         </div>
       </ClinicalCard>
 
@@ -781,6 +792,27 @@ function ProfileTooltip({ active, payload, label, unit }) {
           <span className="font-semibold" style={{ color: item.color }}>{item.name ?? item.dataKey}:</span> {formatNumber(item.value)} {unit ?? ""}
         </p>
       ))}
+    </div>
+  );
+}
+
+function HeaderScoreDial({ label, value, color }) {
+  const numeric = Number(value);
+  const score = Number.isFinite(numeric) ? Math.max(0, Math.min(100, numeric)) : null;
+  return (
+    <div className="flex items-center gap-4">
+      <div
+        className="grid h-24 w-24 shrink-0 place-items-center rounded-full"
+        style={{ background: `conic-gradient(${color} ${(score ?? 0) * 3.6}deg, #EDF2F7 0deg)` }}
+      >
+        <div className="grid h-[4.7rem] w-[4.7rem] place-items-center rounded-full bg-white shadow-inner">
+          <div className="text-center leading-none">
+            <p className="text-2xl font-extrabold tracking-tight text-rehab-ink tabular-nums">{score != null ? Math.round(score) : "—"}</p>
+            <p className="mt-0.5 text-[10px] font-bold text-rehab-muted">/100</p>
+          </div>
+        </div>
+      </div>
+      <p className="max-w-[6rem] text-[11px] font-bold uppercase leading-4 tracking-kicker text-rehab-muted">{label}</p>
     </div>
   );
 }
